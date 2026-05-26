@@ -1,0 +1,433 @@
+package com.jadoo.amp
+
+import android.Manifest
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.IBinder
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import com.jadoo.amp.audio.AutoEqTargetMode
+import com.jadoo.amp.audio.DbfbMode
+import com.jadoo.amp.audio.DigitalFilterEngine
+import com.jadoo.amp.audio.HdrMode
+import com.jadoo.amp.audio.EqBands
+import com.jadoo.amp.audio.JadooDspService
+import com.jadoo.amp.audio.SurroundMode
+import com.jadoo.amp.settings.EqPresetPreferences
+import com.jadoo.amp.settings.ThemePreferences
+import com.jadoo.amp.settings.ThemeSettings
+import com.jadoo.amp.ui.DashboardScreen
+import com.jadoo.amp.ui.theme.JadOOampTheme
+import kotlinx.coroutines.launch
+
+class MainActivity : ComponentActivity() {
+
+    private var audioService: JadooDspService? by mutableStateOf(null)
+    private var isBound = false
+    // Reactive DUMP permission state — refreshed every onResume so it updates when
+    // the user grants it via ADB while the app is in the background.
+    private var dumpPermissionEnabled by mutableStateOf(false)
+    private lateinit var themePreferences: ThemePreferences
+    private lateinit var eqPresetPreferences: EqPresetPreferences
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(className: ComponentName, service: IBinder) {
+            val binder = service as JadooDspService.LocalBinder
+            audioService = binder.getService()
+            isBound = true
+        }
+
+        override fun onServiceDisconnected(arg0: ComponentName) {
+            audioService = null
+            isBound = false
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        themePreferences = ThemePreferences(this)
+        eqPresetPreferences = EqPresetPreferences(this)
+
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, JadooDspService::class.java)
+        )
+        
+        Intent(this, JadooDspService::class.java).also { intent ->
+            bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        }
+
+        setContent {
+            val themeSettings by themePreferences.settings.collectAsState(initial = ThemeSettings())
+
+            JadOOampTheme(
+                useMaterialYou = themeSettings.useMaterialYou,
+                customPrimaryColor = Color(themeSettings.customPrimaryColor)
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    var hasPermissions by remember { mutableStateOf(checkPermissions()) }
+                    var showBatteryDialog by remember {
+                        mutableStateOf(shouldRequestBatteryOptimizationExemption())
+                    }
+                    var showSessionAccessDialog by remember {
+                        mutableStateOf(!isNotificationListenerEnabled())
+                    }
+
+                    val permissionLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.RequestMultiplePermissions()
+                    ) { permissions ->
+                        hasPermissions = permissions.entries.all { it.value }
+                    }
+
+                    LaunchedEffect(Unit) {
+                        val perms = mutableListOf<String>()
+                        // RECORD_AUDIO is needed by the Visualizer used for dynamic Auto-EQ.
+                        // It's a dangerous permission and must be requested at runtime.
+                        if (ContextCompat.checkSelfPermission(
+                                this@MainActivity, Manifest.permission.RECORD_AUDIO
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            perms.add(Manifest.permission.RECORD_AUDIO)
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            if (ContextCompat.checkSelfPermission(
+                                    this@MainActivity, Manifest.permission.POST_NOTIFICATIONS
+                                ) != PackageManager.PERMISSION_GRANTED
+                            ) {
+                                perms.add(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
+                        if (perms.isNotEmpty()) {
+                            permissionLauncher.launch(perms.toTypedArray())
+                        }
+                    }
+
+                    if (hasPermissions) {
+                        MainContent(themeSettings)
+                    } else {
+                        PermissionsErrorCard()
+                    }
+
+                    if (showBatteryDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showBatteryDialog = false },
+                            title = { Text("Allow unrestricted background usage") },
+                            text = {
+                                Text("OriginOS may stop the JadOO DSP engine after a few seconds. Allow JadOO DSP to ignore battery optimizations so the DSP can keep running while music plays.")
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showBatteryDialog = false
+                                        requestBatteryOptimizationExemption()
+                                    }
+                                ) {
+                                    Text("Allow")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showBatteryDialog = false }) {
+                                    Text("Later")
+                                }
+                            }
+                        )
+                    } else if (showSessionAccessDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showSessionAccessDialog = false },
+                            title = { Text("Enable media session access") },
+                            text = {
+                                Text("Android restricts direct media control access for normal apps. Enable the JadOO DSP notification listener so the DSP service can detect active playback sessions system-wide.")
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showSessionAccessDialog = false
+                                        requestNotificationListenerAccess()
+                                    }
+                                ) {
+                                    Text("Open settings")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showSessionAccessDialog = false }) {
+                                    Text("Later")
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun MainContent(themeSettings: ThemeSettings) {
+        val sessionId by audioService?.audioSessionId?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
+        val activePackageName by audioService?.activeAppLabel?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
+        val masterEnabled by audioService?.masterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val jadooEnabled by audioService?.jadooEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val autoEqTargetMode by audioService?.autoEqTargetMode?.collectAsState(initial = AutoEqTargetMode.HarmanCurve) ?: remember { mutableStateOf(AutoEqTargetMode.HarmanCurve) }
+        val preGainDb by audioService?.preGainDb?.collectAsState(initial = 0f) ?: remember { mutableStateOf(0f) }
+        val postGainDb by audioService?.postGainDb?.collectAsState(initial = 0f) ?: remember { mutableStateOf(0f) }
+        val headroomDb by audioService?.headroomDb?.collectAsState(initial = 0f) ?: remember { mutableStateOf(0f) }
+        val hiResUpscalerEnabled by audioService?.hiResUpscalerEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val hdrDynamicsEnabled by audioService?.hdrDynamicsEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val hdrMode = audioService?.hdrMode?.collectAsState(initial = HdrMode.Restoration)?.value ?: HdrMode.Restoration
+        val dbfbMode by audioService?.dbfbMode?.collectAsState(initial = DbfbMode.Off) ?: remember { mutableStateOf(DbfbMode.Off) }
+        val surroundMode by audioService?.surroundMode?.collectAsState(initial = SurroundMode.Off) ?: remember { mutableStateOf(SurroundMode.Off) }
+        val bandGains by audioService?.bandGains?.collectAsState(initial = FloatArray(EqBands.count) { 0f }) ?: remember { mutableStateOf(FloatArray(EqBands.count) { 0f }) }
+        val savedPresets by eqPresetPreferences.presets.collectAsState(initial = emptyList())
+        // Analog Bass
+        val analogBassEnabled by audioService?.analogBassEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val analogBassDrive by audioService?.analogBassDrive?.collectAsState(initial = 0.4f) ?: remember { mutableStateOf(0.4f) }
+        val analogBassWarmth by audioService?.analogBassWarmth?.collectAsState(initial = 0.7f) ?: remember { mutableStateOf(0.7f) }
+        val analogBassDrift by audioService?.analogBassDrift?.collectAsState(initial = 0.2f) ?: remember { mutableStateOf(0.2f) }
+        val analogBassPultecBoost by audioService?.analogBassPultecBoost?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+        val analogBassPultecCut by audioService?.analogBassPultecCut?.collectAsState(initial = 0.3f) ?: remember { mutableStateOf(0.3f) }
+        val analogBassPultecFreqIndex by audioService?.analogBassPultecFreqIndex?.collectAsState(initial = 2) ?: remember { mutableStateOf(2) }
+
+        // Digital Filters
+        val digitalFilterBandStates by audioService?.digitalFilterBandStates?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
+        var digitalFilterEnabled by remember { mutableStateOf(false) }
+
+        DashboardScreen(
+            sessionId = sessionId,
+            isAttached = sessionId != null,
+            activePackageName = activePackageName,
+            masterEnabled = masterEnabled,
+            jadooEnabled = jadooEnabled,
+            autoEqTargetMode = autoEqTargetMode,
+            preGainDb = preGainDb,
+            postGainDb = postGainDb,
+            headroomDb = headroomDb,
+            hiResUpscalerEnabled = hiResUpscalerEnabled,
+            hdrDynamicsEnabled = hdrDynamicsEnabled,
+            hdrMode = hdrMode,
+            dbfbMode = dbfbMode,
+            surroundMode = surroundMode,
+            bandGains = bandGains,
+            // Analog Bass
+            analogBassEnabled = analogBassEnabled,
+            analogBassDrive = analogBassDrive,
+            analogBassWarmth = analogBassWarmth,
+            analogBassDrift = analogBassDrift,
+            analogBassPultecBoost = analogBassPultecBoost,
+            analogBassPultecCut = analogBassPultecCut,
+            analogBassPultecFreqIndex = analogBassPultecFreqIndex,
+            // Digital Filters
+            digitalFilterEnabled = digitalFilterEnabled,
+            digitalFilterBandStates = digitalFilterBandStates,
+            savedPresets = savedPresets,
+            useMaterialYou = themeSettings.useMaterialYou,
+            customPrimaryColor = Color(themeSettings.customPrimaryColor),
+            notificationListenerEnabled = isNotificationListenerEnabled(),
+            dumpPermissionEnabled = dumpPermissionEnabled,
+            onMasterPowerToggled = { enabled ->
+                audioService?.setMasterPower(enabled)
+            },
+            onJadooToggled = { enabled ->
+                audioService?.setJadooEnabled(enabled)
+            },
+            onAutoEqTargetModeChanged = { mode ->
+                audioService?.setAutoEqTargetMode(mode)
+            },
+            onPreGainChanged = { gain ->
+                audioService?.setPreGain(gain)
+            },
+            onPostGainChanged = { gain ->
+                audioService?.setPostGain(gain)
+            },
+            onHeadroomChanged = { db ->
+                audioService?.setHeadroomDb(db)
+            },
+            onHiResUpscalerToggled = { enabled ->
+                audioService?.setHiResUpscalerEnabled(enabled)
+            },
+            onHdrDynamicsToggled = { enabled ->
+                audioService?.setHdrDynamicsEnabled(enabled)
+            },
+            onHdrModeChanged = { mode ->
+                audioService?.setHdrMode(mode)
+            },
+            onDbfbModeChanged = { mode ->
+                audioService?.setDbfbMode(mode)
+            },
+            onSurroundModeChanged = { mode ->
+                audioService?.setSurroundMode(mode)
+            },
+            onBandLevelChanged = { band, level ->
+                audioService?.setManualBandGain(band, level)
+            },
+            onPresetSelected = { gains ->
+                audioService?.applyPreset(gains)
+            },
+            onSavePreset = { name, gains ->
+                lifecycleScope.launch {
+                    eqPresetPreferences.savePreset(name, gains)
+                }
+            },
+            // Analog Bass callbacks
+            onAnalogBassEnabledChanged = { enabled ->
+                audioService?.setAnalogBassEnabled(enabled)
+            },
+            onAnalogBassDriveChanged = { value ->
+                audioService?.setAnalogBassDrive(value)
+            },
+            onAnalogBassWarmthChanged = { value ->
+                audioService?.setAnalogBassWarmth(value)
+            },
+            onAnalogBassDriftChanged = { value ->
+                audioService?.setAnalogBassDrift(value)
+            },
+            onAnalogBassPultecBoostChanged = { value ->
+                audioService?.setAnalogBassPultecBoost(value)
+            },
+            onAnalogBassPultecCutChanged = { value ->
+                audioService?.setAnalogBassPultecCut(value)
+            },
+            onAnalogBassPultecFreqIndexChanged = { index ->
+                audioService?.setAnalogBassPultecFreqIndex(index)
+            },
+            onDigitalFilterEnabledChanged = { enabled ->
+                digitalFilterEnabled = enabled
+                audioService?.setDigitalFilterEnabled(enabled)
+            },
+            onDigitalFilterBandEnabledChanged = { index, enabled ->
+                audioService?.setDigitalFilterBandEnabled(index, enabled)
+            },
+            onDigitalFilterBandTypeChanged = { index, type ->
+                audioService?.setDigitalFilterBandType(index, type)
+            },
+            onDigitalFilterBandFrequencyChanged = { index, freq ->
+                audioService?.setDigitalFilterBandFrequency(index, freq)
+            },
+            onDigitalFilterBandGainChanged = { index, gain ->
+                audioService?.setDigitalFilterBandGain(index, gain)
+            },
+            onDigitalFilterBandQChanged = { index, q ->
+                audioService?.setDigitalFilterBandQ(index, q)
+            },
+            onUseMaterialYouChanged = { enabled ->
+                lifecycleScope.launch {
+                    themePreferences.setUseMaterialYou(enabled)
+                }
+            },
+            onCustomPrimaryColorChanged = { color ->
+                lifecycleScope.launch {
+                    themePreferences.setCustomPrimaryColor(color.toArgb())
+                }
+            },
+            onOpenNotificationListenerSettings = {
+                requestNotificationListenerAccess()
+            }
+        )
+    }
+
+    @Composable
+    private fun PermissionsErrorCard() {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Card(
+                modifier = Modifier.padding(32.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Permissions Required",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "JadOO DSP requires notifications permission to keep the DSP engine running.",
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+    }
+
+    private fun checkPermissions(): Boolean {
+        val notifGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        return notifGranted
+    }
+
+    private fun shouldRequestBatteryOptimizationExemption(): Boolean {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return !powerManager.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    private fun requestBatteryOptimizationExemption() {
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        startActivity(intent)
+    }
+
+    private fun isNotificationListenerEnabled(): Boolean {
+        val enabledListeners = Settings.Secure.getString(
+            contentResolver,
+            "enabled_notification_listeners"
+        ) ?: return false
+        return enabledListeners.contains(packageName, ignoreCase = true)
+    }
+
+    private fun refreshDumpPermission() {
+        dumpPermissionEnabled = ContextCompat.checkSelfPermission(
+            this, "android.permission.DUMP"
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requestNotificationListenerAccess() {
+        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-check every time the user returns so DUMP status updates after ADB grant
+        refreshDumpPermission()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (isBound) {
+            unbindService(connection)
+            isBound = false
+        }
+    }
+}

@@ -1,0 +1,68 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Android Studio
+.idea/
+*.iws
+*.iml
+*.ipr
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Signing keystore (DO NOT COMMIT)
+jadoo.jks
+*.jks
+*.keystore
+
+# Misc
+*.log
+*.class
+*.jar
+*.war
+*.ear
+
+# DataStore
+app/build/
+!app/build/.gitkeep
+
+# Kotlin
+.kotlin/
+
+# Android platform tools (should not be in repo)
+adb
+adb.exe
+AdbWinApi.dll
+AdbWinUsbApi.dll
+fastboot.exe
+etc1tool.exe
+hprof-conv.exe
+make_f2fs.exe
+make_f2fs_casefold.exe
+mke2fs.exe
+mke2fs.conf
+libwinpthread-1.dll
+sqlite3.exe
+source.properties
+AndroidTweaker.py
+androtweak.bat
+
+# Heap dumps
+*.hprof
+
+# Windows reserved name files
+nul
