@@ -556,7 +556,10 @@ class JadooDspService : Service() {
             releaseSpatial()
         } else if (mode != SurroundMode.Off) {
             val sessionId = _audioSessionId.value
-            if (sessionId != null && sessionId != GLOBAL_AUDIO_SESSION_ID) {
+            if (sessionId != null) {
+                // Apply widening for ANY active session (specific or global session 0).
+                // Previously excluded sessionId==0 which caused surround to silently
+                // not apply when the engine was on the global session.
                 applySpatialToSession(sessionId)
             } else if (_masterEnabled.value) {
                 resolveAndAttachSession()
@@ -816,11 +819,18 @@ class JadooDspService : Service() {
     private fun applyAllBands(gains: FloatArray) {
         val dp = dspEngine.dynamicsProcessing ?: return
         val surroundEnabled = _surroundMode.value != SurroundMode.Off
+        // Surround intensity controls the per-channel L/R EQ differential in dB.
+        // Previous values (0.8/1.2/1.6 × 1.2 multiplier = max ~1.9 dB) were
+        // below the audibility threshold — Traditional and Front Stage were
+        // completely inaudible. New values create clearly perceptible widening:
+        //   Traditional: up to ±3.5 dB (subtle, fatigue-free for long listening)
+        //   Front Stage:  up to ±6.5 dB (clear, speaker-like projection)
+        //   Ultra Wide:   up to ±11 dB  (dramatic 180° immersion)
         val surroundIntensity = when (_surroundMode.value) {
             SurroundMode.Off -> 0f
-            SurroundMode.Traditional -> 0.8f
-            SurroundMode.Front -> 1.2f
-            SurroundMode.Wide -> 1.6f
+            SurroundMode.Traditional -> 3.5f
+            SurroundMode.Front -> 6.5f
+            SurroundMode.Wide -> 11.0f
         }
 
         for (index in 0 until EqBands.count) {
@@ -838,20 +848,20 @@ class JadooDspService : Service() {
             if (surroundEnabled) {
                 // Frequency-dependent stereo widening via per-channel EQ differential.
                 // Bass (0-4): mono — keeps low-end tight and centered.
-                // Low-mids (5-7): gentle width — adds body without smearing.
+                // Low-mids (5-7): moderate width — adds body without smearing.
                 // Mids/vocals (8-10): ZERO width — critical! Keeps vocal formants
                 //   (1-2.5 kHz) locked to center so singers don't drift sideways.
-                // Upper presence (11-12): moderate width — opens up the "room".
+                // Upper presence (11-12): strong width — opens up the "room".
                 // Treble/air (13-14): full width — creates spaciousness and shimmer.
                 val widthFactor = when (index) {
                     in 0..4 -> 0f
-                    in 5..7 -> 0.3f
+                    in 5..7 -> 0.5f
                     in 8..10 -> 0f
-                    in 11..12 -> 0.6f
+                    in 11..12 -> 0.8f
                     in 13..14 -> 1.0f
                     else -> 0f
                 }
-                val offset = widthFactor * surroundIntensity * 1.2f  // max ±1.92 dB differential
+                val offset = widthFactor * surroundIntensity  // max ±11 dB for Ultra Wide
 
                 // Update saved base gains
                 if (preSurroundGains == null) {

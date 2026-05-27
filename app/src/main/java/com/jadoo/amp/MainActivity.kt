@@ -37,9 +37,11 @@ import com.jadoo.amp.audio.EqBands
 import com.jadoo.amp.audio.JadooDspService
 import com.jadoo.amp.audio.SurroundMode
 import com.jadoo.amp.settings.EqPresetPreferences
+import com.jadoo.amp.settings.OnboardingPreferences
 import com.jadoo.amp.settings.ThemePreferences
 import com.jadoo.amp.settings.ThemeSettings
 import com.jadoo.amp.ui.DashboardScreen
+import com.jadoo.amp.ui.OnboardingScreen
 import com.jadoo.amp.ui.theme.JadOOampTheme
 import kotlinx.coroutines.launch
 
@@ -52,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private var dumpPermissionEnabled by mutableStateOf(false)
     private lateinit var themePreferences: ThemePreferences
     private lateinit var eqPresetPreferences: EqPresetPreferences
+    private lateinit var onboardingPreferences: OnboardingPreferences
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
@@ -71,6 +74,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         themePreferences = ThemePreferences(this)
         eqPresetPreferences = EqPresetPreferences(this)
+        onboardingPreferences = OnboardingPreferences(this)
 
         ContextCompat.startForegroundService(
             this,
@@ -83,6 +87,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeSettings by themePreferences.settings.collectAsState(initial = ThemeSettings())
+            // null = loading (DataStore not yet read), true/false = resolved
+            val onboardingDone by onboardingPreferences.hasCompletedOnboarding
+                .collectAsState(initial = null)
 
             JadOOampTheme(
                 useMaterialYou = themeSettings.useMaterialYou,
@@ -92,6 +99,22 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    // Wait for DataStore to resolve before showing anything, so we never
+                    // flash the dashboard for a single frame on first launch.
+                    when (onboardingDone) {
+                        null  -> { /* Still loading — render nothing (splash is already shown) */ }
+                        false -> {
+                            // First launch: full-screen onboarding
+                            OnboardingScreen(
+                                onFinished = {
+                                    lifecycleScope.launch {
+                                        onboardingPreferences.markCompleted()
+                                    }
+                                }
+                            )
+                        }
+                        true  -> {
+                    // ── Normal app flow ──────────────────────────────────────────────
                     var hasPermissions by remember { mutableStateOf(checkPermissions()) }
                     var showBatteryDialog by remember {
                         mutableStateOf(shouldRequestBatteryOptimizationExemption())
@@ -182,6 +205,8 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
+                        } // end true -> branch
+                    }   // end when(onboardingDone)
                 }
             }
         }

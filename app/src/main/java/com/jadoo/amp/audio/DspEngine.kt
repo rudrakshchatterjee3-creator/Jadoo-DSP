@@ -9,6 +9,9 @@ class DspEngine {
 
     private var preGainDb = 0f
     private var postGainDb = 0f
+    // Cached limiter reference so setPostGain can update postGain reliably
+    // without a read-modify-write that may return stale state on some devices.
+    private var currentLimiter: DynamicsProcessing.Limiter? = null
 
     fun attach(
         sessionId: Int,
@@ -91,16 +94,21 @@ class DspEngine {
             val headroomDb = calculateHeadroomOffset(hiResEnabled, dbfbMode, analogBassEnabled)
 
             // HDR mode: softer limiting lets transient peaks breathe.
-            // Pure mode: bypasses the limiter entirely for the cleanest path.
+            // Pure mode: acoustically transparent limiter (near-unity ratio, ceiling
+            // just below 0 dBFS) — preserves the postGain path while never audibly
+            // compressing. Previous design disabled the limiter entirely (inUse=false)
+            // which also silently disabled postGain, breaking the post-gain slider.
             // Standard mode: tight brickwall limiting.
             val limiter = when {
                 hdrDynamicsEnabled && hdrMode == HdrMode.Pure -> {
-                    // Pure: limiter disabled — cleanest signal path.
-                    // The mastering engineer's limiter is already in the track.
+                    // Pure: transparent limiter — ratio ≈ 1 so it barely compresses,
+                    // but the limiter stage remains active so postGain is applied.
                     DynamicsProcessing.Limiter(
-                        false, false, 0,
-                        15f, 180f, 6f,
-                        -0.7f + headroomDb,
+                        true, true, 0,
+                        1f,    // fast attack to catch rare overs cleanly
+                        50f,   // quick release — imperceptible
+                        1.001f, // near-unity ratio: acoustically transparent
+                        -0.1f + headroomDb,
                         postGainDb
                     )
                 }
@@ -122,6 +130,7 @@ class DspEngine {
                     )
                 }
             }
+            currentLimiter = limiter   // cache for reliable postGain updates
             configBuilder.setLimiterAllChannelsTo(limiter)
 
             // Build the new DP BEFORE releasing the old one.
@@ -525,6 +534,7 @@ class DspEngine {
         dynamicsProcessing?.enabled = false
         dynamicsProcessing?.release()
         dynamicsProcessing = null
+        currentLimiter = null
     }
 
     /**
@@ -574,11 +584,16 @@ class DspEngine {
     fun setPostGain(gainDb: Float) {
         synchronized(this) {
             postGainDb = gainDb.coerceIn(-12f, 12f)
-            val dp = dynamicsProcessing ?: return
+            val dp = dynamicsProcessing ?: return@synchronized
+            val limiter = currentLimiter ?: return@synchronized
             try {
-                val limiter = dp.getLimiterByChannelIndex(0)
+                // Update the cached limiter object and re-apply.
+                // Avoids the fragile getLimiterByChannelIndex read-modify-write which
+                // can return stale inUse/enabled state on some Android versions,
+                // causing the postGain update to silently have no effect.
                 limiter.postGain = postGainDb
                 dp.setLimiterAllChannelsTo(limiter)
+                Log.d("DspEngine", "Post gain set to ${postGainDb}dB")
             } catch (e: Exception) {
                 Log.e("DspEngine", "Error setting post gain", e)
             }

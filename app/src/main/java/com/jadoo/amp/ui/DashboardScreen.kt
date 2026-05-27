@@ -322,7 +322,15 @@ fun DashboardScreen(
                 AnimatedVisibility(visible = showGainControls,
                     enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
                     exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()) {
-                    GainControlDeck(preGainDb, postGainDb, headroomDb, onPreGainChanged, onPostGainChanged, onHeadroomChanged)
+                    GainControlDeck(
+                        preGainDb, postGainDb, headroomDb,
+                        onPreGainChanged, onPostGainChanged, onHeadroomChanged,
+                        onResetAll = {
+                            onPreGainChanged(0f)
+                            onPostGainChanged(0f)
+                            onHeadroomChanged(0f)
+                        }
+                    )
                 }
             }
         }
@@ -990,7 +998,8 @@ private fun GainControlDeck(
     headroomDb: Float,
     onPreGainChanged: (Float) -> Unit,
     onPostGainChanged: (Float) -> Unit,
-    onHeadroomChanged: (Float) -> Unit
+    onHeadroomChanged: (Float) -> Unit,
+    onResetAll: () -> Unit
 ) {
     Surface(
         shape = RoundedCornerShape(24.dp),
@@ -1001,6 +1010,28 @@ private fun GainControlDeck(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Gain Staging",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TextButton(
+                    onClick = onResetAll,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Text(
+                        "Reset all",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
             GainSlider(
                 label = "Pre gain",
                 value = preGainDb,
