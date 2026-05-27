@@ -318,6 +318,11 @@ class MainActivity : ComponentActivity() {
                     eqPresetPreferences.savePreset(name, gains)
                 }
             },
+            onDeletePreset = { name ->
+                lifecycleScope.launch {
+                    eqPresetPreferences.deletePreset(name)
+                }
+            },
             // Analog Bass callbacks
             onAnalogBassEnabledChanged = { enabled ->
                 audioService?.setAnalogBassEnabled(enabled)

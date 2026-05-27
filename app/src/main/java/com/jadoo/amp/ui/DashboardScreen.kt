@@ -224,6 +224,7 @@ fun DashboardScreen(
     onBandLevelChanged: (Int, Float) -> Unit,
     onPresetSelected: (FloatArray) -> Unit,
     onSavePreset: (String, FloatArray) -> Unit,
+    onDeletePreset: (String) -> Unit,
     // Analog Bass callbacks
     onAnalogBassEnabledChanged: (Boolean) -> Unit,
     onAnalogBassDriveChanged: (Float) -> Unit,
@@ -684,7 +685,8 @@ fun DashboardScreen(
             onDismiss = { showExpandedEq = false },
             onBandLevelChanged = onBandLevelChanged,
             onPresetSelected = onPresetSelected,
-            onSavePreset = onSavePreset
+            onSavePreset = onSavePreset,
+            onDeletePreset = onDeletePreset
         )
     }
 
@@ -1456,9 +1458,12 @@ private fun ExpandedEqDialog(
     onDismiss: () -> Unit,
     onBandLevelChanged: (Int, Float) -> Unit,
     onPresetSelected: (FloatArray) -> Unit,
-    onSavePreset: (String, FloatArray) -> Unit
+    onSavePreset: (String, FloatArray) -> Unit,
+    onDeletePreset: (String) -> Unit
 ) {
     var showSaveDialog by remember { mutableStateOf(false) }
+    // Preset being targeted by the context menu (long-press)
+    var contextMenuPreset by remember { mutableStateOf<SavedEqPreset?>(null) }
     val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
 
     Dialog(
@@ -1532,11 +1537,43 @@ private fun ExpandedEqDialog(
                         )
                     }
                     savedPresets.forEach { preset ->
-                        AssistChip(
-                            onClick = { onPresetSelected(preset.gains) },
-                            label = { Text(preset.name) },
-                            enabled = enabled
-                        )
+                        // Box wraps the chip so we can anchor a DropdownMenu to it
+                        Box {
+                            AssistChip(
+                                onClick = { onPresetSelected(preset.gains) },
+                                label = { Text(preset.name) },
+                                enabled = enabled,
+                                modifier = Modifier.pointerInput(preset.name) {
+                                    detectTapGestures(
+                                        onLongPress = { contextMenuPreset = preset }
+                                    )
+                                }
+                            )
+                            DropdownMenu(
+                                expanded = contextMenuPreset?.name == preset.name,
+                                onDismissRequest = { contextMenuPreset = null }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Overwrite with current EQ") },
+                                    onClick = {
+                                        onSavePreset(preset.name, bandGains.copyOf())
+                                        contextMenuPreset = null
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "Delete",
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    },
+                                    onClick = {
+                                        onDeletePreset(preset.name)
+                                        contextMenuPreset = null
+                                    }
+                                )
+                            }
+                        }
                     }
                     AssistChip(
                         onClick = { showSaveDialog = true },

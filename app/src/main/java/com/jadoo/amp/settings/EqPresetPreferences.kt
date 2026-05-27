@@ -41,6 +41,14 @@ class EqPresetPreferences(private val context: Context) {
         decodePresets(preferences[Keys.savedPresets].orEmpty())
     }
 
+    suspend fun deletePreset(name: String) {
+        context.eqPresetDataStore.edit { preferences ->
+            val currentPresets = decodePresets(preferences[Keys.savedPresets].orEmpty())
+            val nextPresets = currentPresets.filterNot { it.name.equals(name, ignoreCase = true) }
+            preferences[Keys.savedPresets] = encodePresets(nextPresets)
+        }
+    }
+
     suspend fun savePreset(name: String, gains: FloatArray) {
         val cleanName = name.trim().ifEmpty { "Custom Preset" }
         context.eqPresetDataStore.edit { preferences ->
