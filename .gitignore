@@ -28,6 +28,7 @@ Thumbs.db
 jadoo.jks
 *.jks
 *.keystore
+keystore.properties
 
 # Misc
 *.log

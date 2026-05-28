@@ -299,6 +299,10 @@ class JadooDspService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         registerMediaSessionListener()
+        val sessionId = intent?.getIntExtra("android.media.audiofx.extra.AUDIO_SESSION", -1) ?: -1
+        if (sessionId > 0) {
+            attachSession(sessionId)
+        }
         return START_STICKY
     }
 
@@ -640,6 +644,10 @@ class JadooDspService : Service() {
      * Called from PsychoacousticsBrain when the Visualizer reports a rate.
      */
     fun updateEngineSampleRate(sampleRateHz: Float) {
+        if (sampleRateHz < 8000f) {
+            Log.w(TAG, "Ignoring implausible sample rate: $sampleRateHz Hz")
+            return
+        }
         val currentRate = digitalFilterEngine.sampleRateHz
         if (kotlin.math.abs(currentRate - sampleRateHz) > 100f) {
             Log.d(TAG, "Sample rate updated: $currentRate Hz -> $sampleRateHz Hz")

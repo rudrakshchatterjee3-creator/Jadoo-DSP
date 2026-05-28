@@ -11,8 +11,8 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_jadoo_dsp"
-        android:roundIcon="@drawable/ic_jadoo_dsp"
+        android:icon="@mipmap/ic_jadoo_dsp"
+        android:roundIcon="@mipmap/ic_jadoo_dsp"
         android:label="JadOO DSP"
         android:supportsRtl="true"
         tools:targetApi="36">
@@ -29,6 +29,14 @@
         <service android:name=".audio.JadooDspService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="false" />
+
+        <receiver android:name=".audio.AudioEffectReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.audiofx.action.OPEN_AUDIO_EFFECT_CONTROL_SESSION" />
+                <action android:name="android.media.audiofx.action.CLOSE_AUDIO_EFFECT_CONTROL_SESSION" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".audio.MediaSessionNotificationListener"

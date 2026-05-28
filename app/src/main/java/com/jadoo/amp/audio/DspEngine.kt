@@ -113,20 +113,15 @@ class DspEngine {
                     )
                 }
                 hdrDynamicsEnabled -> {
-                    // Restoration: soft limiter + subtle air boost via PreEQ.
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        15f,      // attack — lets the initial transient crack through
-                        180f,     // release — musical on sustained chords
-                        6f,       // ratio — firm but forgiving ceiling
-                        -0.7f + headroomDb,
-                        postGainDb
+                        15f, 180f, 4f, -0.3f + headroomDb, postGainDb
                     )
                 }
                 else -> {
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        0.25f, 110f, 60f, -0.35f + headroomDb, postGainDb
+                        5f, 50f, 1.001f, 0f + headroomDb, postGainDb
                     )
                 }
             }
@@ -162,11 +157,7 @@ class DspEngine {
         } catch (e: Exception) {
             Log.e("DspEngine", "Failed to attach DynamicsProcessing — old DP preserved if present", e)
             newDynamicsProcessing?.release()
-            // Do NOT clear dynamicsProcessing here. With the build-first order above,
-            // dynamicsProcessing still points to the previous (working) DP instance.
-            // Keeping it alive means DBFB/HiRes/HDR continue working in audio even
-            // though this topology upgrade failed. The UI still shows the target state
-            // so the next feature toggle will retry the rebuild.
+            currentLimiter = null
             false
         }
     }
@@ -323,13 +314,13 @@ class DspEngine {
                     cutoffFrequency = 5200f
                     attackTime = 9f
                     releaseTime = 70f
-                    ratio = 1.2f              // gentler than before (was 1.45)
-                    threshold = -8f           // higher threshold = less compression
-                    kneeWidth = 8f            // softer knee
+                    ratio = 1f
+                    threshold = 0f
+                    kneeWidth = 0f
                     noiseGateThreshold = -90f
                     expanderRatio = 1f
                     preGain = 0f
-                    postGain = 0f             // neutral — don't compress mids
+                    postGain = 0f
                 }
             }
             // 5.2–9.6 kHz: presence/clarity band
@@ -374,29 +365,28 @@ class DspEngine {
             return  // fully configured: DBFB(opt) + HDR(opt) + HiRes(4) = done
         }
 
-        // ── Fallback: no features enabled, single passthrough band ───
+        // ── Fallback: no features enabled, single transparent passthrough ──
         if (dbfbMode == DbfbMode.Off && !hdrDynamicsEnabled) {
             mbc.getBand(index).apply {
                 cutoffFrequency = 20000f
                 attackTime = 5f
                 releaseTime = 65f
-                ratio = 2f
-                threshold = -2f
-                kneeWidth = 2f
+                ratio = 1f
+                threshold = 0f
+                kneeWidth = 0f
                 noiseGateThreshold = -90f
                 expanderRatio = 1f
                 preGain = 0f
                 postGain = 0f
             }
         } else if (dbfbMode != DbfbMode.Off && !hdrDynamicsEnabled) {
-            // DBFB only — add a safety band above bass range
             mbc.getBand(index).apply {
                 cutoffFrequency = 20000f
                 attackTime = 6f
                 releaseTime = 80f
-                ratio = 1.5f
-                threshold = -4f
-                kneeWidth = 4f
+                ratio = 1f
+                threshold = 0f
+                kneeWidth = 0f
                 noiseGateThreshold = -90f
                 expanderRatio = 1f
                 preGain = 0f
@@ -518,15 +508,10 @@ class DspEngine {
         analogBassEnabled: Boolean = false
     ): Float {
         var offset = 0f
-        // HiRes adds up to +4.5dB via MBC postGain in treble bands
-        if (hiResEnabled) offset -= 1.5f
-        // DBFB adds up to +4.0dB via MBC postGain in bass bands
-        if (dbfbMode == DbfbMode.High) offset -= 1.2f
-        else if (dbfbMode == DbfbMode.Normal) offset -= 0.6f
-        // HDR no longer adds MBC postGain (bands are transparent); limiter threshold
-        // stays at baseline so transients breathe without premature clamping.
-        // Analog Bass adds harmonic saturation gain (+1.5dB preGain)
-        if (analogBassEnabled) offset -= 0.5f
+        if (hiResEnabled) offset -= 0.6f
+        if (dbfbMode == DbfbMode.High) offset -= 0.5f
+        else if (dbfbMode == DbfbMode.Normal) offset -= 0.3f
+        if (analogBassEnabled) offset -= 0.3f
         return offset
     }
 

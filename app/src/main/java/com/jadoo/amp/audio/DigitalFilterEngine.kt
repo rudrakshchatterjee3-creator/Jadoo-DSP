@@ -39,6 +39,23 @@ class DigitalFilterEngine {
     companion object {
         private const val TAG = "DigitalFilterEngine"
         const val MAX_BANDS = 8
+
+        fun evaluateMagnitudeResponseDb(
+            b0: Float, b1: Float, b2: Float,
+            a1: Float, a2: Float,
+            frequencyHz: Float, sampleRateHz: Float
+        ): Float {
+            if (sampleRateHz <= 0f) return 0f
+            val w = 2.0 * PI * frequencyHz / sampleRateHz
+            val cW = cos(w); val sW = sin(w)
+            val c2W = cos(2.0 * w); val s2W = sin(2.0 * w)
+            val nr = b0.toDouble() + b1 * cW + b2 * c2W
+            val ni = b1 * sW + b2 * s2W
+            val dr = 1.0 + a1 * cW + a2 * c2W
+            val di = a1 * sW + a2 * s2W
+            val hPow2 = (nr * nr + ni * ni) / (dr * dr + di * di)
+            return if (hPow2 > 0.0) (10.0 * log10(hPow2)).toFloat() else 0f
+        }
     }
 
     /** Public state representation for UI */
@@ -80,13 +97,6 @@ class DigitalFilterEngine {
         var b0 = 1f; var b1 = 0f; var b2 = 0f
         var a1 = 0f; var a2 = 0f
         var z1 = 0f; var z2 = 0f
-
-        fun process(input: Float): Float {
-            val output = b0 * input + z1
-            z1 = b1 * input - a1 * output + z2
-            z2 = b2 * input - a2 * output
-            return output
-        }
 
         fun reset() { z1 = 0f; z2 = 0f }
     }
@@ -184,31 +194,6 @@ class DigitalFilterEngine {
             if (bands[index].enabled) calculateCoefficients(index)
             // Update StateFlow
             updateBandStateFlow(index)
-        }
-    }
-
-    /**
-     * Process a single sample through all enabled filter bands.
-     * Bands are cascaded in series (output of one feeds input of next).
-     */
-    fun processSample(input: Float): Float {
-        if (!enabled) return input
-        var sample = input
-        synchronized(lock) {
-            for (i in 0 until MAX_BANDS) {
-                if (bands[i].enabled) {
-                    sample = processors[i].process(sample)
-                }
-            }
-        }
-        return sample
-    }
-
-    /** Process a block of samples in-place */
-    fun processBlock(buffer: FloatArray, offset: Int = 0, length: Int = buffer.size - offset) {
-        if (!enabled) return
-        for (i in offset until (offset + length).coerceAtMost(buffer.size)) {
-            buffer[i] = processSample(buffer[i])
         }
     }
 

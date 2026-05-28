@@ -12,19 +12,23 @@ class DumpSysSessionProvider : AudioSessionProvider {
             val output = process.inputStream.bufferedReader().readText()
             process.waitFor()
             
-            // Regex to find session IDs in dumpsys output.
-            // typically looks like: "session 1234" or "Session: 1234" in track info
-            val regex = Regex("(?i)session\\s*(?:id)?[:=]?\\s*(\\d{2,5})")
-            
-            // We want to find the most likely active media session. We take the last one or most frequent.
-            // For a simple implementation, returning the first non-zero match found.
-            val matches = regex.findAll(output)
-            for (match in matches) {
+            // Find session IDs associated with active output tracks.
+            // Prefer sessions that appear near "Output" or "Active" context lines.
+            val sessionRegex = Regex("(?i)session\\s*(?:id)?[:=]?\\s*(\\d+)")
+            val activeBlockRegex = Regex("(?i)(Output.*?track|Active.*?track|F\\(\\d+\\)).*?session", RegexOption.DOT_MATCHES_ALL)
+
+            // First pass: look for sessions in active output blocks
+            val activeBlocks = activeBlockRegex.findAll(output).toList()
+            for (block in activeBlocks) {
+                val match = sessionRegex.find(block.value)
+                val sessionId = match?.groupValues?.get(1)?.toIntOrNull()
+                if (sessionId != null && sessionId > 0) return@withContext sessionId
+            }
+
+            // Fallback: any session ID found
+            for (match in sessionRegex.findAll(output)) {
                 val sessionId = match.groupValues[1].toIntOrNull()
-                if (sessionId != null && sessionId > 0) {
-                    // Audio sessions are typically > 0
-                    return@withContext sessionId
-                }
+                if (sessionId != null && sessionId > 0) return@withContext sessionId
             }
             null
         } catch (e: Exception) {

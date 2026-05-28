@@ -7,4 +7,10 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
+# Keep DynamicsProcessing and Visualizer — used via JNI/reflection
+-keep class android.media.audiofx.DynamicsProcessing { *; }
+-keep class android.media.audiofx.DynamicsProcessing$** { *; }
+-keep class android.media.audiofx.Visualizer { *; }
+-keep class android.media.audiofx.Visualizer$** { *; }
+
 # Add any custom ProGuard rules here.

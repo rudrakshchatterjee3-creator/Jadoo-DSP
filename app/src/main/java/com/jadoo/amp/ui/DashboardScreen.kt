@@ -2121,16 +2121,12 @@ private fun SurroundModeCard(
                         .size(64.dp)
                 )
             } else {
-                Box(
+                Icon(
+                    imageVector = Icons.Default.PowerSettingsNew,
+                    contentDescription = "Off",
                     modifier = Modifier.size(40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "⏻",
-                        fontSize = 20.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             Column(
                 verticalArrangement = Arrangement.spacedBy(4.dp)

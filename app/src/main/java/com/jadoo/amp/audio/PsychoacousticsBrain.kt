@@ -151,12 +151,11 @@ class PsychoacousticsBrain(
                             val now = System.currentTimeMillis()
                             if (now - lastCaptureMs < CAPTURE_INTERVAL_MS) return
                             lastCaptureMs = now
-                            val rateHz = samplingRate / 1000f
                             // Re-initialize filter engines if actual rate differs from default
-                            service.updateEngineSampleRate(rateHz)
+                            service.updateEngineSampleRate(samplingRate.toFloat())
                             val mappedDb = mapFftToBands(
                                 fft = fft,
-                                samplingRateHz = rateHz,
+                                samplingRateHz = samplingRate.toFloat(),
                                 captureSize = visualizer.captureSize
                             )
                             recordCapture(mappedDb)
@@ -415,8 +414,8 @@ class PsychoacousticsBrain(
             for (bin in binLow..binHigh) {
                 val byteIndex = bin * 2
                 if (byteIndex + 1 >= fft.size) break
-                val re = fft[byteIndex].toDouble()
-                val im = fft[byteIndex + 1].toDouble()
+                val re = (fft[byteIndex].toInt() and 0xFF).toDouble()
+                val im = (fft[byteIndex + 1].toInt() and 0xFF).toDouble()
                 powerSum += re * re + im * im
                 count++
             }

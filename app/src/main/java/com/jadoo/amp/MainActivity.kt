@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
         themePreferences = ThemePreferences(this)
         eqPresetPreferences = EqPresetPreferences(this)
         onboardingPreferences = OnboardingPreferences(this)
+        refreshDumpPermission()
 
         ContextCompat.startForegroundService(
             this,
