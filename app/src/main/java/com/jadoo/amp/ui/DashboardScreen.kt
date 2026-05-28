@@ -208,7 +208,6 @@ fun DashboardScreen(
     savedPresets: List<SavedEqPreset>,
     useMaterialYou: Boolean,
     customPrimaryColor: Color,
-    notificationListenerEnabled: Boolean,
     dumpPermissionEnabled: Boolean,
     onMasterPowerToggled: (Boolean) -> Unit,
     onJadooToggled: (Boolean) -> Unit,
@@ -241,7 +240,7 @@ fun DashboardScreen(
     onDigitalFilterBandQChanged: (Int, Float) -> Unit,
     onUseMaterialYouChanged: (Boolean) -> Unit,
     onCustomPrimaryColorChanged: (Color) -> Unit,
-    onOpenNotificationListenerSettings: () -> Unit
+    onResetDigitalFilterBands: () -> Unit
 ) {
     var showExpandedEq by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -694,11 +693,9 @@ fun DashboardScreen(
         SettingsDialog(
             useMaterialYou = useMaterialYou,
             customPrimaryColor = customPrimaryColor,
-            notificationListenerEnabled = notificationListenerEnabled,
             dumpPermissionEnabled = dumpPermissionEnabled,
             onUseMaterialYouChanged = onUseMaterialYouChanged,
             onCustomPrimaryColorChanged = onCustomPrimaryColorChanged,
-            onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
             onHelpRequested = { helpDialog = it },
             onDismiss = { showSettings = false }
         )
@@ -744,15 +741,7 @@ fun DashboardScreen(
                         onDigitalFilterBandEnabledChanged(index, enabled)
                     },
                     onPreampChanged = onPreGainChanged,
-                    onResetAllBands = {
-                        for (i in 0 until 8) {
-                            onDigitalFilterBandEnabledChanged(i, false)
-                            onDigitalFilterBandGainChanged(i, 0f)
-                            onDigitalFilterBandFrequencyChanged(i, 1000f)
-                            onDigitalFilterBandQChanged(i, 1.0f)
-                            onDigitalFilterBandTypeChanged(i, DigitalFilterEngine.FilterType.Peak)
-                        }
-                    },
+                    onResetAllBands = onResetDigitalFilterBands,
                     onNavigateBack = { showParametricEq = false }
                 )
             }
@@ -1653,11 +1642,9 @@ private fun SavePresetDialog(
 private fun SettingsDialog(
     useMaterialYou: Boolean,
     customPrimaryColor: Color,
-    notificationListenerEnabled: Boolean,
     dumpPermissionEnabled: Boolean,
     onUseMaterialYouChanged: (Boolean) -> Unit,
     onCustomPrimaryColorChanged: (Color) -> Unit,
-    onOpenNotificationListenerSettings: () -> Unit,
     onHelpRequested: (HelpContent) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1692,16 +1679,7 @@ private fun SettingsDialog(
                     }
                 }
 
-                PermissionStatusRow(
-                    title = "Notification sessions",
-                    description = "Detects active playback through Android media notifications.",
-                    enabled = notificationListenerEnabled,
-                    actionLabel = "Open",
-                    onAction = onOpenNotificationListenerSettings,
-                    onHelp = { onHelpRequested(HelpContent.NotificationAccess) }
-                )
-
-                PermissionStatusRow(
+                                PermissionStatusRow(
                     title = "DUMP fallback",
                     description = "Optional ADB grant for deeper system audio scanning.",
                     enabled = dumpPermissionEnabled,

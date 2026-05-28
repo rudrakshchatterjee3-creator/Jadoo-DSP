@@ -4,7 +4,6 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -13,7 +12,6 @@ import android.media.session.MediaSessionManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
-import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.jadoo.amp.session.SessionController
@@ -35,6 +33,10 @@ class JadooDspService : Service() {
     companion object {
         private const val TAG = "JadooDspService"
         private const val GLOBAL_AUDIO_SESSION_ID = 0
+        // Maximum combined EQ gain before automatic pre-gain reduction kicks in.
+        // When any band exceeds this, pre-gain is lowered to prevent clipping.
+        // This is how Wavelet avoids distortion with heavy EQ boosts.
+        private const val SAFE_GAIN_THRESHOLD = 6f
     }
 
     private val binder = LocalBinder()
@@ -322,16 +324,13 @@ class JadooDspService : Service() {
     private fun registerMediaSessionListener() {
         if (mediaSessionListenerRegistered) return
 
-        val notificationListenerComponent = ComponentName(this, MediaSessionNotificationListener::class.java)
-            .takeIf { isNotificationListenerEnabled() }
-
         try {
             mediaSessionManager.addOnActiveSessionsChangedListener(
                 activeSessionsListener,
-                notificationListenerComponent
+                null
             )
             mediaSessionListenerRegistered = true
-            handleActiveSessionsChanged(mediaSessionManager.getActiveSessions(notificationListenerComponent))
+            handleActiveSessionsChanged(mediaSessionManager.getActiveSessions(null))
         } catch (securityException: SecurityException) {
             Log.w(
                 TAG,
@@ -346,14 +345,6 @@ class JadooDspService : Service() {
 
         mediaSessionManager.removeOnActiveSessionsChangedListener(activeSessionsListener)
         mediaSessionListenerRegistered = false
-    }
-
-    private fun isNotificationListenerEnabled(): Boolean {
-        val enabledListeners = Settings.Secure.getString(
-            contentResolver,
-            "enabled_notification_listeners"
-        ) ?: return false
-        return enabledListeners.contains(packageName, ignoreCase = true)
     }
 
     private fun handleActiveSessionsChanged(controllers: List<MediaController>) {
@@ -706,6 +697,21 @@ class JadooDspService : Service() {
         saveSession()
     }
 
+    /** Reset all 8 PEQ bands to defaults in a single batch — avoids 40 rapid DSP writes. */
+    fun resetDigitalFilterBands() {
+        for (i in 0 until DigitalFilterEngine.MAX_BANDS) {
+            digitalFilterEngine.setBand(i, DigitalFilterEngine.FilterBand(
+                enabled = false,
+                type = DigitalFilterEngine.FilterType.Peak,
+                frequencyHz = 1000f,
+                gainDb = 0f,
+                q = 1.0f
+            ))
+        }
+        if (_masterEnabled.value) applyDigitalFilterToPreEq()
+        saveSession()
+    }
+
     /**
      * Apply the parametric EQ (DigitalFilterEngine biquad response) to the DynamicsProcessing
      * PreEQ bands. Since JadOO intercepts audio at the OS session level (DynamicsProcessing API),
@@ -827,51 +833,65 @@ class JadooDspService : Service() {
     private fun applyAllBands(gains: FloatArray) {
         val dp = dspEngine.dynamicsProcessing ?: return
         val surroundEnabled = _surroundMode.value != SurroundMode.Off
-        // Surround intensity controls the per-channel L/R EQ differential in dB.
-        // Previous values (0.8/1.2/1.6 × 1.2 multiplier = max ~1.9 dB) were
-        // below the audibility threshold — Traditional and Front Stage were
-        // completely inaudible. New values create clearly perceptible widening:
-        //   Traditional: up to ±3.5 dB (subtle, fatigue-free for long listening)
-        //   Front Stage:  up to ±6.5 dB (clear, speaker-like projection)
-        //   Ultra Wide:   up to ±11 dB  (dramatic 180° immersion)
         val surroundIntensity = when (_surroundMode.value) {
             SurroundMode.Off -> 0f
-            SurroundMode.Traditional -> 3.5f
-            SurroundMode.Front -> 6.5f
-            SurroundMode.Wide -> 11.0f
+            SurroundMode.Traditional -> 2.0f
+            SurroundMode.Front -> 4.5f
+            SurroundMode.Wide -> 7.5f
         }
 
+        // First pass: compute all band gains and track the maximum
+        val baseGains = FloatArray(EqBands.count)
+        var maxGain = 0f
         for (index in 0 until EqBands.count) {
             val graphicGain = gains.getOrNull(index) ?: 0f
             val peqGain = digitalFilterEngine.evaluateMagnitudeResponseDb(EqBands.frequencies[index])
             val hdrAirBoost = when {
                 !_hdrDynamicsEnabled.value -> 0f
                 _hdrMode.value != HdrMode.Restoration -> 0f
-                index == 13 -> 0.6f   // 10 kHz
-                index == 14 -> 1.0f   // 16 kHz
+                index == 13 -> 0.6f
+                index == 14 -> 1.0f
                 else -> 0f
             }
-            val baseGain = graphicGain + peqGain + hdrAirBoost
+            val bg = graphicGain + peqGain + hdrAirBoost
+            baseGains[index] = bg
+            if (bg > maxGain) maxGain = bg
+        }
+
+        // Automatic pre-gain compensation (like Wavelet):
+        // If any band exceeds SAFE_GAIN_THRESHOLD, reduce pre-gain to prevent
+        // clipping. This preserves the EQ shape while keeping the signal clean.
+        // Without this, boosting +15dB on multiple bands pushes past 0 dBFS
+        // and the near-unity limiter can't catch it, causing distortion.
+        val compensationDb = if (maxGain > SAFE_GAIN_THRESHOLD) {
+            -(maxGain - SAFE_GAIN_THRESHOLD)
+        } else {
+            0f
+        }
+        if (compensationDb != 0f) {
+            val effectivePreGain = (_preGainDb.value + _headroomDb.value + compensationDb)
+                .coerceIn(-12f, 12f)
+            dspEngine.setPreGain(effectivePreGain)
+        } else {
+            // Restore normal pre-gain when no compensation needed
+            dspEngine.setPreGain(_preGainDb.value + _headroomDb.value)
+        }
+
+        // Second pass: apply gains to DSP
+        for (index in 0 until EqBands.count) {
+            val baseGain = baseGains[index]
 
             if (surroundEnabled) {
-                // Frequency-dependent stereo widening via per-channel EQ differential.
-                // Bass (0-4): mono — keeps low-end tight and centered.
-                // Low-mids (5-7): moderate width — adds body without smearing.
-                // Mids/vocals (8-10): ZERO width — critical! Keeps vocal formants
-                //   (1-2.5 kHz) locked to center so singers don't drift sideways.
-                // Upper presence (11-12): strong width — opens up the "room".
-                // Treble/air (13-14): full width — creates spaciousness and shimmer.
                 val widthFactor = when (index) {
-                    in 0..4 -> 0f
-                    in 5..7 -> 0.5f
-                    in 8..10 -> 0f
-                    in 11..12 -> 0.8f
+                    in 0..4 -> 0.0f
+                    in 5..7 -> 0.15f
+                    in 8..10 -> 0.05f
+                    in 11..12 -> 0.5f
                     in 13..14 -> 1.0f
                     else -> 0f
                 }
-                val offset = widthFactor * surroundIntensity  // max ±11 dB for Ultra Wide
+                val offset = widthFactor * surroundIntensity
 
-                // Update saved base gains
                 if (preSurroundGains == null) {
                     preSurroundGains = FloatArray(EqBands.count) { i ->
                         dp.getPreEqByChannelIndex(0).getBand(i).gain
@@ -879,25 +899,13 @@ class JadooDspService : Service() {
                 }
                 preSurroundGains!![index] = baseGain
 
-                // Direction alternates within each widened region so the total
-                // left/right energy is balanced. Vocals (indices 8-10) get
-                // offset = 0, so they stay perfectly centered.
-                val leftBoost = when (index) {
-                    in 5..7 -> if (index % 2 == 1) offset else -offset     // 5:+, 6:-, 7:+
-                    in 11..12 -> if (index % 2 == 1) -offset else offset   // 11:-, 12:+
-                    in 13..14 -> if (index % 2 == 1) offset else -offset   // 13:+, 14:-
-                    else -> 0f
-                }
-                val rightBoost = -leftBoost
-
                 val leftBand = dp.getPreEqByChannelIndex(0).getBand(index)
                 val rightBand = dp.getPreEqByChannelIndex(1).getBand(index)
-                leftBand.gain = (baseGain + leftBoost).coerceIn(-15f, 15f)
-                rightBand.gain = (baseGain + rightBoost).coerceIn(-15f, 15f)
+                leftBand.gain = (baseGain + offset).coerceIn(-15f, 15f)
+                rightBand.gain = (baseGain - offset).coerceIn(-15f, 15f)
                 dp.setPreEqBandByChannelIndex(0, index, leftBand)
                 dp.setPreEqBandByChannelIndex(1, index, rightBand)
             } else {
-                // Standard: both channels get same gain
                 dspEngine.setPreEqBandGainAllChannels(index, baseGain)
             }
         }

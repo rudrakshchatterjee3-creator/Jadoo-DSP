@@ -120,10 +120,6 @@ class MainActivity : ComponentActivity() {
                     var showBatteryDialog by remember {
                         mutableStateOf(shouldRequestBatteryOptimizationExemption())
                     }
-                    var showSessionAccessDialog by remember {
-                        mutableStateOf(!isNotificationListenerEnabled())
-                    }
-
                     val permissionLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.RequestMultiplePermissions()
                     ) { permissions ->
@@ -182,31 +178,8 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         )
-                    } else if (showSessionAccessDialog) {
-                        AlertDialog(
-                            onDismissRequest = { showSessionAccessDialog = false },
-                            title = { Text("Enable media session access") },
-                            text = {
-                                Text("Android restricts direct media control access for normal apps. Enable the JadOO DSP notification listener so the DSP service can detect active playback sessions system-wide.")
-                            },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        showSessionAccessDialog = false
-                                        requestNotificationListenerAccess()
-                                    }
-                                ) {
-                                    Text("Open settings")
-                                }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showSessionAccessDialog = false }) {
-                                    Text("Later")
-                                }
-                            }
-                        )
                     }
-                        } // end true -> branch
+                                            } // end true -> branch
                     }   // end when(onboardingDone)
                 }
             }
@@ -273,7 +246,6 @@ class MainActivity : ComponentActivity() {
             savedPresets = savedPresets,
             useMaterialYou = themeSettings.useMaterialYou,
             customPrimaryColor = Color(themeSettings.customPrimaryColor),
-            notificationListenerEnabled = isNotificationListenerEnabled(),
             dumpPermissionEnabled = dumpPermissionEnabled,
             onMasterPowerToggled = { enabled ->
                 audioService?.setMasterPower(enabled)
@@ -375,10 +347,10 @@ class MainActivity : ComponentActivity() {
                     themePreferences.setCustomPrimaryColor(color.toArgb())
                 }
             },
-            onOpenNotificationListenerSettings = {
-                requestNotificationListenerAccess()
-            }
-        )
+            onResetDigitalFilterBands = {
+                audioService?.resetDigitalFilterBands()
+            },
+                    )
     }
 
     @Composable
@@ -430,24 +402,13 @@ class MainActivity : ComponentActivity() {
         startActivity(intent)
     }
 
-    private fun isNotificationListenerEnabled(): Boolean {
-        val enabledListeners = Settings.Secure.getString(
-            contentResolver,
-            "enabled_notification_listeners"
-        ) ?: return false
-        return enabledListeners.contains(packageName, ignoreCase = true)
-    }
-
     private fun refreshDumpPermission() {
         dumpPermissionEnabled = ContextCompat.checkSelfPermission(
             this, "android.permission.DUMP"
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun requestNotificationListenerAccess() {
-        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-    }
-
+    
     override fun onResume() {
         super.onResume()
         // Re-check every time the user returns so DUMP status updates after ADB grant

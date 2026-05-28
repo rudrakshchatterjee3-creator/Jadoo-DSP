@@ -386,6 +386,16 @@ class PsychoacousticsBrain(
             }
             delay(GLIDE_STEP_MS)
         }
+        // Clear rolling window so the next correction cycle's trackAverage
+        // only contains samples captured with the new EQ applied. Without this,
+        // rawEstimate = trackAverage - currentGains is contaminated by samples
+        // that were captured before the glide finished, causing corrections to
+        // converge to zero (flat) over multiple cycles.
+        synchronized(bufferLock) {
+            writeIndex = 0
+            sampleCount = 0
+            rollingWindow.forEach { it.fill(SILENCE_DB) }
+        }
     }
 
     private fun mapFftToBands(

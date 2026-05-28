@@ -105,17 +105,21 @@ class DspEngine {
                     // but the limiter stage remains active so postGain is applied.
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        1f,    // fast attack to catch rare overs cleanly
-                        50f,   // quick release — imperceptible
-                        1.001f, // near-unity ratio: acoustically transparent
+                        1f,
+                        50f,
+                        1.001f,
                         -0.1f + headroomDb,
                         postGainDb
                     )
                 }
                 hdrDynamicsEnabled -> {
+                    // Restoration: soft-knee limiter engaging at -4 dBFS with
+                    // gentle 4:1 ratio. Lets transients breathe while preventing
+                    // clipping. +1.5dB postGain adds subtle loudness without
+                    // risking overshoot. Net effect: tighter dynamics, fuller body.
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        15f, 180f, 4f, -0.3f + headroomDb, postGainDb
+                        15f, 180f, 4f, -4f + headroomDb, postGainDb + 1.5f
                     )
                 }
                 else -> {
@@ -224,47 +228,50 @@ class DspEngine {
         }
 
         // ── DBFB: Dynamic Bass Feedback (bands 0-260Hz) ──────────────
+        // Thresholds were -8.5 to -12.5 dBFS — music averages -12 to -20 dBFS,
+        // so the compressor barely engaged. Set to -18/-20 dBFS so compression
+        // triggers on the body of normal program material without constant gain
+        // reduction that would cause pumping or dynamics loss.
         if (dbfbMode != DbfbMode.Off) {
             val normal = dbfbMode == DbfbMode.Normal
             val subPostGain = if (normal) 2.2f else 4.0f
             val punchPostGain = if (normal) 1.2f else 2.2f
-            val safetyThreshold = if (normal) -10.5f else -12.5f
 
             mbc.getBand(index++).apply {
                 cutoffFrequency = 72f
-                attackTime = 4f
-                releaseTime = 115f
-                ratio = 1.35f
-                threshold = safetyThreshold
-                kneeWidth = 7f
-                noiseGateThreshold = -78f
-                expanderRatio = 1.12f
-                preGain = -0.4f
+                attackTime = 8f
+                releaseTime = 120f
+                ratio = 1.8f
+                threshold = -20f
+                kneeWidth = 8f
+                noiseGateThreshold = -80f
+                expanderRatio = 1.1f
+                preGain = 0f
                 postGain = subPostGain
             }
             mbc.getBand(index++).apply {
                 cutoffFrequency = 145f
-                attackTime = 5f
-                releaseTime = 95f
-                ratio = 1.5f
-                threshold = safetyThreshold + 1.5f
+                attackTime = 6f
+                releaseTime = 90f
+                ratio = 2.2f
+                threshold = -18f
                 kneeWidth = 6f
                 noiseGateThreshold = -82f
-                expanderRatio = 1.06f
-                preGain = -0.2f
+                expanderRatio = 1.05f
+                preGain = 0f
                 postGain = punchPostGain
             }
             mbc.getBand(index++).apply {
                 cutoffFrequency = 260f
-                attackTime = 8f
-                releaseTime = 135f
-                ratio = 1.8f
-                threshold = -8.5f
-                kneeWidth = 5f
-                noiseGateThreshold = -90f
+                attackTime = 10f
+                releaseTime = 140f
+                ratio = 1.6f
+                threshold = -18f
+                kneeWidth = 6f
+                noiseGateThreshold = -85f
                 expanderRatio = 1f
                 preGain = 0f
-                postGain = if (normal) -0.35f else -0.55f
+                postGain = if (normal) -0.4f else -0.6f
             }
         }
 
