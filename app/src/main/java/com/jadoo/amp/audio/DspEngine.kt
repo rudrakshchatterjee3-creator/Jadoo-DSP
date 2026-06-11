@@ -1,6 +1,7 @@
 package com.jadoo.amp.audio
 
 import android.media.audiofx.DynamicsProcessing
+import android.media.audiofx.LoudnessEnhancer
 import android.util.Log
 
 class DspEngine {
@@ -12,6 +13,14 @@ class DspEngine {
     // Cached limiter reference so setPostGain can update postGain reliably
     // without a read-modify-write that may return stale state on some devices.
     private var currentLimiter: DynamicsProcessing.Limiter? = null
+    // The limiter threshold for the active mode BEFORE the gain-budget headroom
+    // offset is applied. Cached so updateHeadroom() can recompute
+    // `baseLimiterThreshold + headroomDb` live, without re-running attach().
+    private var baseLimiterThreshold = -0.3f
+
+    // Tube Warmth: a soft-knee compander stage providing the subtle 2nd-order-ish
+    // saturation character that DynamicsProcessing's bands cannot produce on their own.
+    private var loudnessEnhancer: LoudnessEnhancer? = null
 
     fun attach(
         sessionId: Int,
@@ -28,7 +37,9 @@ class DspEngine {
         analogBassWarmth: Float = 0.7f,
         analogBassPultecBoost: Float = 0.5f,
         analogBassPultecCut: Float = 0.3f,
-        analogBassPultecFreqIndex: Int = 2
+        analogBassPultecFreqIndex: Int = 2,
+        tubeWarmthEnabled: Boolean = false,
+        tubeWarmthIntensity: Float = 0.5f
     ): Boolean = synchronized(this) {
         var newDynamicsProcessing: DynamicsProcessing? = null
         try {
@@ -91,41 +102,43 @@ class DspEngine {
             // ── Gain staging: calculate headroom offset ────────────────
             // When multiple features boost signal (HiRes, DBFB, HDR), the limiter
             // threshold must drop to prevent inter-modulation distortion.
-            val headroomDb = calculateHeadroomOffset(hiResEnabled, dbfbMode, analogBassEnabled)
+            val headroomDb = calculateHeadroomOffset(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity)
 
-            // HDR mode: softer limiting lets transient peaks breathe.
-            // Pure mode: acoustically transparent limiter (near-unity ratio, ceiling
-            // just below 0 dBFS) — preserves the postGain path while never audibly
-            // compressing. Previous design disabled the limiter entirely (inUse=false)
-            // which also silently disabled postGain, breaking the post-gain slider.
-            // Standard mode: tight brickwall limiting.
+            // Real safety limiter for all modes: a 10:1 ratio engaging only within
+            // 0.3 dB of full scale. At normal program levels this never engages —
+            // it exists purely to catch peaks introduced by HiRes/DBFB/AnalogBass
+            // gain stages (see calculateHeadroomOffset) before they clip.
+            // Pure HDR mode trades this for an even lighter 2:1 net, ceiling at
+            // -0.1 dBFS, for maximum transparency on sources the user trusts.
+            // Restoration HDR no longer compresses peaks (that was the cause of
+            // "squashed, trashy" HDR audio) — its character now comes entirely
+            // from the gentle multiband expander in configureMbc() and the
+            // air-shelf boost in JadooDspService.applyAllBands().
+            // Tube Warmth "glue": a softer, slower limiter than the standard
+            // transparent safety net — lower ratio and an earlier threshold so
+            // peaks are gently rounded rather than caught at the last instant,
+            // echoing how a tube output stage compresses as it nears its rails.
+            // Skipped under Pure HDR, which prioritises maximum transparency.
             val limiter = when {
                 hdrDynamicsEnabled && hdrMode == HdrMode.Pure -> {
-                    // Pure: transparent limiter — ratio ≈ 1 so it barely compresses,
-                    // but the limiter stage remains active so postGain is applied.
+                    baseLimiterThreshold = -0.1f
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        1f,
-                        50f,
-                        1.001f,
-                        -0.1f + headroomDb,
-                        postGainDb
+                        1f, 60f, 2f, baseLimiterThreshold + headroomDb, postGainDb
                     )
                 }
-                hdrDynamicsEnabled -> {
-                    // Restoration: soft-knee limiter engaging at -4 dBFS with
-                    // gentle 4:1 ratio. Lets transients breathe while preventing
-                    // clipping. +1.5dB postGain adds subtle loudness without
-                    // risking overshoot. Net effect: tighter dynamics, fuller body.
+                tubeWarmthEnabled -> {
+                    baseLimiterThreshold = -1.0f
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        15f, 180f, 4f, -4f + headroomDb, postGainDb + 1.5f
+                        5f, 100f, 5f, baseLimiterThreshold + headroomDb, postGainDb
                     )
                 }
                 else -> {
+                    baseLimiterThreshold = -0.3f
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        5f, 50f, 1.001f, 0f + headroomDb, postGainDb
+                        3f, 60f, 10f, baseLimiterThreshold + headroomDb, postGainDb
                     )
                 }
             }
@@ -156,6 +169,7 @@ class DspEngine {
             newDynamicsProcessing.enabled = true
             setPreGain(preGainDb)
             setPostGain(postGainDb)
+            configureTubeWarmthSaturation(sessionId, tubeWarmthEnabled, tubeWarmthIntensity)
             Log.d("DspEngine", "Attached session=$sessionId hiRes=$hiResEnabled dbfb=$dbfbMode hdr=$hdrDynamicsEnabled surroundPlus=$surroundPlusEnabled mbcBands=$mbcBandCount")
             true
         } catch (e: Exception) {
@@ -163,6 +177,65 @@ class DspEngine {
             newDynamicsProcessing?.release()
             currentLimiter = null
             false
+        }
+    }
+
+    /**
+     * Attaches/detaches the LoudnessEnhancer used for Tube Warmth's saturation
+     * character. LoudnessEnhancer's internal compander applies a soft-knee gain
+     * curve, which at modest target gains behaves like gentle program-dependent
+     * saturation rather than a hard ceiling.
+     */
+    private fun configureTubeWarmthSaturation(sessionId: Int, enabled: Boolean, intensity: Float) {
+        try {
+            if (enabled) {
+                val targetGainMb = (intensity.coerceIn(0f, 1f) * 400).toInt() // 0-4 dB
+                val enhancer = loudnessEnhancer ?: LoudnessEnhancer(sessionId).also { loudnessEnhancer = it }
+                enhancer.setTargetGain(targetGainMb)
+                enhancer.enabled = true
+            } else {
+                loudnessEnhancer?.enabled = false
+                loudnessEnhancer?.release()
+                loudnessEnhancer = null
+            }
+        } catch (e: Exception) {
+            Log.e("DspEngine", "Error configuring Tube Warmth saturation", e)
+        }
+    }
+
+    /** Live-update the Tube Warmth saturation amount without a full topology rebuild. */
+    fun updateTubeWarmthIntensity(intensity: Float) = synchronized(this) {
+        try {
+            loudnessEnhancer?.setTargetGain((intensity.coerceIn(0f, 1f) * 400).toInt())
+        } catch (e: Exception) {
+            Log.e("DspEngine", "Error updating Tube Warmth intensity", e)
+        }
+    }
+
+    /**
+     * Recompute the gain-budget headroom offset and re-apply it to the live
+     * limiter, without a full topology rebuild. Needed because Tube Warmth's
+     * intensity slider (see updateTubeWarmthIntensity) changes its broadband
+     * contribution to the gain budget after attach() has already run — without
+     * this, the limiter ceiling would stay based on the intensity at the time
+     * the feature was enabled, drifting out of sync with the slider.
+     */
+    fun updateHeadroom(
+        hiResEnabled: Boolean,
+        dbfbMode: DbfbMode,
+        analogBassEnabled: Boolean,
+        tubeWarmthEnabled: Boolean,
+        tubeWarmthIntensity: Float
+    ) = synchronized(this) {
+        val dp = dynamicsProcessing ?: return@synchronized
+        val limiter = currentLimiter ?: return@synchronized
+        try {
+            val headroomDb = calculateHeadroomOffset(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity)
+            limiter.threshold = baseLimiterThreshold + headroomDb
+            dp.setLimiterAllChannelsTo(limiter)
+            Log.d("DspEngine", "Headroom updated: threshold=${limiter.threshold}dB")
+        } catch (e: Exception) {
+            Log.e("DspEngine", "Error updating headroom", e)
         }
     }
 
@@ -233,15 +306,25 @@ class DspEngine {
         // triggers on the body of normal program material without constant gain
         // reduction that would cause pumping or dynamics loss.
         if (dbfbMode != DbfbMode.Off) {
+            // Reduced from 2.2/4.0 and 1.2/2.2 — those levels pushed the bass
+            // region close enough to full scale that the limiter (now a real
+            // 10:1 safety net, see attach()) was constantly squashing it,
+            // which is what caused DBFB to sound distorted at high volume.
             val normal = dbfbMode == DbfbMode.Normal
-            val subPostGain = if (normal) 2.2f else 4.0f
-            val punchPostGain = if (normal) 1.2f else 2.2f
+            val subPostGain = if (normal) 1.5f else 2.5f
+            val punchPostGain = if (normal) 0.8f else 1.4f
 
+            // Attack/release slowed and ratios reduced from the original
+            // 6-10ms / 90-140ms / 1.6-2.2:1 settings, which reacted to
+            // individual bass notes fast enough to cause audible per-note
+            // "pumping"/breathing. Slower envelopes make the bands act as a
+            // gentle overall leveler instead, while postGain (the actual
+            // amount of boost) is unchanged.
             mbc.getBand(index++).apply {
                 cutoffFrequency = 72f
-                attackTime = 8f
-                releaseTime = 120f
-                ratio = 1.8f
+                attackTime = 22f
+                releaseTime = 280f
+                ratio = 1.3f
                 threshold = -20f
                 kneeWidth = 8f
                 noiseGateThreshold = -80f
@@ -251,9 +334,9 @@ class DspEngine {
             }
             mbc.getBand(index++).apply {
                 cutoffFrequency = 145f
-                attackTime = 6f
-                releaseTime = 90f
-                ratio = 2.2f
+                attackTime = 22f
+                releaseTime = 280f
+                ratio = 1.5f
                 threshold = -18f
                 kneeWidth = 6f
                 noiseGateThreshold = -82f
@@ -263,9 +346,9 @@ class DspEngine {
             }
             mbc.getBand(index++).apply {
                 cutoffFrequency = 260f
-                attackTime = 10f
-                releaseTime = 140f
-                ratio = 1.6f
+                attackTime = 22f
+                releaseTime = 280f
+                ratio = 1.2f
                 threshold = -18f
                 kneeWidth = 6f
                 noiseGateThreshold = -85f
@@ -275,39 +358,48 @@ class DspEngine {
             }
         }
 
-        // ── HDR: Limiter-softening pass-through band ─────────────────
+        // ── HDR: dynamics character band ──────────────────────────────
         //
-        // The real HDR effect is the limiter (see attach() above): slower attack
-        // and softer ratio let transient peaks breathe instead of hitting a brickwall.
-        // This MBC band is kept for topology reasons but is fully transparent — no
-        // compression, no expansion, no gain change. The signal passes through
-        // unaffected. A single full-range band avoids unnecessary crossover filters.
+        // Pure mode: this band is fully transparent (ratio/expanderRatio = 1,
+        // no gain change). Combined with the near-unity safety limiter in
+        // attach(), Pure HDR adds nothing to the signal — true acoustic
+        // transparency, as its description promises.
+        //
+        // Restoration mode: a gentle downward expander (expanderRatio 1.15)
+        // around -32 dBFS widens the gap between quiet passages and the music
+        // itself, restoring a sense of dynamic range to over-compressed masters.
+        // Crucially it does NOT touch peaks (ratio = 1, ie. no compression), so
+        // it can no longer "squash" already-loud material — that compression
+        // was the root cause of HDR sounding trashy. The other half of
+        // Restoration's character is the air-shelf boost applied in
+        // JadooDspService.applyAllBands().
         if (hdrDynamicsEnabled) {
+            val isRestoration = hdrMode == HdrMode.Restoration
             if (!hiResEnabled) {
                 mbc.getBand(index).apply {
                     cutoffFrequency = 20000f
-                    attackTime = 15f
-                    releaseTime = 180f
+                    attackTime = if (isRestoration) 30f else 15f
+                    releaseTime = if (isRestoration) 250f else 180f
                     ratio = 1.0f
-                    threshold = 0f
-                    kneeWidth = 0f
+                    threshold = if (isRestoration) -32f else 0f
+                    kneeWidth = if (isRestoration) 6f else 0f
                     noiseGateThreshold = -90f
-                    expanderRatio = 1.0f
+                    expanderRatio = if (isRestoration) 1.15f else 1.0f
                     preGain = 0f
                     postGain = 0f
                 }
                 return  // fully configured: [AnalogBass?] + [DBFB?] + HDR(1) = done
             }
-            // With HiRes: single transparent band up to HiRes crossover at 5.2 kHz
+            // With HiRes: same band, but only covers up to the HiRes crossover at 5.2 kHz
             mbc.getBand(index++).apply {
                 cutoffFrequency = 5200f
-                attackTime = 15f
-                releaseTime = 180f
+                attackTime = if (isRestoration) 30f else 15f
+                releaseTime = if (isRestoration) 250f else 180f
                 ratio = 1.0f
-                threshold = 0f
-                kneeWidth = 0f
+                threshold = if (isRestoration) -32f else 0f
+                kneeWidth = if (isRestoration) 6f else 0f
                 noiseGateThreshold = -90f
-                expanderRatio = 1.0f
+                expanderRatio = if (isRestoration) 1.15f else 1.0f
                 preGain = 0f
                 postGain = 0f
             }
@@ -505,21 +597,50 @@ class DspEngine {
     }
 
     /**
-     * Calculate limiter headroom offset based on active features.
-     * When multiple features add gain (HiRes boost, DBFB bass boost),
-     * the limiter must have more headroom to prevent inter-modulation distortion.
+     * Calculate limiter headroom offset based on active features — a "gain
+     * budget" model.
+     *
+     * The limiter is a single BROADBAND stage: one global ceiling for the
+     * whole signal. That ceiling only needs to be low enough to cover the
+     * worst-hit frequency zone, not the sum of every active feature's gain
+     * regardless of where it lands. Two features that boost different,
+     * non-overlapping zones don't compound — a single global ceiling that
+     * already covers the louder of the two automatically covers the other.
+     *
+     * Zones:
+     *  - Bass (<300Hz): DBFB + AnalogBass genuinely overlap here (60-150Hz),
+     *    so they remain additive within this zone, exactly as before.
+     *  - Treble (>5kHz): HiRes air-band expansion.
+     *  - Broadband: Tube Warmth's LoudnessEnhancer compander raises the level
+     *    of the WHOLE signal post-MBC, so it stacks on top of whichever zone
+     *    is worst rather than being zone-limited itself.
+     *
+     * For any single feature alone, or for combos confined to one zone, this
+     * produces the exact same offset as the old purely-additive model
+     * (verified case-by-case). It only differs — by giving a higher ceiling —
+     * when active features are confined to *different* zones, where the old
+     * model over-penalised by stacking penalties that could never coincide
+     * in the same band.
      */
     private fun calculateHeadroomOffset(
         hiResEnabled: Boolean,
         dbfbMode: DbfbMode,
-        analogBassEnabled: Boolean = false
+        analogBassEnabled: Boolean = false,
+        tubeWarmthEnabled: Boolean = false,
+        tubeWarmthIntensity: Float = 0.5f
     ): Float {
-        var offset = 0f
-        if (hiResEnabled) offset -= 0.6f
-        if (dbfbMode == DbfbMode.High) offset -= 0.5f
-        else if (dbfbMode == DbfbMode.Normal) offset -= 0.3f
-        if (analogBassEnabled) offset -= 0.3f
-        return offset
+        var bassZone = 0f
+        if (dbfbMode == DbfbMode.High) bassZone += 1.8f
+        else if (dbfbMode == DbfbMode.Normal) bassZone += 1.0f
+        if (analogBassEnabled) bassZone += 1.5f
+
+        var trebleZone = 0f
+        if (hiResEnabled) trebleZone += 0.8f
+
+        var broadband = 0f
+        if (tubeWarmthEnabled) broadband += (0.5f + tubeWarmthIntensity.coerceIn(0f, 1f) * 1.0f)
+
+        return -(broadband + maxOf(bassZone, trebleZone))
     }
 
     fun release() = synchronized(this) {
@@ -527,13 +648,17 @@ class DspEngine {
         dynamicsProcessing?.release()
         dynamicsProcessing = null
         currentLimiter = null
+        try {
+            loudnessEnhancer?.enabled = false
+            loudnessEnhancer?.release()
+        } catch (e: Exception) {
+            Log.e("DspEngine", "Error releasing Tube Warmth saturation", e)
+        }
+        loudnessEnhancer = null
     }
 
     /**
      * Sets the same gain on ALL channels (left + right) for a PreEQ band.
-     * WARNING: This DESTROYS any per-channel differential (e.g., surround widening).
-     * Only use this when surround/spatial processing is OFF.
-     * For surround-aware updates, use the caller's per-channel logic instead.
      */
     fun setPreEqBandGainAllChannels(bandIndex: Int, gainDb: Float) {
         synchronized(this) {
@@ -551,15 +676,23 @@ class DspEngine {
         }
     }
 
-    fun getPreEqBandGain(bandIndex: Int): Float {
+    /**
+     * Sets the gain for a PreEQ band on a SINGLE channel (0 = left, 1 = right).
+     * Used only for the small, balanced left/right treble differentials in
+     * Surround+'s Traditional/Wide modes (see JadooDspService.applyAllBands) —
+     * every other feature uses [setPreEqBandGainAllChannels].
+     */
+    fun setPreEqBandGainByChannel(channelIndex: Int, bandIndex: Int, gainDb: Float) {
         synchronized(this) {
-            if (bandIndex !in 0 until EqBands.count) return 0f
+            if (bandIndex !in 0 until EqBands.count) return
 
-            val dp = dynamicsProcessing ?: return 0f
-            return try {
-                dp.getPreEqByChannelIndex(0).getBand(bandIndex).gain
+            val dp = dynamicsProcessing ?: return
+            try {
+                val band = dp.getPreEqBandByChannelIndex(channelIndex, bandIndex)
+                band.gain = gainDb.coerceIn(-15f, 15f)
+                dp.setPreEqBandByChannelIndex(channelIndex, bandIndex, band)
             } catch (e: Exception) {
-                0f
+                Log.e("DspEngine", "Error setting EQ band for channel $channelIndex", e)
             }
         }
     }

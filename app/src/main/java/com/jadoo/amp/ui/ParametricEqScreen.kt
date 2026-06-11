@@ -38,16 +38,16 @@ import kotlin.math.*
 
 private val BandColors = listOf(
     Color(0xFFFFFFFF), // White (selected default)
-    Color(0xFFFF6B6B), // Red/Coral
-    Color(0xFFFF9F43), // Orange
-    Color(0xFF2ECC71), // Green
-    Color(0xFF54A0FF), // Blue
-    Color(0xFFA29BFE), // Purple
-    Color(0xFFFF9FF3), // Pink
-    Color(0xFFFDCB6E), // Yellow
-    Color(0xFF48DBFB), // Cyan
-    Color(0xFF1DD1A1), // Teal
-    Color(0xFF5F27CD), // Deep Purple
+    Color(0xFF00E5FF), // Electric Cyan
+    Color(0xFFFF0055), // Neon Pink
+    Color(0xFF00FF66), // Neon Green
+    Color(0xFFFFD500), // Cyber Yellow
+    Color(0xFF8C00FF), // Neon Purple
+    Color(0xFFFF5500), // Neon Orange
+    Color(0xFF00BFFF), // Deep Sky Blue
+    Color(0xFF00FFCC), // Aquamarine
+    Color(0xFFFF00E5), // Magenta
+    Color(0xFF39FF14), // Neon Lime
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -176,8 +176,9 @@ fun ParametricEqScreen(
             val bandColor = BandColors[(selectedBandIndex % (BandColors.size - 1)) + 1]
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 1.dp
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                tonalElevation = 0.dp
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -196,7 +197,8 @@ fun ParametricEqScreen(
                             Text(
                                 text = "Band ${selectedBandIndex + 1}",
                                 style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
                             )
                         }
                         Surface(
@@ -293,8 +295,9 @@ fun ParametricEqScreen(
                 )
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    tonalElevation = 1.dp
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                    tonalElevation = 0.dp
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
@@ -392,12 +395,12 @@ private fun EqGraph(
     val responsePoints = remember(bandStates) {
         calculateFrequencyResponse(bandStates)
     }
-    val graphBackground = Color(0xFF1A1A1A)
-    val gridColor = Color(0xFF333333)
-    val zeroDbColor = Color(0xFF888888)
-    val curveColor = Color(0xFFD4A574)
-    val fillColor = Color(0x30D4A574)
-    val textColor = Color(0xFFAAAAAA)
+    val graphBackground = MaterialTheme.colorScheme.surfaceContainerLow
+    val gridColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    val zeroDbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+    val curveColor = MaterialTheme.colorScheme.primary
+    val fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+    val textColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     var graphSize by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
     val padding = 40f
@@ -565,6 +568,14 @@ private fun EqGraph(
                         val color = BandColors[(i % (BandColors.size - 1)) + 1]
                         val isSelected = i == selectedBandIndex
 
+                        if (isSelected) {
+                            // Neon glow effect
+                            drawCircle(
+                                color = color.copy(alpha = 0.3f),
+                                radius = 24f,
+                                center = Offset(px, py)
+                            )
+                        }
                         // Outer circle
                         drawCircle(
                             color = if (isSelected) color else color.copy(alpha = 0.7f),

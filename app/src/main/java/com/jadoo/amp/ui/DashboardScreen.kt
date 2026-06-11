@@ -30,17 +30,24 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SurroundSound
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -49,6 +56,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -89,6 +97,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -132,7 +141,7 @@ private sealed class HelpContent(
 ) {
     data object AutoEqPower : HelpContent(
         title = "JadOO Psychoacoustics Engine",
-        body = "Continuously analyses the audio spectrum and glides the EQ toward a target curve every 5 seconds. Balanced mode makes small, natural moves."
+        body = "Continuously analyses the audio spectrum and glides the EQ toward a target curve every 3 seconds. Balanced mode makes small, natural moves."
     )
 
     data object HiResUpscaler : HelpContent(
@@ -147,27 +156,27 @@ private sealed class HelpContent(
 
     data object HdrDynamics : HelpContent(
         title = "HDR Dynamics Restorer",
-        body = "Restores punch to loudness-war audio by softening the brickwall limiter.\n\nPure mode removes the second-stage limiter entirely for the cleanest path. May clip on heavily mastered tracks.\n\nRestoration mode uses a soft 6:1 ceiling plus subtle air-band EQ (+1 dB at 16 kHz) to recover detail lost during hyper-compression."
+        body = "Restores punch to loudness-war audio by softening the brickwall limiter.\n\nPure mode relaxes the second-stage limiter to a near-transparent 2:1 ceiling at -0.1 dBFS for the cleanest path. May clip on heavily mastered tracks.\n\nRestoration mode doesn't compress peaks at all — instead it applies a gentle expander that widens the gap between quiet and loud passages, plus a subtle air-band lift (+0.6 dB at 10 kHz, +1 dB at 16 kHz) to recover detail lost during hyper-compression."
     )
 
     data object AnalogBass : HelpContent(
         title = "Analog Bass",
-        body = "Vintage hardware circuit modeling.\n\nDrive: Harmonic saturation intensity. More drive = thicker bass.\n\nWarmth: Even-order (smooth tube) vs odd-order (punchy transformer) balance.\n\nDrift: Microscopic gain/phase variation for analog unpredictability.\n\nPultec EQ: Legendary simultaneous boost/cut trick — sub-bass rises, mud dips.\n\nUses 4x oversampling to prevent aliasing."
+        body = "Vintage hardware circuit modeling.\n\nDrive: Harmonic saturation intensity. More drive = thicker bass.\n\nWarmth: Even-order (smooth tube) vs odd-order (punchy transformer) balance.\n\nDrift: Microscopic gain/phase variation for analog unpredictability.\n\nPultec EQ: Legendary simultaneous boost/cut trick — sub-bass rises, mud dips."
     )
 
     data object SpatialSurround : HelpContent(
         title = "JadOO Surround+",
-        body = "Frequency-dependent stereo widening via per-channel EQ differential.\n\nBass stays mono for punch. Mids get gentle spread. Treble gets full width.\n\nTraditional: natural width. Front Stage: speaker-like imaging. Ultra Wide: 180° immersion.\n\nPure EQ-based — no phase-smearing virtualizer."
-    )
-
-    data object NotificationAccess : HelpContent(
-        title = "Notification session access",
-        body = "Android lets notification listeners read active media sessions. JadOO uses this to detect playback when normal media-control permissions are unavailable."
+        body = "Reshapes the EQ for a bigger, more spacious sound — entirely through gain changes, no phase-smearing virtualizer.\n\nEvery mode applies a bass+treble \"smile\" boost equally to both channels; vocals and mids (160Hz-2.5kHz) are always left untouched and bass always stays centered.\n\nTraditional: a moderate smile plus a small, balanced left/right swap at 10kHz and 16kHz for natural width.\n\nFront Stage: a smaller smile plus a forward vocal-presence lift, with no left/right difference — dialogue stays centered.\n\nUltra Wide: the biggest smile plus a stronger left/right swap across 4kHz-16kHz for the widest, most enveloping image.\n\nThe left/right swaps always cancel out overall, so nothing is ever pulled toward one ear."
     )
 
     data object DumpPermission : HelpContent(
         title = "DUMP permission",
         body = "Helps the fallback session scanner read system audio state. Grant via: adb shell pm grant com.jadoo.amp android.permission.DUMP"
+    )
+
+    data object TubeWarmth : HelpContent(
+        title = "Tube Warmth",
+        body = "An honest tonal emulation of valve amplifier playback — useful for thin or overly clinical-sounding digital tracks.\n\nReal tube warmth comes from 2nd-order harmonic saturation, which Android's audio APIs cannot synthesise without root. This mode instead recreates the tonal signature: a gentle low-end \"bloom\" around 60-100Hz (transformer coupling), a soft high-frequency roll-off above 10kHz (output transformer/plate capacitance), and a slow, soft-knee \"glue\" compander for gentle dynamic rounding.\n\nIntensity controls the strength of all three elements together."
     )
 
     data object DigitalFilters : HelpContent(
@@ -177,17 +186,26 @@ private sealed class HelpContent(
 
 }
 
+/** Picks a representative icon for the current output device label (see JadooDspService.computeOutputDeviceKey). */
+private fun outputDeviceIcon(deviceLabel: String): ImageVector = when {
+    deviceLabel.startsWith("Bluetooth") -> Icons.Default.Bluetooth
+    deviceLabel == "USB Audio" -> Icons.Default.Usb
+    deviceLabel == "Wired Headphones" -> Icons.Default.Headset
+    else -> Icons.Default.VolumeUp
+}
+
 @Composable
 fun DashboardScreen(
     sessionId: Int?,
     isAttached: Boolean,
     activePackageName: String?,
+    currentOutputDevice: String,
     masterEnabled: Boolean,
+    dspBypassed: Boolean,
     jadooEnabled: Boolean,
     autoEqTargetMode: AutoEqTargetMode,
     preGainDb: Float,
     postGainDb: Float,
-    headroomDb: Float,
     hiResUpscalerEnabled: Boolean,
     hdrDynamicsEnabled: Boolean,
     hdrMode: HdrMode,
@@ -202,6 +220,9 @@ fun DashboardScreen(
     analogBassPultecBoost: Float,
     analogBassPultecCut: Float,
     analogBassPultecFreqIndex: Int,
+    // Tube Warmth
+    tubeWarmthEnabled: Boolean,
+    tubeWarmthIntensity: Float,
     // Digital Filters
     digitalFilterEnabled: Boolean,
     digitalFilterBandStates: List<com.jadoo.amp.audio.DigitalFilterEngine.BiquadBandState>,
@@ -214,7 +235,6 @@ fun DashboardScreen(
     onAutoEqTargetModeChanged: (AutoEqTargetMode) -> Unit,
     onPreGainChanged: (Float) -> Unit,
     onPostGainChanged: (Float) -> Unit,
-    onHeadroomChanged: (Float) -> Unit,
     onHiResUpscalerToggled: (Boolean) -> Unit,
     onHdrDynamicsToggled: (Boolean) -> Unit,
     onHdrModeChanged: (HdrMode) -> Unit,
@@ -232,6 +252,9 @@ fun DashboardScreen(
     onAnalogBassPultecBoostChanged: (Float) -> Unit,
     onAnalogBassPultecCutChanged: (Float) -> Unit,
     onAnalogBassPultecFreqIndexChanged: (Int) -> Unit,
+    // Tube Warmth callbacks
+    onTubeWarmthEnabledChanged: (Boolean) -> Unit,
+    onTubeWarmthIntensityChanged: (Float) -> Unit,
     onDigitalFilterEnabledChanged: (Boolean) -> Unit,
     onDigitalFilterBandEnabledChanged: (Int, Boolean) -> Unit,
     onDigitalFilterBandTypeChanged: (Int, DigitalFilterEngine.FilterType) -> Unit,
@@ -253,7 +276,12 @@ fun DashboardScreen(
     var showGraphicEq by remember { mutableStateOf(false) }
     var savedBandGainsBeforeDisable by remember { mutableStateOf<FloatArray?>(null) }
     var showAutoEqPreview by remember { mutableStateOf(false) }
+    // Name of the preset (built-in or custom) the user last selected, kept
+    // across EQ-dialog open/close so "Overwrite" can target it even after
+    // the dialog has been dismissed and reopened.
+    var selectedPresetName by remember { mutableStateOf<String?>(null) }
     val statusText = when {
+        isAttached && dspBypassed -> "Bypass · ${activePackageName ?: "Session ${sessionId ?: 0}"} (no effects active)"
         isAttached -> "DSP active · ${activePackageName ?: "Session ${sessionId ?: 0}"}"
         masterEnabled -> "Waiting for playback"
         else -> "Engine off"
@@ -277,7 +305,7 @@ fun DashboardScreen(
         )
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(24.dp),
             color = powerBg,
             tonalElevation = 2.dp
         ) {
@@ -303,6 +331,18 @@ fun DashboardScreen(
                             Text(statusText,
                                  color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
                                  fontSize = 12.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Icon(
+                                    imageVector = outputDeviceIcon(currentOutputDevice),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(currentOutputDevice,
+                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                                     fontSize = 11.sp)
+                            }
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically,
@@ -323,12 +363,11 @@ fun DashboardScreen(
                     enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
                     exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()) {
                     GainControlDeck(
-                        preGainDb, postGainDb, headroomDb,
-                        onPreGainChanged, onPostGainChanged, onHeadroomChanged,
+                        preGainDb, postGainDb,
+                        onPreGainChanged, onPostGainChanged,
                         onResetAll = {
                             onPreGainChanged(0f)
                             onPostGainChanged(0f)
-                            onHeadroomChanged(0f)
                         }
                     )
                 }
@@ -339,7 +378,7 @@ fun DashboardScreen(
 
         // ── AUTO EQ ─────────────────────────────────────────────────
         SectionLabel("AUTO EQ")
-        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp),
+        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                 CompactToggleRow(
@@ -398,7 +437,7 @@ fun DashboardScreen(
 
         // ── ENHANCEMENT ─────────────────────────────────────────────
         SectionLabel("ENHANCEMENT")
-        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp),
+        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                 CompactToggleRow(
@@ -413,8 +452,8 @@ fun DashboardScreen(
                 CompactToggleRow(
                     title = "HDR Dynamics",
                     subtitle = if (hdrDynamicsEnabled) when (hdrMode) {
-                        HdrMode.Pure -> "Pure · limiter bypass"
-                        HdrMode.Restoration -> "Restoration · soft ceiling"
+                        HdrMode.Pure -> "Pure · near-transparent"
+                        HdrMode.Restoration -> "Restoration · gentle expander"
                     } else "Opens brickwall audio",
                     checked = hdrDynamicsEnabled, enabled = masterEnabled,
                     leadingIcon = { Icon(Icons.Default.WbSunny, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
@@ -453,7 +492,7 @@ fun DashboardScreen(
 
         // ── ANALOG BASS ──────────────────────────────────────────────
         SectionLabel("ANALOG BASS")
-        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp),
+        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                 CompactToggleRow(
@@ -550,11 +589,43 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
+        // ── TUBE WARMTH ──────────────────────────────────────────────
+        SectionLabel("TUBE WARMTH")
+        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                CompactToggleRow(
+                    title = "Tube Warmth",
+                    subtitle = if (tubeWarmthEnabled) "Warm bloom, softened highs"
+                               else "Tube amp tonal emulation",
+                    checked = tubeWarmthEnabled, enabled = masterEnabled,
+                    leadingIcon = { Icon(Icons.Default.Whatshot, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
+                    onCheckedChange = onTubeWarmthEnabledChanged,
+                    onHelpClick = { helpDialog = HelpContent.TubeWarmth })
+                AnimatedVisibility(visible = tubeWarmthEnabled && masterEnabled,
+                    enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
+                    exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()) {
+                    Column(modifier = Modifier.padding(bottom = 14.dp),
+                           verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        LabeledSlider(
+                            label = "Intensity",
+                            value = tubeWarmthIntensity,
+                            valueLabel = "${String.format("%.0f", tubeWarmthIntensity * 100)}%",
+                            onValueChange = onTubeWarmthIntensityChanged,
+                            steps = 100)
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
         // ── SPATIAL ─────────────────────────────────────────────────
         SectionLabel("SPATIAL")
         Surface(modifier = Modifier.fillMaxWidth()
                     .clickable(enabled = masterEnabled) { showSurroundPicker = true },
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically) {
@@ -603,7 +674,7 @@ fun DashboardScreen(
 
         // ── PARAMETRIC EQ ────────────────────────────────────────────
         SectionLabel("PARAMETRIC EQ")
-        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp),
+        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                 CompactToggleRow(
@@ -634,7 +705,7 @@ fun DashboardScreen(
         // ── EQUALIZER ───────────────────────────────────────────────
         SectionLabel("EQUALIZER")
         Surface(modifier = Modifier.fillMaxWidth().alpha(if (jadooEnabled) 0.45f else 1f),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                 CompactToggleRow(
@@ -667,9 +738,14 @@ fun DashboardScreen(
                             expanded = false, onTap = { showExpandedEq = true },
                             onBandLevelChanged = onBandLevelChanged,
                             modifier = Modifier.fillMaxWidth().height(220.dp))
-                        Text(if (manualControlsEnabled) "Tap to expand · drag nodes to tune"
-                             else "Enable master power for manual tuning",
-                             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+
+                        if (manualControlsEnabled) {
+                            Text("Tap to expand · drag nodes to tune",
+                                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        } else {
+                            Text("Enable master power for manual tuning",
+                                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
                     }
                 }
             }
@@ -681,6 +757,8 @@ fun DashboardScreen(
             bandGains = bandGains,
             savedPresets = savedPresets,
             enabled = manualControlsEnabled,
+            selectedPresetName = selectedPresetName,
+            onPresetNameChanged = { selectedPresetName = it },
             onDismiss = { showExpandedEq = false },
             onBandLevelChanged = onBandLevelChanged,
             onPresetSelected = onPresetSelected,
@@ -986,10 +1064,8 @@ private fun ToggleRow(
 private fun GainControlDeck(
     preGainDb: Float,
     postGainDb: Float,
-    headroomDb: Float,
     onPreGainChanged: (Float) -> Unit,
     onPostGainChanged: (Float) -> Unit,
-    onHeadroomChanged: (Float) -> Unit,
     onResetAll: () -> Unit
 ) {
     Surface(
@@ -1032,12 +1108,6 @@ private fun GainControlDeck(
                 label = "Post gain",
                 value = postGainDb,
                 onValueChange = onPostGainChanged
-            )
-            GainSlider(
-                label = "Headroom",
-                value = headroomDb,
-                onValueChange = onHeadroomChanged,
-                valueRange = -6f..0f
             )
         }
     }
@@ -1444,6 +1514,8 @@ private fun ExpandedEqDialog(
     bandGains: FloatArray,
     savedPresets: List<SavedEqPreset>,
     enabled: Boolean,
+    selectedPresetName: String?,
+    onPresetNameChanged: (String?) -> Unit,
     onDismiss: () -> Unit,
     onBandLevelChanged: (Int, Float) -> Unit,
     onPresetSelected: (FloatArray) -> Unit,
@@ -1510,6 +1582,34 @@ private fun ExpandedEqDialog(
                         .height(380.dp)
                 )
 
+                val selectedSavedPreset = savedPresets.find { it.name == selectedPresetName }
+                val selectedBorder = BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+
+                if (selectedSavedPreset != null && !selectedSavedPreset.gains.contentEquals(bandGains)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AssistChip(
+                            onClick = { onSavePreset(selectedSavedPreset.name, bandGains.copyOf()) },
+                            label = { Text("Overwrite \"${selectedSavedPreset.name}\"") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Save,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            enabled = enabled,
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                leadingIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1520,18 +1620,34 @@ private fun ExpandedEqDialog(
                 ) {
                     Presets.forEach { (name, gains) ->
                         AssistChip(
-                            onClick = { onPresetSelected(gains) },
+                            onClick = {
+                                onPresetNameChanged(name)
+                                onPresetSelected(gains)
+                            },
                             label = { Text(name) },
-                            enabled = enabled
+                            enabled = enabled,
+                            border = if (name == selectedPresetName) {
+                                selectedBorder
+                            } else {
+                                AssistChipDefaults.assistChipBorder(enabled = enabled)
+                            }
                         )
                     }
                     savedPresets.forEach { preset ->
                         // Box wraps the chip so we can anchor a DropdownMenu to it
                         Box {
                             AssistChip(
-                                onClick = { onPresetSelected(preset.gains) },
+                                onClick = {
+                                    onPresetNameChanged(preset.name)
+                                    onPresetSelected(preset.gains)
+                                },
                                 label = { Text(preset.name) },
                                 enabled = enabled,
+                                border = if (preset.name == selectedPresetName) {
+                                    selectedBorder
+                                } else {
+                                    AssistChipDefaults.assistChipBorder(enabled = enabled)
+                                },
                                 modifier = Modifier.pointerInput(preset.name) {
                                     detectTapGestures(
                                         onLongPress = { contextMenuPreset = preset }
@@ -1546,6 +1662,7 @@ private fun ExpandedEqDialog(
                                     text = { Text("Overwrite with current EQ") },
                                     onClick = {
                                         onSavePreset(preset.name, bandGains.copyOf())
+                                        onPresetNameChanged(preset.name)
                                         contextMenuPreset = null
                                     }
                                 )
@@ -1558,6 +1675,7 @@ private fun ExpandedEqDialog(
                                     },
                                     onClick = {
                                         onDeletePreset(preset.name)
+                                        if (selectedPresetName == preset.name) onPresetNameChanged(null)
                                         contextMenuPreset = null
                                     }
                                 )
@@ -1569,7 +1687,10 @@ private fun ExpandedEqDialog(
                         label = { Text("Save current") }
                     )
                     AssistChip(
-                        onClick = { onPresetSelected(FloatArray(EqBands.count) { 0f }) },
+                        onClick = {
+                            onPresetNameChanged(null)
+                            onPresetSelected(FloatArray(EqBands.count) { 0f })
+                        },
                         label = { Text("Reset flat") },
                         enabled = enabled
                     )
@@ -1584,6 +1705,7 @@ private fun ExpandedEqDialog(
             onSave = { name ->
                 showSaveDialog = false
                 onSavePreset(name, bandGains.copyOf())
+                onPresetNameChanged(name)
             }
         )
     }

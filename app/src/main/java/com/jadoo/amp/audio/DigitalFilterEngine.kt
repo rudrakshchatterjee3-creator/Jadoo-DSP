@@ -136,6 +136,11 @@ class DigitalFilterEngine {
         }
     }
 
+    /** True if the parametric EQ is on AND at least one band is actually enabled. */
+    fun hasActiveBand(): Boolean = synchronized(lock) {
+        enabled && bands.any { it.enabled }
+    }
+
     /** Configure a filter band and recalculate its coefficients */
     fun setBand(index: Int, band: FilterBand) {
         if (index !in 0 until MAX_BANDS) return

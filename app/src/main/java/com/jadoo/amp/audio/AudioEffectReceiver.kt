@@ -10,19 +10,26 @@ class AudioEffectReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         Log.d("AudioEffectReceiver", "Received action: $action")
-        
-        if (action == AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION) {
-            val sessionId = intent.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, 0)
-            if (sessionId != 0) {
-                Log.d("AudioEffectReceiver", "Opening session: $sessionId")
-                val serviceIntent = Intent(context, JadooDspService::class.java).apply {
-                    putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
-                }
+
+        val sessionId = intent.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, 0)
+        if (sessionId == 0) return
+
+        val packageName = intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME)
+        val serviceIntent = Intent(context, JadooDspService::class.java).apply {
+            this.action = action
+            putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
+            putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+        }
+
+        when (action) {
+            AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION -> {
+                Log.d("AudioEffectReceiver", "Opening session: $sessionId ($packageName)")
                 context.startForegroundService(serviceIntent)
             }
-        } else if (action == AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION) {
-            // Can optionally inform service to release if it matches current session
-            Log.d("AudioEffectReceiver", "Closing session")
+            AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION -> {
+                Log.d("AudioEffectReceiver", "Closing session: $sessionId ($packageName)")
+                context.startForegroundService(serviceIntent)
+            }
         }
     }
 }

@@ -8,6 +8,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- "development" permission: not granted at install time, but can be
+         granted via `adb shell pm grant com.jadoo.amp android.permission.DUMP`
+         because it's declared here. Used as a fallback to read the active
+         audio session from `dumpsys media.audio_flinger`. -->
+    <uses-permission android:name="android.permission.DUMP"
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:allowBackup="true"
@@ -19,10 +25,18 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.JadOOamp">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Lets music apps list "JadOO DSP" under their "External EQ" /
+                 "Audio effects" picker (ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL).
+                 Handled in MainActivity via attachExternalSession(). -->
+            <intent-filter>
+                <action android:name="android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 
@@ -33,8 +47,8 @@
         <receiver android:name=".audio.AudioEffectReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="android.media.audiofx.action.OPEN_AUDIO_EFFECT_CONTROL_SESSION" />
-                <action android:name="android.media.audiofx.action.CLOSE_AUDIO_EFFECT_CONTROL_SESSION" />
+                <action android:name="android.media.action.OPEN_AUDIO_EFFECT_CONTROL_SESSION" />
+                <action android:name="android.media.action.CLOSE_AUDIO_EFFECT_CONTROL_SESSION" />
             </intent-filter>
         </receiver>
 

@@ -12,7 +12,7 @@ class SessionController(private val context: Context) {
     private fun hasDumpPermission(): Boolean =
         ContextCompat.checkSelfPermission(context, "android.permission.DUMP") == PackageManager.PERMISSION_GRANTED
 
-    suspend fun getActiveAudioSessionId(): Int? {
+    suspend fun getActiveAudioSessionId(): SessionInfo? {
         if (!hasDumpPermission()) {
             Log.d("SessionController", "DUMP permission not granted, skipping dumpsys")
             return null

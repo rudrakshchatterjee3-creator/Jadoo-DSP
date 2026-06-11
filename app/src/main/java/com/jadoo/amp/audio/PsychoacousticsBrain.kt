@@ -29,6 +29,12 @@ class PsychoacousticsBrain(
     private var sampleCount = 0
     private val rollingWindow = Array(WINDOW_SIZE) { FloatArray(EqBands.count) { SILENCE_DB } }
     @Volatile private var currentGains = FloatArray(EqBands.count) { 0f }
+    // Slow-moving spectral reference (EMA), seeded on the first correction cycle
+    // after start(). Each cycle measures how far the *current* spectrum sits from
+    // this trailing average — a new song/passage shows up as a deviation that
+    // drives an immediate correction shift, then decays back toward the mode's
+    // target shape as the baseline catches up to the new material.
+    @Volatile private var referenceBaseline: FloatArray? = null
 
     private val harmanTarget = floatArrayOf(
         3.5f,
@@ -48,22 +54,24 @@ class PsychoacousticsBrain(
         0.0f
     )
 
+    // A gentle "fun" curve: bass, vocal/mid presence and air all lifted, with a
+    // small dip through the boxy 160-400 Hz region to keep it from sounding muddy.
     private val balancedTarget = floatArrayOf(
+        1.2f,
+        1.0f,
         0.8f,
+        0.5f,
+        -0.3f,
+        -0.4f,
+        -0.2f,
+        0.4f,
+        0.6f,
+        0.5f,
+        0.5f,
+        0.6f,
+        0.6f,
         0.7f,
-        0.45f,
-        0.2f,
-        0.0f,
-        0.0f,
-        0.0f,
-        0.1f,
-        0.15f,
-        0.2f,
-        0.25f,
-        0.35f,
-        0.45f,
-        0.35f,
-        0.1f
+        0.5f
     )
 
     private val exquisiteMidsTarget = floatArrayOf(
@@ -100,6 +108,7 @@ class PsychoacousticsBrain(
         val existing = service.bandGains.value
         val restored = FloatArray(EqBands.count) { i -> existing.getOrElse(i) { 0f } }
         currentGains = restored
+        referenceBaseline = null
 
         startVisualizer(resolvedSessionId)
         startCorrectionLoop()
@@ -151,11 +160,13 @@ class PsychoacousticsBrain(
                             val now = System.currentTimeMillis()
                             if (now - lastCaptureMs < CAPTURE_INTERVAL_MS) return
                             lastCaptureMs = now
+                            // Visualizer reports samplingRate in milliHertz, not Hz.
+                            val samplingRateHz = samplingRate / 1000f
                             // Re-initialize filter engines if actual rate differs from default
-                            service.updateEngineSampleRate(samplingRate.toFloat())
+                            service.updateEngineSampleRate(samplingRateHz)
                             val mappedDb = mapFftToBands(
                                 fft = fft,
-                                samplingRateHz = samplingRate.toFloat(),
+                                samplingRateHz = samplingRateHz,
                                 captureSize = visualizer.captureSize
                             )
                             recordCapture(mappedDb)
@@ -201,8 +212,8 @@ class PsychoacousticsBrain(
                 }
                 val trackAverage = averageRollingWindow()
                 val correction = calculateCorrection(trackAverage)
-                Log.d(TAG, "Correction cycle: sampleCount=$sampleCount, " +
-                        "firstBand=%.2f lastBand=%.2f".format(correction[0], correction[14]))
+                Log.d(TAG, "Correction cycle: sampleCount=$sampleCount, correction=[%s]"
+                    .format(correction.joinToString(", ") { "%.2f".format(it) }))
                 glideTo(smoothTargetGains(correction))
             }
         }
@@ -239,109 +250,50 @@ class PsychoacousticsBrain(
         val rawEstimate = FloatArray(EqBands.count) { i ->
             trackAverage[i] - gainsSnapshot[i]
         }
-        val rel = normalizeAroundAverage(rawEstimate)
 
-        // ── Spectral region energies (relative to average) ──────────
-        // Bands: 0-3 sub/bass, 4-6 low-mid, 7-9 mid, 10-11 presence, 12-14 air
-        val bassEnergy     = (rel[0] + rel[1] + rel[2] + rel[3]) / 4f
-        val lowMidEnergy   = (rel[4] + rel[5] + rel[6]) / 3f
-        val midEnergy      = (rel[7] + rel[8] + rel[9]) / 3f
-        val presenceEnergy = (rel[10] + rel[11]) / 2f
-        val airEnergy      = (rel[12] + rel[13] + rel[14]) / 3f
-
-        // ── Intelligent per-song correction ─────────────────────────
-        val correction = FloatArray(EqBands.count) { 0f }
-
-        // Thin/weak bass → add warmth (most headphone deficiency is 63-100 Hz, not 40 Hz)
-        // When DBFB is active, it handles bass reinforcement via MBC — don't fight it.
-        if (bassEnergy < -1.5f && !dbfbOn) {
-            val boost = (-bassEnergy - 1.5f).coerceAtMost(2.5f)
-            correction[1] += boost * 0.4f  // 40 Hz
-            correction[2] += boost * 0.8f  // 63 Hz — main thin-bass zone
-            correction[3] += boost * 0.7f  // 100 Hz
-            correction[4] += boost * 0.2f  // 160 Hz — slight body
-        }
-        // Excessive bass (boomy) → tame. Threshold raised to 2.5 so normal bass-heavy
-        // tracks aren't falsely flagged. Cut is gentler to avoid over-correction.
-        if (bassEnergy > 2.5f) {
-            val aggressiveness = if (dbfbOn) 0.2f else 0.7f
-            val cut = (bassEnergy - 2.5f).coerceAtMost(1.5f) * aggressiveness
-            correction[0] -= cut * 0.15f
-            correction[1] -= cut * 0.3f
-            correction[2] -= cut * 0.4f
-            correction[3] -= cut * 0.25f
+        // Compare against the trailing baseline, then slide the baseline a step
+        // toward this cycle's reading. A new song/passage initially looks like a
+        // big deviation from the old baseline (immediate, visible reaction), which
+        // decays back toward zero over the following cycles as the baseline catches
+        // up — "real-time scanning" instead of a one-shot snapshot.
+        val baseline = referenceBaseline ?: rawEstimate.copyOf()
+        val deviation = normalizeAroundAverage(FloatArray(EqBands.count) { i -> rawEstimate[i] - baseline[i] })
+        referenceBaseline = FloatArray(EqBands.count) { i ->
+            baseline[i] + (rawEstimate[i] - baseline[i]) * BASELINE_EMA_ALPHA
         }
 
-        // Boxy/muddy low-mids → cut
-        if (lowMidEnergy > 1.5f) {
-            val cut = (lowMidEnergy - 1.5f).coerceAtMost(2.0f)
-            correction[4] -= cut * 0.3f
-            correction[5] -= cut * 0.5f
-            correction[6] -= cut * 0.4f
-        }
-        // Thin/recessed low-mids (brittle, hollow recordings) → gentle lift
-        if (lowMidEnergy < -2.0f) {
-            val boost = (-lowMidEnergy - 2.0f).coerceAtMost(1.5f)
-            correction[4] += boost * 0.3f
-            correction[5] += boost * 0.5f
-            correction[6] += boost * 0.4f
-        }
-
-        // Muddy mids → cut; thin mids (nasal hollow sound) → gentle lift
-        if (midEnergy > 2.0f) {
-            val cut = (midEnergy - 2.0f).coerceAtMost(1.5f)
-            correction[7] -= cut * 0.3f
-            correction[8] -= cut * 0.4f
-            correction[9] -= cut * 0.3f
-        }
-        if (midEnergy < -2.0f) {
-            val boost = (-midEnergy - 2.0f).coerceAtMost(1.5f)
-            correction[7] += boost * 0.3f
-            correction[8] += boost * 0.4f
-            correction[9] += boost * 0.3f
-        }
-
-        // Harsh upper-mids → gentle dip
-        if (presenceEnergy > 2.0f) {
-            val cut = (presenceEnergy - 2.0f).coerceAtMost(1.5f)
-            correction[10] -= cut * 0.4f
-            correction[11] -= cut * 0.3f
-        }
-        // Weak presence (muffled vocals) → lift
-        if (presenceEnergy < -1.5f) {
-            val boost = (-presenceEnergy - 1.5f).coerceAtMost(2.0f)
-            correction[10] += boost * 0.5f
-            correction[11] += boost * 0.4f
-        }
-
-        // Muffled air / old recording → open up treble.
-        // When Hi-Res is already active, it handles 8–20 kHz via MBC expansion.
-        // In that case we never push air bands upward to avoid double-boosting.
-        if (!hiResOn) {
-            if (airEnergy < -1.5f) {
-                val boost = (-airEnergy - 1.5f).coerceAtMost(2.5f)
-                correction[12] += boost * 0.5f
-                correction[13] += boost * 0.6f
-                correction[14] += boost * 0.5f
-            }
-        }
-
-        // Hi-Res guard: clamp any residual upward correction on air bands to zero.
-        if (hiResOn) {
-            correction[12] = correction[12].coerceAtMost(0f)
-            correction[13] = correction[13].coerceAtMost(0f)
-            correction[14] = correction[14].coerceAtMost(0f)
-        }
-
-        // ── Gentle blend toward selected target curve ───────────────
-        // This is a soft nudge (20%), not a hard template.
-        // When Hi-Res is on, the target blend is also capped to 0 for air bands.
+        // The selected curve's shape (mean removed) is the dominant, always-on
+        // correction — applied at full strength from the very first cycle, so each
+        // mode has its own immediate, audible character instead of waiting for
+        // region thresholds to slowly trip.
         val relTarget = normalizeAroundAverage(target)
-        for (i in 0 until EqBands.count) {
-            var targetNudge = (relTarget[i] - rel[i]) * TARGET_BLEND_STRENGTH
-            if (hiResOn && i >= 12) targetNudge = targetNudge.coerceAtMost(0f)
-            correction[i] = (correction[i] + targetNudge).coerceIn(-MAX_CORRECTION_DB, MAX_CORRECTION_DB)
+
+        // Small per-song nudge on top of the target shape: if this passage is
+        // brighter/darker/bassier than the frozen baseline, lean gently the other
+        // way so the result still converges toward the target instead of just
+        // inheriting whatever tonal quirks this particular track has.
+        val adaptive = FloatArray(EqBands.count) { i -> -deviation[i] * ADAPTIVE_STRENGTH }
+
+        // DBFB already reinforces bass via MBC — don't also push bass up adaptively.
+        if (dbfbOn) {
+            for (i in 0..3) adaptive[i] = adaptive[i].coerceAtMost(0f)
         }
+        // Hi-Res already expands 8-20 kHz — don't also push air bands up adaptively.
+        if (hiResOn) {
+            for (i in 12..14) adaptive[i] = adaptive[i].coerceAtMost(0f)
+        }
+
+        val correction = FloatArray(EqBands.count) { i ->
+            (relTarget[i] + adaptive[i]).coerceIn(-MAX_CORRECTION_DB, MAX_CORRECTION_DB)
+        }
+
+        Log.d(TAG, "Correction calc [${service.autoEqTargetMode.value}]: relTarget=[%s] deviation=[%s] adaptive=[%s] -> correction=[%s]"
+            .format(
+                relTarget.joinToString(", ") { "%.2f".format(it) },
+                deviation.joinToString(", ") { "%.2f".format(it) },
+                adaptive.joinToString(", ") { "%.2f".format(it) },
+                correction.joinToString(", ") { "%.2f".format(it) }
+            ))
 
         return correction
     }
@@ -424,8 +376,9 @@ class PsychoacousticsBrain(
             for (bin in binLow..binHigh) {
                 val byteIndex = bin * 2
                 if (byteIndex + 1 >= fft.size) break
-                val re = (fft[byteIndex].toInt() and 0xFF).toDouble()
-                val im = (fft[byteIndex + 1].toInt() and 0xFF).toDouble()
+                // FFT bytes are signed Re/Im components (can be negative); sign-extend, don't mask.
+                val re = fft[byteIndex].toInt().toDouble()
+                val im = fft[byteIndex + 1].toInt().toDouble()
                 powerSum += re * re + im * im
                 count++
             }
@@ -446,9 +399,8 @@ class PsychoacousticsBrain(
         private const val GLIDE_DURATION_MS = 2_000
         private const val GLIDE_STEP_MS = 100L
         private const val MAX_CORRECTION_DB = 4.5f
-        // Target curve blend reduced from 20% to 5% so spectral analysis dominates.
-        // Auto-EQ should correct actual problems, not push every song toward a template.
-        private const val TARGET_BLEND_STRENGTH = 0.05f
+        private const val ADAPTIVE_STRENGTH = 0.6f
+        private const val BASELINE_EMA_ALPHA = 0.3f
         private const val SILENCE_DB = -96.0f
     }
 }

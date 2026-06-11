@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.media.audiofx.AudioEffect
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -52,6 +53,9 @@ class MainActivity : ComponentActivity() {
     // Reactive DUMP permission state — refreshed every onResume so it updates when
     // the user grants it via ADB while the app is in the background.
     private var dumpPermissionEnabled by mutableStateOf(false)
+    // Set when launched via a music app's "External EQ" picker
+    // (ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL). Consumed once audioService is bound.
+    private var pendingExternalSession by mutableStateOf<Pair<Int, String?>?>(null)
     private lateinit var themePreferences: ThemePreferences
     private lateinit var eqPresetPreferences: EqPresetPreferences
     private lateinit var onboardingPreferences: OnboardingPreferences
@@ -76,6 +80,7 @@ class MainActivity : ComponentActivity() {
         eqPresetPreferences = EqPresetPreferences(this)
         onboardingPreferences = OnboardingPreferences(this)
         refreshDumpPermission()
+        handleExternalEqIntent(intent)
 
         ContextCompat.startForegroundService(
             this,
@@ -188,14 +193,24 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun MainContent(themeSettings: ThemeSettings) {
+        // Forward an "External EQ" launch to the service once it's bound.
+        LaunchedEffect(audioService, pendingExternalSession) {
+            val pending = pendingExternalSession
+            val service = audioService
+            if (pending != null && service != null) {
+                service.attachExternalSession(pending.first, pending.second)
+                pendingExternalSession = null
+            }
+        }
         val sessionId by audioService?.audioSessionId?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
         val activePackageName by audioService?.activeAppLabel?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
+        val currentOutputDevice by audioService?.currentOutputDevice?.collectAsState(initial = "Phone Speaker") ?: remember { mutableStateOf("Phone Speaker") }
         val masterEnabled by audioService?.masterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val dspBypassed by audioService?.dspBypassed?.collectAsState(initial = true) ?: remember { mutableStateOf(true) }
         val jadooEnabled by audioService?.jadooEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val autoEqTargetMode by audioService?.autoEqTargetMode?.collectAsState(initial = AutoEqTargetMode.HarmanCurve) ?: remember { mutableStateOf(AutoEqTargetMode.HarmanCurve) }
         val preGainDb by audioService?.preGainDb?.collectAsState(initial = 0f) ?: remember { mutableStateOf(0f) }
         val postGainDb by audioService?.postGainDb?.collectAsState(initial = 0f) ?: remember { mutableStateOf(0f) }
-        val headroomDb by audioService?.headroomDb?.collectAsState(initial = 0f) ?: remember { mutableStateOf(0f) }
         val hiResUpscalerEnabled by audioService?.hiResUpscalerEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val hdrDynamicsEnabled by audioService?.hdrDynamicsEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val hdrMode = audioService?.hdrMode?.collectAsState(initial = HdrMode.Restoration)?.value ?: HdrMode.Restoration
@@ -212,6 +227,10 @@ class MainActivity : ComponentActivity() {
         val analogBassPultecCut by audioService?.analogBassPultecCut?.collectAsState(initial = 0.3f) ?: remember { mutableStateOf(0.3f) }
         val analogBassPultecFreqIndex by audioService?.analogBassPultecFreqIndex?.collectAsState(initial = 2) ?: remember { mutableStateOf(2) }
 
+        // Tube Warmth
+        val tubeWarmthEnabled by audioService?.tubeWarmthEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val tubeWarmthIntensity by audioService?.tubeWarmthIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+
         // Digital Filters
         val digitalFilterBandStates by audioService?.digitalFilterBandStates?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
         var digitalFilterEnabled by remember { mutableStateOf(false) }
@@ -220,12 +239,13 @@ class MainActivity : ComponentActivity() {
             sessionId = sessionId,
             isAttached = sessionId != null,
             activePackageName = activePackageName,
+            currentOutputDevice = currentOutputDevice,
             masterEnabled = masterEnabled,
+            dspBypassed = dspBypassed,
             jadooEnabled = jadooEnabled,
             autoEqTargetMode = autoEqTargetMode,
             preGainDb = preGainDb,
             postGainDb = postGainDb,
-            headroomDb = headroomDb,
             hiResUpscalerEnabled = hiResUpscalerEnabled,
             hdrDynamicsEnabled = hdrDynamicsEnabled,
             hdrMode = hdrMode,
@@ -240,6 +260,9 @@ class MainActivity : ComponentActivity() {
             analogBassPultecBoost = analogBassPultecBoost,
             analogBassPultecCut = analogBassPultecCut,
             analogBassPultecFreqIndex = analogBassPultecFreqIndex,
+            // Tube Warmth
+            tubeWarmthEnabled = tubeWarmthEnabled,
+            tubeWarmthIntensity = tubeWarmthIntensity,
             // Digital Filters
             digitalFilterEnabled = digitalFilterEnabled,
             digitalFilterBandStates = digitalFilterBandStates,
@@ -261,9 +284,6 @@ class MainActivity : ComponentActivity() {
             },
             onPostGainChanged = { gain ->
                 audioService?.setPostGain(gain)
-            },
-            onHeadroomChanged = { db ->
-                audioService?.setHeadroomDb(db)
             },
             onHiResUpscalerToggled = { enabled ->
                 audioService?.setHiResUpscalerEnabled(enabled)
@@ -317,6 +337,12 @@ class MainActivity : ComponentActivity() {
             },
             onAnalogBassPultecFreqIndexChanged = { index ->
                 audioService?.setAnalogBassPultecFreqIndex(index)
+            },
+            onTubeWarmthEnabledChanged = { enabled ->
+                audioService?.setTubeWarmthEnabled(enabled)
+            },
+            onTubeWarmthIntensityChanged = { value ->
+                audioService?.setTubeWarmthIntensity(value)
             },
             onDigitalFilterEnabledChanged = { enabled ->
                 digitalFilterEnabled = enabled
@@ -406,6 +432,24 @@ class MainActivity : ComponentActivity() {
         dumpPermissionEnabled = ContextCompat.checkSelfPermission(
             this, "android.permission.DUMP"
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleExternalEqIntent(intent)
+    }
+
+    /**
+     * Handles ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL — sent by music apps'
+     * "External EQ" / "Audio effects" picker. Stashes the session info so the
+     * MainContent LaunchedEffect can forward it once audioService is bound.
+     */
+    private fun handleExternalEqIntent(intent: Intent?) {
+        if (intent?.action != AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL) return
+        val sessionId = intent.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, -1)
+        val packageName = intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME)
+        pendingExternalSession = sessionId to packageName
     }
 
     
