@@ -17,19 +17,7 @@
 
 ---
 
-## ⚠️ Before you install: a note about Google Play Protect
 
-When you sideload this APK, **Google Play Protect may block it** with a warning like *"Unsafe app blocked"* or flag it as harmful. **JadOO DSP is not malware** — this is a known, explainable false positive.
-
-Here's exactly why it happens: to do its job, JadOO needs `RECORD_AUDIO` (so it can attach a `Visualizer` and "see" the audio spectrum for Auto-EQ — nothing is ever recorded, saved, or sent anywhere), an always-on foreground service (so the DSP doesn't get killed mid-song), and the optional system `DUMP` permission (a fallback used to figure out which app is currently playing audio, on devices where that information isn't broadcast normally). **That combination — microphone access + a persistent background service + system-level audio session access — is the same fingerprint as audio-surveillance spyware**, so Play Protect's heuristics flag it automatically. It cannot tell the difference between "reading FFT data to run an equalizer" and "recording your microphone."
-
-**To install anyway:**
-1. When Play Protect blocks the install, tap **More details → Install anyway**.
-2. Or, before installing: open **Play Store → profile icon (top right) → Play Protect → Settings (gear icon)** and turn off **"Scan apps with Play Protect"** temporarily. You can turn it back on right after installing.
-
-Every permission and every audio API call JadOO makes is visible in this repository under [`app/src/main/java/com/jadoo/amp/`](app/src/main/java/com/jadoo/amp/) — see the [Permissions](#permissions) table below for what each one is actually used for.
-
----
 
 ## Download
 
@@ -233,5 +221,19 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 <div align="center">
 
 *Built with obsessive attention to signal quality.*
+
+## ⚠️ Before you install: a note about Google Play Protect
+
+When you sideload this APK, **Google Play Protect may block it** with a warning like *"Unsafe app blocked"* or flag it as harmful. **JadOO DSP is not malware** — this is a known, explainable false positive.
+
+Here's exactly why it happens: to do its job, JadOO needs `RECORD_AUDIO` (so it can attach a `Visualizer` and "see" the audio spectrum for Auto-EQ — nothing is ever recorded, saved, or sent anywhere), an always-on foreground service (so the DSP doesn't get killed mid-song), and the optional system `DUMP` permission (a fallback used to figure out which app is currently playing audio, on devices where that information isn't broadcast normally). **That combination — microphone access + a persistent background service + system-level audio session access — is the same fingerprint as audio-surveillance spyware**, so Play Protect's heuristics flag it automatically. It cannot tell the difference between "reading FFT data to run an equalizer" and "recording your microphone."
+
+**To install anyway:**
+1. When Play Protect blocks the install, tap **More details → Install anyway**.
+2. Or, before installing: open **Play Store → profile icon (top right) → Play Protect → Settings (gear icon)** and turn off **"Scan apps with Play Protect"** temporarily. You can turn it back on right after installing.
+
+Every permission and every audio API call JadOO makes is visible in this repository under [`app/src/main/java/com/jadoo/amp/`](app/src/main/java/com/jadoo/amp/) — see the [Permissions](#permissions) table below for what each one is actually used for.
+
+---
 
 </div>
