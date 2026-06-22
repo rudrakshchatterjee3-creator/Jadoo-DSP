@@ -72,9 +72,29 @@ object UpdateChecker {
         return parts.map { it.toInt() }
     }
 
-    /** Splits a release body into display lines — bullet markers stripped, blank lines dropped. */
-    fun changelogLines(body: String): List<String> =
-        body.lines()
-            .map { it.trim().removePrefix("-").removePrefix("*").trim() }
-            .filter { it.isNotEmpty() && it != "#" }
+    /**
+     * Splits a release body into clean display lines for the in-app dialog:
+     * stops at the second markdown header (e.g. an "## Installing" section,
+     * which isn't changelog content), drops code fences, strips bullet
+     * markers and bold/code asterisks/backticks. GitHub's release page
+     * still renders the original markdown — this is only for the
+     * plain-text in-app view.
+     */
+    fun changelogLines(body: String): List<String> {
+        val result = mutableListOf<String>()
+        var seenFirstHeader = false
+        for (rawLine in body.lines()) {
+            val trimmed = rawLine.trim()
+            if (trimmed.startsWith("#")) {
+                if (seenFirstHeader) break
+                seenFirstHeader = true
+                continue
+            }
+            if (trimmed.startsWith("```")) continue
+            val cleaned = trimmed.removePrefix("-").removePrefix("*").trim()
+                .replace("**", "").replace("`", "")
+            if (cleaned.isNotEmpty()) result.add(cleaned)
+        }
+        return result
+    }
 }
