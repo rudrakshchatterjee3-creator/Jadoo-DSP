@@ -117,6 +117,17 @@ class JadooDspService : Service() {
     private val _tubeWarmthIntensity = MutableStateFlow(0.5f)
     val tubeWarmthIntensity: StateFlow<Float> = _tubeWarmthIntensity.asStateFlow()
 
+    // ── JadOO Mobile Bass state ───────────────────────────────────────
+    // Psychoacoustic bass restoration for phone speakers (see DspEngine's
+    // BassBoost wrapper) — manual toggle + a single intensity slider, only
+    // ever shown in the UI while output is routed to the phone speaker
+    // (see currentOutputDevice), never auto-enabled.
+    private val _mobileBassEnabled = MutableStateFlow(false)
+    val mobileBassEnabled: StateFlow<Boolean> = _mobileBassEnabled.asStateFlow()
+
+    private val _mobileBassIntensity = MutableStateFlow(0.5f)
+    val mobileBassIntensity: StateFlow<Float> = _mobileBassIntensity.asStateFlow()
+
     // ── Analog Bass state ────────────────────────────────────────────
     val analogBassEngine = AnalogBassEngine()
     val digitalFilterEngine = DigitalFilterEngine()
@@ -352,6 +363,9 @@ class JadooDspService : Service() {
         // Restore Tube Warmth
         _tubeWarmthEnabled.value = state.tubeWarmthEnabled
         _tubeWarmthIntensity.value = state.tubeWarmthIntensity
+        // Restore Mobile Bass
+        _mobileBassEnabled.value = state.mobileBassEnabled
+        _mobileBassIntensity.value = state.mobileBassIntensity
         // Restore Parametric EQ
         digitalFilterEngine.enabled = state.peqEnabled
         deserializePeqBands(state.peqBands)
@@ -381,6 +395,9 @@ class JadooDspService : Service() {
         // Tube Warmth
         tubeWarmthEnabled   = _tubeWarmthEnabled.value,
         tubeWarmthIntensity = _tubeWarmthIntensity.value,
+        // Mobile Bass
+        mobileBassEnabled   = _mobileBassEnabled.value,
+        mobileBassIntensity = _mobileBassIntensity.value,
         // Parametric EQ
         peqEnabled = digitalFilterEngine.enabled,
         peqBands   = serializePeqBands()
@@ -562,6 +579,7 @@ class JadooDspService : Service() {
         if (_surroundMode.value != SurroundMode.Off) return true
         if (_analogBassEnabled.value) return true
         if (_tubeWarmthEnabled.value) return true
+        if (_mobileBassEnabled.value) return true
         if (digitalFilterEngine.hasActiveBand()) return true
         if (_preGainDb.value != 0f) return true
         if (_postGainDb.value != 0f) return true
@@ -611,7 +629,7 @@ class JadooDspService : Service() {
                 initialPostGainDb = _postGainDb.value,
                 hiResEnabled = _hiResUpscalerEnabled.value,
                 dbfbMode = _dbfbMode.value,
-                surroundPlusEnabled = _surroundMode.value != SurroundMode.Off,
+                surroundMode = _surroundMode.value,
                 hdrDynamicsEnabled = _hdrDynamicsEnabled.value,
                 hdrMode = _hdrMode.value,
                 analogBassEnabled = _analogBassEnabled.value,
@@ -621,7 +639,9 @@ class JadooDspService : Service() {
                 analogBassPultecCut = _analogBassPultecCut.value,
                 analogBassPultecFreqIndex = _analogBassPultecFreqIndex.value,
                 tubeWarmthEnabled = _tubeWarmthEnabled.value,
-                tubeWarmthIntensity = _tubeWarmthIntensity.value
+                tubeWarmthIntensity = _tubeWarmthIntensity.value,
+                mobileBassEnabled = _mobileBassEnabled.value,
+                mobileBassIntensity = _mobileBassIntensity.value
             )) {
                 _audioSessionId.value = sessionId
                 _activePackageName.value = packageName
@@ -827,6 +847,22 @@ class JadooDspService : Service() {
                 resolveAndAttachSession()
             }
         }
+        // Surround mode's own bass/treble "smile" was never reflected in the
+        // limiter's gain budget — keep it in sync live so e.g. Ultra Wide
+        // stacked with Mobile Bass/DBFB/Analog Bass doesn't push past what
+        // the limiter was set up to expect (see calculateHeadroomOffset).
+        if (_masterEnabled.value) {
+            dspEngine.updateHeadroom(
+                hiResEnabled = _hiResUpscalerEnabled.value,
+                dbfbMode = _dbfbMode.value,
+                analogBassEnabled = _analogBassEnabled.value,
+                tubeWarmthEnabled = _tubeWarmthEnabled.value,
+                tubeWarmthIntensity = _tubeWarmthIntensity.value,
+                mobileBassEnabled = _mobileBassEnabled.value,
+                mobileBassIntensity = _mobileBassIntensity.value,
+                surroundMode = mode
+            )
+        }
         saveSession()
     }
 
@@ -917,10 +953,40 @@ class JadooDspService : Service() {
                 dbfbMode = _dbfbMode.value,
                 analogBassEnabled = _analogBassEnabled.value,
                 tubeWarmthEnabled = true,
-                tubeWarmthIntensity = clamped
+                tubeWarmthIntensity = clamped,
+                mobileBassEnabled = _mobileBassEnabled.value,
+                mobileBassIntensity = _mobileBassIntensity.value,
+                surroundMode = _surroundMode.value
             )
             val currentGains = if (_jadooEnabled.value) _bandGains.value.copyOf() else manualBandGains.copyOf()
             applyAllBands(currentGains)
+        }
+        saveSession()
+    }
+
+    // ── Mobile Bass Controls ──────────────────────────────────────────
+
+    fun setMobileBassEnabled(enabled: Boolean) {
+        _mobileBassEnabled.value = enabled
+        if (_masterEnabled.value) rebuildDspTopology()
+        saveSession()
+    }
+
+    fun setMobileBassIntensity(value: Float) {
+        val clamped = value.coerceIn(0f, 1f)
+        _mobileBassIntensity.value = clamped
+        if (_mobileBassEnabled.value && _masterEnabled.value) {
+            dspEngine.updateMobileBassIntensity(clamped, _analogBassEnabled.value, _dbfbMode.value)
+            dspEngine.updateHeadroom(
+                hiResEnabled = _hiResUpscalerEnabled.value,
+                dbfbMode = _dbfbMode.value,
+                analogBassEnabled = _analogBassEnabled.value,
+                tubeWarmthEnabled = _tubeWarmthEnabled.value,
+                tubeWarmthIntensity = _tubeWarmthIntensity.value,
+                mobileBassEnabled = true,
+                mobileBassIntensity = clamped,
+                surroundMode = _surroundMode.value
+            )
         }
         saveSession()
     }
@@ -1087,7 +1153,7 @@ class JadooDspService : Service() {
             initialPostGainDb = _postGainDb.value,
             hiResEnabled = _hiResUpscalerEnabled.value,
             dbfbMode = _dbfbMode.value,
-            surroundPlusEnabled = _surroundMode.value != SurroundMode.Off,
+            surroundMode = _surroundMode.value,
             hdrDynamicsEnabled = _hdrDynamicsEnabled.value,
             hdrMode = _hdrMode.value,
             analogBassEnabled = _analogBassEnabled.value,
@@ -1097,7 +1163,9 @@ class JadooDspService : Service() {
             analogBassPultecCut = _analogBassPultecCut.value,
             analogBassPultecFreqIndex = _analogBassPultecFreqIndex.value,
             tubeWarmthEnabled = _tubeWarmthEnabled.value,
-            tubeWarmthIntensity = _tubeWarmthIntensity.value
+            tubeWarmthIntensity = _tubeWarmthIntensity.value,
+            mobileBassEnabled = _mobileBassEnabled.value,
+            mobileBassIntensity = _mobileBassIntensity.value
         )
         if (attached) {
             applyAllBands(currentGains)

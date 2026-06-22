@@ -29,7 +29,7 @@ class DspEngine {
         initialPostGainDb: Float = postGainDb,
         hiResEnabled: Boolean = false,
         dbfbMode: DbfbMode = DbfbMode.Off,
-        surroundPlusEnabled: Boolean = false,
+        surroundMode: SurroundMode = SurroundMode.Off,
         hdrDynamicsEnabled: Boolean = false,
         hdrMode: HdrMode = HdrMode.Restoration,
         analogBassEnabled: Boolean = false,
@@ -39,36 +39,50 @@ class DspEngine {
         analogBassPultecCut: Float = 0.3f,
         analogBassPultecFreqIndex: Int = 2,
         tubeWarmthEnabled: Boolean = false,
-        tubeWarmthIntensity: Float = 0.5f
+        tubeWarmthIntensity: Float = 0.5f,
+        mobileBassEnabled: Boolean = false,
+        mobileBassIntensity: Float = 0.5f
     ): Boolean = synchronized(this) {
         var newDynamicsProcessing: DynamicsProcessing? = null
         try {
             preGainDb = initialPreGainDb.coerceIn(-12f, 12f)
             postGainDb = initialPostGainDb.coerceIn(-12f, 12f)
 
-            // HiRes note: the air band (20kHz) uses getBand(index) without index++, then returns.
-            // So the actual band count for HiRes paths is (configured indices) = mbcBandCount,
-            // not mbcBandCount+1. All HiRes counts are 1 less than the sum of their parts.
-            val mbcBandCount = when {
-                hiResEnabled && dbfbMode != DbfbMode.Off && hdrDynamicsEnabled && analogBassEnabled -> 10 // AnalogBass(3)+DBFB(3)+HDR(1)+HiRes(3)
-                hiResEnabled && dbfbMode != DbfbMode.Off && hdrDynamicsEnabled -> 7 // DBFB(3)+HDR(1)+HiRes(3)
-                hiResEnabled && hdrDynamicsEnabled && analogBassEnabled -> 7 // AnalogBass(3)+HDR(1)+HiRes(3)
-                hiResEnabled && dbfbMode != DbfbMode.Off && analogBassEnabled -> 9 // AnalogBass(3)+DBFB(3)+HiRes(3)
-                hiResEnabled && hdrDynamicsEnabled -> 4           // HDR(1)+HiRes(3)
-                hiResEnabled && dbfbMode != DbfbMode.Off -> 6    // DBFB(3)+HiRes(3)
-                hiResEnabled && analogBassEnabled -> 7           // AnalogBass(3)+safety(1)+HiRes(3)
-                hiResEnabled -> 4                                 // safety(1)+HiRes(3)
-                dbfbMode != DbfbMode.Off && hdrDynamicsEnabled && analogBassEnabled -> 7 // AnalogBass(3)+DBFB(3)+HDR(1)
-                dbfbMode != DbfbMode.Off && hdrDynamicsEnabled -> 4 // DBFB(3)+HDR(1)
-                dbfbMode != DbfbMode.Off && analogBassEnabled -> 7 // AnalogBass(3)+DBFB(3)
-                dbfbMode != DbfbMode.Off -> 4                     // DBFB(3)+safety(1)
-                hdrDynamicsEnabled && analogBassEnabled -> 4      // AnalogBass(3)+HDR(1)
-                hdrDynamicsEnabled -> 1                           // HDR(1)
-                analogBassEnabled -> 4                             // AnalogBass(3)+safety(1)
-                else -> 1
-            }
+            // JadOO Mobile Bass now has its own MBC band (a leveler in the
+            // 0-400Hz "overtone" region — see configureMbc) plus a small
+            // PostEQ shelf, so it shares the PostEQ slot with Analog Bass's
+            // Pultec curve but never shares MBC bands with it. If both are
+            // on, Mobile Bass's PostEQ shape wins; Analog Bass's own MBC
+            // saturation/warmth still applies fully and independently.
+            val postEqActive = analogBassEnabled || mobileBassEnabled
 
-            val postEqBandCount = if (analogBassEnabled) 4 else 0
+            // Additive band-count model: each active feature contributes a
+            // fixed number of MBC bands, plus exactly one extra "closing"
+            // band IF nothing already configured reaches all the way to
+            // 20kHz on its own. Only HDR's own band (when HiRes is off) and
+            // HiRes's own last band ever reach 20kHz directly — every other
+            // combination needs that trailing band appended (see the
+            // Fallback section at the end of configureMbc). HiRes's own 3
+            // bands only span 5.2-20kHz, so it additionally needs 1 "safety"
+            // band to cover whatever's below 5.2kHz when neither DBFB nor
+            // HDR already extends up that far.
+            val analogBassBands = if (analogBassEnabled) 3 else 0
+            val dbfbBands = if (dbfbMode != DbfbMode.Off) 3 else 0
+            // 2 bands (transparent sub-bass guard + the leveler) when Mobile
+            // Bass alone owns the low end; just 1 (the leveler) when Analog
+            // Bass/DBFB already claim 0-90Hz with their own bands — see the
+            // matching guard-band logic in configureMbc.
+            val mobileBassBands = if (mobileBassEnabled) {
+                if (!analogBassEnabled && dbfbMode == DbfbMode.Off) 2 else 1
+            } else 0
+            val hdrBands = if (hdrDynamicsEnabled) 1 else 0
+            val preHiResSafetyBand = if (hiResEnabled && !hdrDynamicsEnabled && dbfbMode == DbfbMode.Off) 1 else 0
+            val hiResBands = if (hiResEnabled) 3 else 0
+            val needsFinalClosingBand = !hdrDynamicsEnabled && !hiResEnabled
+            val mbcBandCount = analogBassBands + dbfbBands + mobileBassBands + hdrBands +
+                preHiResSafetyBand + hiResBands + (if (needsFinalClosingBand) 1 else 0)
+
+            val postEqBandCount = if (postEqActive) 4 else 0
             val configBuilder = DynamicsProcessing.Config.Builder(
                 DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
                 2,
@@ -76,7 +90,7 @@ class DspEngine {
                 EqBands.count,
                 true,
                 mbcBandCount,
-                analogBassEnabled,  // postEqInUse: enabled for Pultec-style EQ
+                postEqActive,  // postEqInUse: enabled for Pultec-style EQ or Mobile Bass's overtone shelf
                 postEqBandCount,
                 true
             )
@@ -89,20 +103,25 @@ class DspEngine {
             configBuilder.setPreEqAllChannelsTo(preEq)
 
             val mbc = DynamicsProcessing.Mbc(true, true, mbcBandCount)
-            configureMbc(mbc, hiResEnabled, dbfbMode, hdrDynamicsEnabled, hdrMode, analogBassEnabled, analogBassDrive, analogBassWarmth)
+            configureMbc(mbc, hiResEnabled, dbfbMode, hdrDynamicsEnabled, hdrMode, analogBassEnabled, analogBassDrive, analogBassWarmth, mobileBassEnabled, mobileBassIntensity)
             configBuilder.setMbcAllChannelsTo(mbc)
 
-            // ── Analog Bass PostEQ: Pultec-style boost/cut curves ────────
-            if (analogBassEnabled) {
+            // ── PostEQ: Pultec-style Analog Bass curve, or Mobile Bass's
+            // overtone-emphasis shelf if enabled (takes priority — see above) ──
+            if (postEqActive) {
                 val postEq = DynamicsProcessing.Eq(true, true, postEqBandCount)
-                configureAnalogBassPostEq(postEq, analogBassPultecFreqIndex, analogBassPultecBoost, analogBassPultecCut, analogBassWarmth)
+                if (mobileBassEnabled) {
+                    configureMobileBassPostEq(postEq, mobileBassIntensity)
+                } else {
+                    configureAnalogBassPostEq(postEq, analogBassPultecFreqIndex, analogBassPultecBoost, analogBassPultecCut, analogBassWarmth)
+                }
                 configBuilder.setPostEqAllChannelsTo(postEq)
             }
 
             // ── Gain staging: calculate headroom offset ────────────────
             // When multiple features boost signal (HiRes, DBFB, HDR), the limiter
             // threshold must drop to prevent inter-modulation distortion.
-            val headroomDb = calculateHeadroomOffset(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity)
+            val headroomDb = calculateHeadroomOffset(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity, mobileBassEnabled, mobileBassIntensity, surroundMode)
 
             // Real safety limiter for all modes: a 10:1 ratio engaging only within
             // 0.3 dB of full scale. At normal program levels this never engages —
@@ -170,7 +189,7 @@ class DspEngine {
             setPreGain(preGainDb)
             setPostGain(postGainDb)
             configureTubeWarmthSaturation(sessionId, tubeWarmthEnabled, tubeWarmthIntensity)
-            Log.d("DspEngine", "Attached session=$sessionId hiRes=$hiResEnabled dbfb=$dbfbMode hdr=$hdrDynamicsEnabled surroundPlus=$surroundPlusEnabled mbcBands=$mbcBandCount")
+            Log.d("DspEngine", "Attached session=$sessionId hiRes=$hiResEnabled dbfb=$dbfbMode hdr=$hdrDynamicsEnabled surroundMode=$surroundMode analogBass=$analogBassEnabled mobileBass=$mobileBassEnabled mbcBands=$mbcBandCount")
             true
         } catch (e: Exception) {
             Log.e("DspEngine", "Failed to attach DynamicsProcessing — old DP preserved if present", e)
@@ -203,6 +222,47 @@ class DspEngine {
         }
     }
 
+    /**
+     * Live-update both of Mobile Bass's stages without a full topology
+     * rebuild: the small static PostEQ baseline, and the 90-300Hz punch
+     * band. The MBC band's index depends on whether Analog Bass and/or
+     * DBFB are also active (their bands always come first — see
+     * configureMbc), so the caller passes their current state to locate it.
+     */
+    fun updateMobileBassIntensity(intensity: Float, analogBassEnabled: Boolean, dbfbMode: DbfbMode) = synchronized(this) {
+        val dp = dynamicsProcessing ?: return@synchronized
+        try {
+            val clamped = intensity.coerceIn(0f, 1f)
+            // No sub-bass cut — only ever adds to what's already audible.
+            val band0 = dp.getPostEqByChannelIndex(0).getBand(0).apply {
+                cutoffFrequency = 90f
+                gain = 0f
+            }
+            val band1 = dp.getPostEqByChannelIndex(0).getBand(1).apply {
+                cutoffFrequency = 300f
+                gain = clamped * 2.5f
+            }
+            val band2 = dp.getPostEqByChannelIndex(0).getBand(2).apply {
+                cutoffFrequency = 800f
+                gain = 0f
+            }
+            dp.setPostEqBandAllChannelsTo(0, band0)
+            dp.setPostEqBandAllChannelsTo(1, band1)
+            dp.setPostEqBandAllChannelsTo(2, band2)
+
+            val guardBand = if (!analogBassEnabled && dbfbMode == DbfbMode.Off) 1 else 0
+            val mbcIndex = (if (analogBassEnabled) 3 else 0) + (if (dbfbMode != DbfbMode.Off) 3 else 0) + guardBand
+            val mbcBand = dp.getMbcByChannelIndex(0).getBand(mbcIndex).apply {
+                ratio = 1.1f + clamped * 0.2f
+                postGain = clamped * 6f
+            }
+            dp.setMbcBandAllChannelsTo(mbcIndex, mbcBand)
+            Log.d("DspEngine", "Mobile Bass updated: leveler=${clamped * 5f}dB")
+        } catch (e: Exception) {
+            Log.e("DspEngine", "Error updating Mobile Bass intensity", e)
+        }
+    }
+
     /** Live-update the Tube Warmth saturation amount without a full topology rebuild. */
     fun updateTubeWarmthIntensity(intensity: Float) = synchronized(this) {
         try {
@@ -225,12 +285,15 @@ class DspEngine {
         dbfbMode: DbfbMode,
         analogBassEnabled: Boolean,
         tubeWarmthEnabled: Boolean,
-        tubeWarmthIntensity: Float
+        tubeWarmthIntensity: Float,
+        mobileBassEnabled: Boolean = false,
+        mobileBassIntensity: Float = 0.5f,
+        surroundMode: SurroundMode = SurroundMode.Off
     ) = synchronized(this) {
         val dp = dynamicsProcessing ?: return@synchronized
         val limiter = currentLimiter ?: return@synchronized
         try {
-            val headroomDb = calculateHeadroomOffset(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity)
+            val headroomDb = calculateHeadroomOffset(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity, mobileBassEnabled, mobileBassIntensity, surroundMode)
             limiter.threshold = baseLimiterThreshold + headroomDb
             dp.setLimiterAllChannelsTo(limiter)
             Log.d("DspEngine", "Headroom updated: threshold=${limiter.threshold}dB")
@@ -247,7 +310,9 @@ class DspEngine {
         hdrMode: HdrMode = HdrMode.Restoration,
         analogBassEnabled: Boolean = false,
         analogBassDrive: Float = 0.4f,
-        analogBassWarmth: Float = 0.7f
+        analogBassWarmth: Float = 0.7f,
+        mobileBassEnabled: Boolean = false,
+        mobileBassIntensity: Float = 0.5f
     ) {
         var index = 0
 
@@ -358,6 +423,74 @@ class DspEngine {
             }
         }
 
+        // ── JadOO Mobile Bass: punch band (90-300Hz) ────────────────────
+        // Vivo/iQOO (and most modern phones generally) drive the speaker
+        // through a "smart PA" amplifier chip (e.g. Awinic/Goodix-class)
+        // with its OWN on-chip DSP doing real-time excursion/thermal
+        // protection and dynamic range control, downstream of everything
+        // Android-side — including us. The cone excursion needed for a
+        // given loudness roughly doubles per octave down, so that
+        // protection clamps hardest in the 40-90Hz range. An earlier
+        // version added a small 40-90Hz "thump" band there; it almost
+        // certainly fought that hardware protection for little audible
+        // gain while still spending the headroom budget. Consolidating
+        // everything into the one range that actually reaches the ear
+        // without a hardware fight — 90-300Hz, where excursion demands are
+        // far lower — both removes that wasted/fought stage and lets the
+        // remaining boost be generous enough to be unmistakable when toggled.
+        //
+        // 250-800Hz is the "boxy/nasal/mud" region — boosting it reads as
+        // congestion, not bass — so 300Hz is the upper edge, not higher.
+        //
+        // Dynamics are deliberately gentler than earlier attempts (ratio
+        // 1.1-1.3, threshold -16dBFS, slow 60ms attack): the smart PA chip
+        // is already doing its own compression/limiting downstream, so
+        // stacking a second aggressive compressor on top is what was
+        // reading as "processed"/"doesn't sound like music" rather than
+        // like a cleaner boost. Most program material now just gets the
+        // postGain lift directly; only genuinely loud passages get gently
+        // reined in. The slow attack still protects transients ("beat")
+        // from being clamped before they're heard.
+        //
+        // Skipped/repositioned when Analog Bass/DBFB already own part of
+        // this range with their own shaping (see levelerCutoff) — stacking
+        // another bass stage on top of theirs is what caused mud/distortion
+        // complaints earlier.
+        if (mobileBassEnabled) {
+            val clamped = mobileBassIntensity.coerceIn(0f, 1f)
+            if (!analogBassEnabled && dbfbMode == DbfbMode.Off) {
+                mbc.getBand(index++).apply {
+                    cutoffFrequency = 90f
+                    attackTime = 5f
+                    releaseTime = 65f
+                    ratio = 1f
+                    threshold = 0f
+                    kneeWidth = 0f
+                    noiseGateThreshold = -90f
+                    expanderRatio = 1f
+                    preGain = 0f
+                    postGain = 0f
+                }
+            }
+            val levelerCutoff = when {
+                analogBassEnabled -> 350f          // above Analog Bass's 300Hz top band
+                dbfbMode != DbfbMode.Off -> 320f    // above DBFB's 260Hz top band
+                else -> 300f                        // the actual target
+            }
+            mbc.getBand(index++).apply {
+                cutoffFrequency = levelerCutoff
+                attackTime = 60f
+                releaseTime = 180f
+                ratio = 1.1f + clamped * 0.2f       // 1.1-1.3 — gentle, avoids stacking with the smart PA's own limiter
+                threshold = -16f
+                kneeWidth = 8f
+                noiseGateThreshold = -85f
+                expanderRatio = 1f
+                preGain = 0f
+                postGain = clamped * 6f             // 0-6 dB — the full budget lives in this one safe band now
+            }
+        }
+
         // ── HDR: dynamics character band ──────────────────────────────
         //
         // Pure mode: this band is fully transparent (ratio/expanderRatio = 1,
@@ -388,7 +521,7 @@ class DspEngine {
                     preGain = 0f
                     postGain = 0f
                 }
-                return  // fully configured: [AnalogBass?] + [DBFB?] + HDR(1) = done
+                return  // fully configured: [AnalogBass?] + [DBFB?] + [MobileBass?] + HDR(1) = done
             }
             // With HiRes: same band, but only covers up to the HiRes crossover at 5.2 kHz
             mbc.getBand(index++).apply {
@@ -461,7 +594,7 @@ class DspEngine {
                 preGain = 0.8f
                 postGain = 4.5f             // reduced from 5.5 to prevent intermod with HDR
             }
-            return  // fully configured: DBFB(opt) + HDR(opt) + HiRes(4) = done
+            return  // fully configured: [AnalogBass?] + DBFB(opt) + [MobileBass?] + HDR(opt) + HiRes(4) = done
         }
 
         // ── Fallback: no features enabled, single transparent passthrough ──
@@ -530,6 +663,37 @@ class DspEngine {
             cutoffFrequency = 20000f
             gain = 0f
         }
+    }
+
+    /**
+     * Configure PostEQ for JadOO Mobile Bass: a small static baseline shelf,
+     * layered UNDER the dynamic MBC leveler band (see configureMbc) which
+     * supplies most of the actual lift. Real bass content is almost never a
+     * pure sine wave — its 2nd/3rd harmonics are already faintly present in
+     * the recording. This brings those overtones (roughly 90-350Hz,
+     * reproducible by even tiny speakers) forward a little while quietly
+     * cutting the sub-bass below that the speaker can't move air at, so the
+     * ear leans on the overtones it can actually hear to "fill in" the
+     * missing fundamental. Kept deliberately small here — see the MBC band
+     * for where most of the boost actually comes from — so the two stages
+     * don't stack into the same kind of over-boosted, distorted result the
+     * original static-only version had. Never cuts anything — only ever
+     * adds to what's already audible, so this can't end up sounding
+     * weaker than having the feature off. Targets 90-300Hz to match the MBC
+     * band's target — 300-800Hz is the "boxy/nasal" region, and an earlier
+     * version boosting up there was exactly what read as mud instead of
+     * bass, so there's no boost above 300Hz here at all.
+     * Band 0: no-op boundary marker (kept flat — see above)
+     * Band 1: small overtone baseline (90-300Hz)
+     * Band 2: no-op boundary marker (kept flat — was a "mud" contributor)
+     * Band 3: full-spectrum endpoint (flat, required to cover Nyquist)
+     */
+    private fun configureMobileBassPostEq(postEq: DynamicsProcessing.Eq, intensity: Float) {
+        val clamped = intensity.coerceIn(0f, 1f)
+        postEq.getBand(0).apply { cutoffFrequency = 90f;  gain = 0f }
+        postEq.getBand(1).apply { cutoffFrequency = 300f; gain = clamped * 2.5f }
+        postEq.getBand(2).apply { cutoffFrequency = 800f; gain = 0f }
+        postEq.getBand(3).apply { cutoffFrequency = 20000f; gain = 0f }
     }
 
     /** Live-update the analog bass PostEQ bands without a full topology rebuild. */
@@ -627,12 +791,33 @@ class DspEngine {
         dbfbMode: DbfbMode,
         analogBassEnabled: Boolean = false,
         tubeWarmthEnabled: Boolean = false,
-        tubeWarmthIntensity: Float = 0.5f
+        tubeWarmthIntensity: Float = 0.5f,
+        mobileBassEnabled: Boolean = false,
+        mobileBassIntensity: Float = 0.5f,
+        surroundMode: SurroundMode = SurroundMode.Off
     ): Float {
         var bassZone = 0f
         if (dbfbMode == DbfbMode.High) bassZone += 1.8f
         else if (dbfbMode == DbfbMode.Normal) bassZone += 1.0f
         if (analogBassEnabled) bassZone += 1.5f
+        // Mobile Bass combines a small known PostEQ boost (up to +2.5dB)
+        // with its 90-300Hz punch band (up to +6dB, only lightly tempered
+        // by its now-gentle compression) — both known, fixed-shape gain
+        // stages we configured ourselves, not a guess about opaque vendor
+        // behavior, so padding scales with them.
+        if (mobileBassEnabled) bassZone += mobileBassIntensity.coerceIn(0f, 1f) * 2.2f
+        // Surround mode's own bass "smile" (see surroundBandProfile in
+        // JadooDspService) was never accounted for here at all — its 63Hz/
+        // 100Hz boost stacks with every other bass feature's gain, and on
+        // Wide it's large enough to push the limiter into audible
+        // distortion once something else (e.g. Mobile Bass) is also
+        // boosting the same region. Padding by the smile's peak in that
+        // overlap (63Hz+100Hz) closes that gap.
+        bassZone += when (surroundMode) {
+            SurroundMode.Off, SurroundMode.Front -> 0f
+            SurroundMode.Traditional -> 3.0f  // 63Hz(+2.0) + 100Hz(+1.0)
+            SurroundMode.Wide -> 4.5f          // 63Hz(+3.0) + 100Hz(+1.5)
+        }
 
         var trebleZone = 0f
         if (hiResEnabled) trebleZone += 0.8f

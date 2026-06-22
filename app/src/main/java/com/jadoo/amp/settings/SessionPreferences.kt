@@ -34,6 +34,9 @@ data class SessionState(
     // Tube Warmth
     val tubeWarmthEnabled: Boolean = false,
     val tubeWarmthIntensity: Float = 0.5f,
+    // Mobile Bass
+    val mobileBassEnabled: Boolean = false,
+    val mobileBassIntensity: Float = 0.5f,
     // Parametric EQ (8 bands, serialised as "type,freq,gain,q,enabled" joined by "|")
     val peqEnabled: Boolean = false,
     val peqBands: String = ""       // "" means all-default (not yet configured)
@@ -73,6 +76,8 @@ class SessionPreferences(private val context: Context) {
         const val ANALOG_BASS_PULTEC_FREQ_IDX = "analog_bass_pultec_freq_idx"
         const val TUBE_WARMTH_ENABLED   = "tube_warmth_enabled"
         const val TUBE_WARMTH_INTENSITY = "tube_warmth_intensity"
+        const val MOBILE_BASS_ENABLED   = "mobile_bass_enabled"
+        const val MOBILE_BASS_INTENSITY = "mobile_bass_intensity"
         const val PEQ_ENABLED = "peq_enabled"
         const val PEQ_BANDS   = "peq_bands"
     }
@@ -100,6 +105,8 @@ class SessionPreferences(private val context: Context) {
         val analogBassPultecFreqIdx = stringPreferencesKey(KeyNames.ANALOG_BASS_PULTEC_FREQ_IDX)
         val tubeWarmthEnabled   = booleanPreferencesKey(KeyNames.TUBE_WARMTH_ENABLED)
         val tubeWarmthIntensity = floatPreferencesKey(KeyNames.TUBE_WARMTH_INTENSITY)
+        val mobileBassEnabled   = booleanPreferencesKey(KeyNames.MOBILE_BASS_ENABLED)
+        val mobileBassIntensity = floatPreferencesKey(KeyNames.MOBILE_BASS_INTENSITY)
         val peqEnabled  = booleanPreferencesKey(KeyNames.PEQ_ENABLED)
         val peqBands    = stringPreferencesKey(KeyNames.PEQ_BANDS)
     }
@@ -131,6 +138,8 @@ class SessionPreferences(private val context: Context) {
             p[stringKey(KeyNames.ANALOG_BASS_PULTEC_FREQ_IDX, deviceKey)] = state.analogBassPultecFreqIndex.toString()
             p[boolKey(KeyNames.TUBE_WARMTH_ENABLED, deviceKey)]   = state.tubeWarmthEnabled
             p[floatKey(KeyNames.TUBE_WARMTH_INTENSITY, deviceKey)] = state.tubeWarmthIntensity
+            p[boolKey(KeyNames.MOBILE_BASS_ENABLED, deviceKey)]   = state.mobileBassEnabled
+            p[floatKey(KeyNames.MOBILE_BASS_INTENSITY, deviceKey)] = state.mobileBassIntensity
             p[boolKey(KeyNames.PEQ_ENABLED, deviceKey)] = state.peqEnabled
             p[stringKey(KeyNames.PEQ_BANDS, deviceKey)] = state.peqBands
         }
@@ -179,6 +188,8 @@ class SessionPreferences(private val context: Context) {
                 ?: p[LegacyKeys.analogBassPultecFreqIdx])?.toIntOrNull() ?: 2,
             tubeWarmthEnabled   = bool(KeyNames.TUBE_WARMTH_ENABLED, LegacyKeys.tubeWarmthEnabled, false),
             tubeWarmthIntensity = float(KeyNames.TUBE_WARMTH_INTENSITY, LegacyKeys.tubeWarmthIntensity, 0.5f),
+            mobileBassEnabled   = bool(KeyNames.MOBILE_BASS_ENABLED, LegacyKeys.mobileBassEnabled, false),
+            mobileBassIntensity = float(KeyNames.MOBILE_BASS_INTENSITY, LegacyKeys.mobileBassIntensity, 0.5f),
             peqEnabled = bool(KeyNames.PEQ_ENABLED, LegacyKeys.peqEnabled, false),
             peqBands   = string(KeyNames.PEQ_BANDS, LegacyKeys.peqBands, "")
         )

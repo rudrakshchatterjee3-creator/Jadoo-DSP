@@ -67,3 +67,9 @@ androtweak.bat
 
 # Windows reserved name files
 nul
+
+# Claude Code local project settings (machine-specific, not for the repo)
+.claude/
+
+# Build-time scratch/cache leftovers (e.g. unpacked AAR contents)
+.tmp/

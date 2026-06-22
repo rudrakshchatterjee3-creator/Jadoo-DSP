@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.SurroundSound
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Usb
@@ -179,6 +180,11 @@ private sealed class HelpContent(
         body = "An honest tonal emulation of valve amplifier playback — useful for thin or overly clinical-sounding digital tracks.\n\nReal tube warmth comes from 2nd-order harmonic saturation, which Android's audio APIs cannot synthesise without root. This mode instead recreates the tonal signature: a gentle low-end \"bloom\" around 60-100Hz (transformer coupling), a soft high-frequency roll-off above 10kHz (output transformer/plate capacitance), and a slow, soft-knee \"glue\" compander for gentle dynamic rounding.\n\nIntensity controls the strength of all three elements together."
     )
 
+    data object MobileBass : HelpContent(
+        title = "JadOO Mobile Bass",
+        body = "Adds to the bass your phone's tiny speaker can play.\n\nReal bass sounds are almost never a pure tone — the actual note (its fundamental) is joined by quieter overtones at 2x, 3x its frequency. Phones like this also drive the speaker through a \"smart amplifier\" chip with its own hardware protection against over-excursion, which clamps hardest below ~90Hz — pushing gain there mostly fights that chip rather than getting louder. So Mobile Bass concentrates its entire boost into 90-300Hz: high enough that the protection circuit isn't fighting it, low enough to stay out of the boxy/nasal 300-800Hz mud zone. A slow-attack, gently-tempered lift lets each beat's transient through at close to full boost rather than getting squashed, so it reads as punch rather than a constant hum or a processed/compressed character. It never cuts anything, so it can't end up sounding weaker than having it off.\n\nHonest expectation: true 60Hz subwoofer output is a hard physical limit of a phone speaker no software can change — this is real-time EQ and dynamics, not the pitch-tracked harmonic synthesis a studio plugin like Waves MaxxBass uses (Android doesn't give apps raw audio access to do that without a much bigger rework). It'll make small-speaker playback noticeably fuller, not literally subwoofer-deep.\n\nIt's fully independent of Analog Bass's saturation stage — they only share a small PostEQ shape if both are on. One slider controls the amount. Only shown while audio is routed to the phone speaker."
+    )
+
     data object DigitalFilters : HelpContent(
         title = "Parametric EQ",
         body = "8-band parametric EQ with biquad IIR filters.\n\nTypes: Peak, Low/High Shelf, Low/High Pass, Band Pass, Notch, All Pass.\n\nFrequency: 20Hz–20kHz. Gain: +/-15dB. Q: 0.1–18.0.\n\nUse cases:\n• Q=12.0 at 4.3kHz to remove harsh vocal sibilance\n• Low Shelf at 80Hz to add sub-bass warmth\n• Notch at 60Hz to eliminate electrical hum\n• All Pass for phase correction in complex setups\n\nBased on Robert Bristow-Johnson's Audio EQ Cookbook coefficients."
@@ -223,6 +229,9 @@ fun DashboardScreen(
     // Tube Warmth
     tubeWarmthEnabled: Boolean,
     tubeWarmthIntensity: Float,
+    // Mobile Bass
+    mobileBassEnabled: Boolean,
+    mobileBassIntensity: Float,
     // Digital Filters
     digitalFilterEnabled: Boolean,
     digitalFilterBandStates: List<com.jadoo.amp.audio.DigitalFilterEngine.BiquadBandState>,
@@ -255,6 +264,9 @@ fun DashboardScreen(
     // Tube Warmth callbacks
     onTubeWarmthEnabledChanged: (Boolean) -> Unit,
     onTubeWarmthIntensityChanged: (Float) -> Unit,
+    // Mobile Bass callbacks
+    onMobileBassEnabledChanged: (Boolean) -> Unit,
+    onMobileBassIntensityChanged: (Float) -> Unit,
     onDigitalFilterEnabledChanged: (Boolean) -> Unit,
     onDigitalFilterBandEnabledChanged: (Int, Boolean) -> Unit,
     onDigitalFilterBandTypeChanged: (Int, DigitalFilterEngine.FilterType) -> Unit,
@@ -614,6 +626,60 @@ fun DashboardScreen(
                             valueLabel = "${String.format("%.0f", tubeWarmthIntensity * 100)}%",
                             onValueChange = onTubeWarmthIntensityChanged,
                             steps = 100)
+                        OutlinedButton(
+                            onClick = { onTubeWarmthIntensityChanged(0.5f) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Reset to default")
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        // ── MOBILE BASS ───────────────────────────────────────────────
+        // Only meaningful through the phone's own speaker — headphones,
+        // Bluetooth and USB DACs already reproduce real bass, so the
+        // section (and the toggle it controls) is hidden rather than
+        // auto-engaged/disengaged on route changes.
+        AnimatedVisibility(visible = currentOutputDevice == "Phone Speaker",
+            enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
+            exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()) {
+            Column {
+                SectionLabel("MOBILE BASS")
+                Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                        CompactToggleRow(
+                            title = "JadOO Mobile Bass",
+                            subtitle = if (mobileBassEnabled) "Restoring missing low end"
+                                       else "Psychoacoustic bass for tiny speakers",
+                            checked = mobileBassEnabled, enabled = masterEnabled,
+                            leadingIcon = { Icon(Icons.Default.Speaker, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
+                            onCheckedChange = onMobileBassEnabledChanged,
+                            onHelpClick = { helpDialog = HelpContent.MobileBass })
+                        AnimatedVisibility(visible = mobileBassEnabled && masterEnabled,
+                            enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
+                            exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()) {
+                            Column(modifier = Modifier.padding(bottom = 14.dp),
+                                   verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                LabeledSlider(
+                                    label = "Amount",
+                                    value = mobileBassIntensity,
+                                    valueLabel = "${String.format("%.0f", mobileBassIntensity * 100)}%",
+                                    onValueChange = onMobileBassIntensityChanged,
+                                    steps = 100)
+                                OutlinedButton(
+                                    onClick = { onMobileBassIntensityChanged(0.5f) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Reset to default")
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1618,6 +1684,14 @@ private fun ExpandedEqDialog(
                         .padding(bottom = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    AssistChip(
+                        onClick = {
+                            onPresetNameChanged(null)
+                            onPresetSelected(FloatArray(EqBands.count) { 0f })
+                        },
+                        label = { Text("Reset (Flat)") },
+                        enabled = enabled
+                    )
                     Presets.forEach { (name, gains) ->
                         AssistChip(
                             onClick = {

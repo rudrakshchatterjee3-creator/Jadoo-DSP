@@ -41,9 +41,13 @@ import com.jadoo.amp.settings.EqPresetPreferences
 import com.jadoo.amp.settings.OnboardingPreferences
 import com.jadoo.amp.settings.ThemePreferences
 import com.jadoo.amp.settings.ThemeSettings
+import com.jadoo.amp.settings.UpdatePreferences
 import com.jadoo.amp.ui.DashboardScreen
 import com.jadoo.amp.ui.OnboardingScreen
+import com.jadoo.amp.ui.WhatsNewDialog
 import com.jadoo.amp.ui.theme.JadOOampTheme
+import com.jadoo.amp.update.ReleaseInfo
+import com.jadoo.amp.update.UpdateChecker
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -59,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var themePreferences: ThemePreferences
     private lateinit var eqPresetPreferences: EqPresetPreferences
     private lateinit var onboardingPreferences: OnboardingPreferences
+    private lateinit var updatePreferences: UpdatePreferences
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
@@ -79,6 +84,7 @@ class MainActivity : ComponentActivity() {
         themePreferences = ThemePreferences(this)
         eqPresetPreferences = EqPresetPreferences(this)
         onboardingPreferences = OnboardingPreferences(this)
+        updatePreferences = UpdatePreferences(this)
         refreshDumpPermission()
         handleExternalEqIntent(intent)
 
@@ -124,6 +130,20 @@ class MainActivity : ComponentActivity() {
                     var hasPermissions by remember { mutableStateOf(checkPermissions()) }
                     var showBatteryDialog by remember {
                         mutableStateOf(shouldRequestBatteryOptimizationExemption())
+                    }
+                    var newRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
+
+                    // Runs on every launch, as requested — silently fails offline.
+                    // The dialog itself only appears once per genuinely new release,
+                    // tracked via UpdatePreferences, so it doesn't nag on every open.
+                    LaunchedEffect(Unit) {
+                        val release = UpdateChecker.fetchLatestRelease() ?: return@LaunchedEffect
+                        val installedVersion = try {
+                            packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
+                        } catch (_: Exception) { "0" }
+                        if (!UpdateChecker.isNewer(release.tagName, installedVersion)) return@LaunchedEffect
+                        if (updatePreferences.lastSeenTag() == release.tagName) return@LaunchedEffect
+                        newRelease = release
                     }
                     val permissionLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -184,6 +204,16 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
+
+                    newRelease?.let { release ->
+                        WhatsNewDialog(
+                            release = release,
+                            onDismiss = {
+                                newRelease = null
+                                lifecycleScope.launch { updatePreferences.markSeen(release.tagName) }
+                            }
+                        )
+                    }
                                             } // end true -> branch
                     }   // end when(onboardingDone)
                 }
@@ -231,6 +261,10 @@ class MainActivity : ComponentActivity() {
         val tubeWarmthEnabled by audioService?.tubeWarmthEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val tubeWarmthIntensity by audioService?.tubeWarmthIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
 
+        // Mobile Bass
+        val mobileBassEnabled by audioService?.mobileBassEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val mobileBassIntensity by audioService?.mobileBassIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+
         // Digital Filters
         val digitalFilterBandStates by audioService?.digitalFilterBandStates?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
         var digitalFilterEnabled by remember { mutableStateOf(false) }
@@ -263,6 +297,9 @@ class MainActivity : ComponentActivity() {
             // Tube Warmth
             tubeWarmthEnabled = tubeWarmthEnabled,
             tubeWarmthIntensity = tubeWarmthIntensity,
+            // Mobile Bass
+            mobileBassEnabled = mobileBassEnabled,
+            mobileBassIntensity = mobileBassIntensity,
             // Digital Filters
             digitalFilterEnabled = digitalFilterEnabled,
             digitalFilterBandStates = digitalFilterBandStates,
@@ -343,6 +380,12 @@ class MainActivity : ComponentActivity() {
             },
             onTubeWarmthIntensityChanged = { value ->
                 audioService?.setTubeWarmthIntensity(value)
+            },
+            onMobileBassEnabledChanged = { enabled ->
+                audioService?.setMobileBassEnabled(enabled)
+            },
+            onMobileBassIntensityChanged = { value ->
+                audioService?.setMobileBassIntensity(value)
             },
             onDigitalFilterEnabledChanged = { enabled ->
                 digitalFilterEnabled = enabled
