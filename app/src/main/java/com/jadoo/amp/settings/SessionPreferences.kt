@@ -13,8 +13,6 @@ private val Context.sessionDataStore by preferencesDataStore(name = "session_sta
 
 data class SessionState(
     val masterEnabled: Boolean = false,
-    val jadooEnabled: Boolean = false,
-    val autoEqMode: String = "HarmanCurve",
     val preGain: Float = 0f,
     val postGain: Float = 0f,
     val hiResEnabled: Boolean = false,
@@ -37,6 +35,9 @@ data class SessionState(
     // Mobile Bass
     val mobileBassEnabled: Boolean = false,
     val mobileBassIntensity: Float = 0.5f,
+    // Harmonic Exciter
+    val harmonicExciterEnabled: Boolean = false,
+    val harmonicExciterIntensity: Float = 0.5f,
     // Parametric EQ (8 bands, serialised as "type,freq,gain,q,enabled" joined by "|")
     val peqEnabled: Boolean = false,
     val peqBands: String = ""       // "" means all-default (not yet configured)
@@ -57,8 +58,6 @@ class SessionPreferences(private val context: Context) {
 
     private object KeyNames {
         const val MASTER_ENABLED   = "master_enabled"
-        const val JADOO_ENABLED    = "jadoo_enabled"
-        const val AUTO_EQ_MODE     = "auto_eq_mode"
         const val PRE_GAIN         = "pre_gain"
         const val POST_GAIN        = "post_gain"
         const val HI_RES_ENABLED   = "hi_res_enabled"
@@ -78,6 +77,8 @@ class SessionPreferences(private val context: Context) {
         const val TUBE_WARMTH_INTENSITY = "tube_warmth_intensity"
         const val MOBILE_BASS_ENABLED   = "mobile_bass_enabled"
         const val MOBILE_BASS_INTENSITY = "mobile_bass_intensity"
+        const val HARMONIC_EXCITER_ENABLED   = "harmonic_exciter_enabled"
+        const val HARMONIC_EXCITER_INTENSITY = "harmonic_exciter_intensity"
         const val PEQ_ENABLED = "peq_enabled"
         const val PEQ_BANDS   = "peq_bands"
     }
@@ -86,8 +87,6 @@ class SessionPreferences(private val context: Context) {
     // migration/bootstrap source for devices with no profile of their own yet.
     private object LegacyKeys {
         val masterEnabled = booleanPreferencesKey(KeyNames.MASTER_ENABLED)
-        val jadooEnabled  = booleanPreferencesKey(KeyNames.JADOO_ENABLED)
-        val autoEqMode    = stringPreferencesKey(KeyNames.AUTO_EQ_MODE)
         val preGain       = floatPreferencesKey(KeyNames.PRE_GAIN)
         val postGain      = floatPreferencesKey(KeyNames.POST_GAIN)
         val hiResEnabled  = booleanPreferencesKey(KeyNames.HI_RES_ENABLED)
@@ -107,6 +106,8 @@ class SessionPreferences(private val context: Context) {
         val tubeWarmthIntensity = floatPreferencesKey(KeyNames.TUBE_WARMTH_INTENSITY)
         val mobileBassEnabled   = booleanPreferencesKey(KeyNames.MOBILE_BASS_ENABLED)
         val mobileBassIntensity = floatPreferencesKey(KeyNames.MOBILE_BASS_INTENSITY)
+        val harmonicExciterEnabled   = booleanPreferencesKey(KeyNames.HARMONIC_EXCITER_ENABLED)
+        val harmonicExciterIntensity = floatPreferencesKey(KeyNames.HARMONIC_EXCITER_INTENSITY)
         val peqEnabled  = booleanPreferencesKey(KeyNames.PEQ_ENABLED)
         val peqBands    = stringPreferencesKey(KeyNames.PEQ_BANDS)
     }
@@ -119,8 +120,6 @@ class SessionPreferences(private val context: Context) {
     suspend fun save(state: SessionState, deviceKey: String) {
         context.sessionDataStore.edit { p ->
             p[boolKey(KeyNames.MASTER_ENABLED, deviceKey)]   = state.masterEnabled
-            p[boolKey(KeyNames.JADOO_ENABLED, deviceKey)]    = state.jadooEnabled
-            p[stringKey(KeyNames.AUTO_EQ_MODE, deviceKey)]   = state.autoEqMode
             p[floatKey(KeyNames.PRE_GAIN, deviceKey)]        = state.preGain
             p[floatKey(KeyNames.POST_GAIN, deviceKey)]       = state.postGain
             p[boolKey(KeyNames.HI_RES_ENABLED, deviceKey)]   = state.hiResEnabled
@@ -140,6 +139,8 @@ class SessionPreferences(private val context: Context) {
             p[floatKey(KeyNames.TUBE_WARMTH_INTENSITY, deviceKey)] = state.tubeWarmthIntensity
             p[boolKey(KeyNames.MOBILE_BASS_ENABLED, deviceKey)]   = state.mobileBassEnabled
             p[floatKey(KeyNames.MOBILE_BASS_INTENSITY, deviceKey)] = state.mobileBassIntensity
+            p[boolKey(KeyNames.HARMONIC_EXCITER_ENABLED, deviceKey)]   = state.harmonicExciterEnabled
+            p[floatKey(KeyNames.HARMONIC_EXCITER_INTENSITY, deviceKey)] = state.harmonicExciterIntensity
             p[boolKey(KeyNames.PEQ_ENABLED, deviceKey)] = state.peqEnabled
             p[stringKey(KeyNames.PEQ_BANDS, deviceKey)] = state.peqBands
         }
@@ -163,8 +164,6 @@ class SessionPreferences(private val context: Context) {
 
         return SessionState(
             masterEnabled   = bool(KeyNames.MASTER_ENABLED, LegacyKeys.masterEnabled, false),
-            jadooEnabled    = bool(KeyNames.JADOO_ENABLED, LegacyKeys.jadooEnabled, false),
-            autoEqMode      = string(KeyNames.AUTO_EQ_MODE, LegacyKeys.autoEqMode, "HarmanCurve"),
             preGain         = float(KeyNames.PRE_GAIN, LegacyKeys.preGain, 0f),
             postGain        = float(KeyNames.POST_GAIN, LegacyKeys.postGain, 0f),
             hiResEnabled    = bool(KeyNames.HI_RES_ENABLED, LegacyKeys.hiResEnabled, false),
@@ -190,6 +189,8 @@ class SessionPreferences(private val context: Context) {
             tubeWarmthIntensity = float(KeyNames.TUBE_WARMTH_INTENSITY, LegacyKeys.tubeWarmthIntensity, 0.5f),
             mobileBassEnabled   = bool(KeyNames.MOBILE_BASS_ENABLED, LegacyKeys.mobileBassEnabled, false),
             mobileBassIntensity = float(KeyNames.MOBILE_BASS_INTENSITY, LegacyKeys.mobileBassIntensity, 0.5f),
+            harmonicExciterEnabled   = bool(KeyNames.HARMONIC_EXCITER_ENABLED, LegacyKeys.harmonicExciterEnabled, false),
+            harmonicExciterIntensity = float(KeyNames.HARMONIC_EXCITER_INTENSITY, LegacyKeys.harmonicExciterIntensity, 0.5f),
             peqEnabled = bool(KeyNames.PEQ_ENABLED, LegacyKeys.peqEnabled, false),
             peqBands   = string(KeyNames.PEQ_BANDS, LegacyKeys.peqBands, "")
         )

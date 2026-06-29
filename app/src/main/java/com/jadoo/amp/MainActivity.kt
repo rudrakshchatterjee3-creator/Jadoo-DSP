@@ -30,13 +30,13 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
-import com.jadoo.amp.audio.AutoEqTargetMode
 import com.jadoo.amp.audio.DbfbMode
 import com.jadoo.amp.audio.DigitalFilterEngine
 import com.jadoo.amp.audio.HdrMode
 import com.jadoo.amp.audio.EqBands
 import com.jadoo.amp.audio.JadooDspService
 import com.jadoo.amp.audio.SurroundMode
+import com.jadoo.amp.settings.BackupCodec
 import com.jadoo.amp.settings.EqPresetPreferences
 import com.jadoo.amp.settings.OnboardingPreferences
 import com.jadoo.amp.settings.ThemePreferences
@@ -48,6 +48,7 @@ import com.jadoo.amp.ui.WhatsNewDialog
 import com.jadoo.amp.ui.theme.JadOOampTheme
 import com.jadoo.amp.update.ReleaseInfo
 import com.jadoo.amp.update.UpdateChecker
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -153,14 +154,6 @@ class MainActivity : ComponentActivity() {
 
                     LaunchedEffect(Unit) {
                         val perms = mutableListOf<String>()
-                        // RECORD_AUDIO is needed by the Visualizer used for dynamic Auto-EQ.
-                        // It's a dangerous permission and must be requested at runtime.
-                        if (ContextCompat.checkSelfPermission(
-                                this@MainActivity, Manifest.permission.RECORD_AUDIO
-                            ) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            perms.add(Manifest.permission.RECORD_AUDIO)
-                        }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             if (ContextCompat.checkSelfPermission(
                                     this@MainActivity, Manifest.permission.POST_NOTIFICATIONS
@@ -237,8 +230,6 @@ class MainActivity : ComponentActivity() {
         val currentOutputDevice by audioService?.currentOutputDevice?.collectAsState(initial = "Phone Speaker") ?: remember { mutableStateOf("Phone Speaker") }
         val masterEnabled by audioService?.masterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val dspBypassed by audioService?.dspBypassed?.collectAsState(initial = true) ?: remember { mutableStateOf(true) }
-        val jadooEnabled by audioService?.jadooEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
-        val autoEqTargetMode by audioService?.autoEqTargetMode?.collectAsState(initial = AutoEqTargetMode.HarmanCurve) ?: remember { mutableStateOf(AutoEqTargetMode.HarmanCurve) }
         val preGainDb by audioService?.preGainDb?.collectAsState(initial = 0f) ?: remember { mutableStateOf(0f) }
         val postGainDb by audioService?.postGainDb?.collectAsState(initial = 0f) ?: remember { mutableStateOf(0f) }
         val hiResUpscalerEnabled by audioService?.hiResUpscalerEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
@@ -265,9 +256,45 @@ class MainActivity : ComponentActivity() {
         val mobileBassEnabled by audioService?.mobileBassEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val mobileBassIntensity by audioService?.mobileBassIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
 
+        // Harmonic Exciter
+        val harmonicExciterEnabled by audioService?.harmonicExciterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val harmonicExciterIntensity by audioService?.harmonicExciterIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+
         // Digital Filters
         val digitalFilterBandStates by audioService?.digitalFilterBandStates?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
         var digitalFilterEnabled by remember { mutableStateOf(false) }
+
+        // Export/import: SAF pickers write/read a single JSON backup file
+        // covering the active device profile's SessionState plus every
+        // saved EQ preset — see BackupCodec.
+        val exportLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.CreateDocument("application/json")
+        ) { uri ->
+            val service = audioService ?: return@rememberLauncherForActivityResult
+            if (uri == null) return@rememberLauncherForActivityResult
+            lifecycleScope.launch {
+                val json = BackupCodec.encode(service.exportSessionState(), eqPresetPreferences.presets.first())
+                runCatching {
+                    contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+                }
+            }
+        }
+        val importLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            val service = audioService ?: return@rememberLauncherForActivityResult
+            if (uri == null) return@rememberLauncherForActivityResult
+            lifecycleScope.launch {
+                val raw = runCatching {
+                    contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
+                }.getOrNull()
+                val decoded = raw?.let { BackupCodec.decode(it) } ?: return@launch
+                service.importSessionState(decoded.sessionState)
+                decoded.eqPresets.forEach { preset ->
+                    eqPresetPreferences.savePreset(preset.name, preset.gains)
+                }
+            }
+        }
 
         DashboardScreen(
             sessionId = sessionId,
@@ -276,8 +303,6 @@ class MainActivity : ComponentActivity() {
             currentOutputDevice = currentOutputDevice,
             masterEnabled = masterEnabled,
             dspBypassed = dspBypassed,
-            jadooEnabled = jadooEnabled,
-            autoEqTargetMode = autoEqTargetMode,
             preGainDb = preGainDb,
             postGainDb = postGainDb,
             hiResUpscalerEnabled = hiResUpscalerEnabled,
@@ -300,6 +325,9 @@ class MainActivity : ComponentActivity() {
             // Mobile Bass
             mobileBassEnabled = mobileBassEnabled,
             mobileBassIntensity = mobileBassIntensity,
+            // Harmonic Exciter
+            harmonicExciterEnabled = harmonicExciterEnabled,
+            harmonicExciterIntensity = harmonicExciterIntensity,
             // Digital Filters
             digitalFilterEnabled = digitalFilterEnabled,
             digitalFilterBandStates = digitalFilterBandStates,
@@ -309,12 +337,6 @@ class MainActivity : ComponentActivity() {
             dumpPermissionEnabled = dumpPermissionEnabled,
             onMasterPowerToggled = { enabled ->
                 audioService?.setMasterPower(enabled)
-            },
-            onJadooToggled = { enabled ->
-                audioService?.setJadooEnabled(enabled)
-            },
-            onAutoEqTargetModeChanged = { mode ->
-                audioService?.setAutoEqTargetMode(mode)
             },
             onPreGainChanged = { gain ->
                 audioService?.setPreGain(gain)
@@ -387,6 +409,12 @@ class MainActivity : ComponentActivity() {
             onMobileBassIntensityChanged = { value ->
                 audioService?.setMobileBassIntensity(value)
             },
+            onHarmonicExciterEnabledChanged = { enabled ->
+                audioService?.setHarmonicExciterEnabled(enabled)
+            },
+            onHarmonicExciterIntensityChanged = { value ->
+                audioService?.setHarmonicExciterIntensity(value)
+            },
             onDigitalFilterEnabledChanged = { enabled ->
                 digitalFilterEnabled = enabled
                 audioService?.setDigitalFilterEnabled(enabled)
@@ -418,6 +446,13 @@ class MainActivity : ComponentActivity() {
             },
             onResetDigitalFilterBands = {
                 audioService?.resetDigitalFilterBands()
+            },
+            onExportSettings = {
+                val timestamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+                exportLauncher.launch("jadoo-dsp-backup-$timestamp.json")
+            },
+            onImportSettings = {
+                importLauncher.launch(arrayOf("application/json"))
             },
                     )
     }

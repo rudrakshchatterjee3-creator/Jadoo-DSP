@@ -26,8 +26,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material3.Button
@@ -88,9 +90,9 @@ private val onboardingPages = listOf(
         visual = OnboardingVisual.Headphones
     ),
     OnboardingPage(
-        tag = "AUTO-EQ",
+        tag = "GRAPHIC EQ",
         headline = "Precision that listens.",
-        body = "A full 15-band graphic EQ at ISO standard frequencies. PsychoacousticsBrain watches your music in real time and nudges the curve toward what your ears actually want.",
+        body = "A full 15-band graphic EQ at ISO standard frequencies, plus an 8-band parametric EQ for surgical control — shape your sound exactly the way you want it.",
         accentColor = Color(0xFFFFCC80),
         visual = OnboardingVisual.EqBars
     ),
@@ -243,13 +245,22 @@ private fun PageContent(page: OnboardingPage) {
         label = "pulse"
     )
 
+    // A fixed-size visual box plus weight(0.5f)/weight(1f) spacers had no
+    // scroll fallback — on shorter screens, or pages with longer body text
+    // (e.g. the Analog Bass/Surround+ page), the available space could run
+    // out and Compose would collapse the spacers to near-zero, jamming the
+    // visual and text together with no breathing room ("muffled up"). A
+    // scrollable column with fixed, modest gaps instead of competing
+    // weights guarantees the same comfortable spacing on every screen size,
+    // scrolling only on the rare page/device where it's actually needed.
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.weight(0.5f))
+        Spacer(Modifier.height(24.dp))
 
         // Visual illustration
         Box(
@@ -265,7 +276,7 @@ private fun PageContent(page: OnboardingPage) {
             }
         }
 
-        Spacer(Modifier.weight(0.5f))
+        Spacer(Modifier.height(28.dp))
 
         // Chip tag
         Box(
@@ -304,7 +315,7 @@ private fun PageContent(page: OnboardingPage) {
             lineHeight = 21.sp
         )
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(24.dp))
     }
 }
 

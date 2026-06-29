@@ -56,22 +56,6 @@ For the surgically precise. Each of the 8 bands is fully configurable:
 
 Coefficients come straight from Robert Bristow-Johnson's Audio EQ Cookbook.
 
-### 🧠 Auto-EQ — PsychoacousticsBrain
-This is the one that required the most care to get right.
-
-Auto-EQ listens to whatever is playing through a real-time FFT visualizer, builds a rolling spectral picture over a 12-sample window, and every 3 seconds quietly nudges the EQ toward a correction target — without you having to do anything. Three target curves are available:
-
-| Mode | Character |
-|------|-----------|
-| **Harman Curve** | Research-backed consumer preference target. More bass, gentle treble lift |
-| **Balanced** | A gentle "fun" curve — lifted bass, vocal presence and air, with a small dip through the boxy 160-400 Hz region |
-| **Exquisite Mids** | Forward mids, recessed bass and air. Ideal for vocals and acoustic |
-
-Every correction glides in smoothly over 2 seconds so you never hear a sudden jump. It waits for at least 4 clean FFT frames before making any moves. It skips silence entirely. And it caps corrections at **±4.5 dB** — enough to fix problems, not enough to wreck a mix.
-
-> *"Auto-EQ should correct actual problems, not push every song toward a template."*
-> — source comment, `PsychoacousticsBrain.kt`
-
 ### 🔥 Tube Warmth
 A tonal emulation of valve-amp playback, for thin or overly clinical-sounding digital tracks. Real tube saturation needs raw-sample access Android won't grant without root, so Tube Warmth instead recreates the *signature* of one: a gentle low-end "bloom" around 60–100 Hz (transformer coupling), a soft high-frequency roll-off above 10 kHz (output transformer / plate capacitance), and a slow soft-knee "glue" compander (via `LoudnessEnhancer`, 0–4 dB target gain) for gentle dynamic rounding. One Intensity slider controls all three together.
 
@@ -118,7 +102,16 @@ Every mode applies a bass+treble "smile" EQ — identical in both ears — to ma
 The left/right swaps **alternate sign band-to-band and always sum to zero** for a given mode — left leads at one treble band, right leads at the next — so the image gets wider without anything ever drifting permanently toward one ear.
 
 ### 🥁 DBFB — Dynamic Bass Feedback
-Three modes (Off, Normal, High) that use a multiband compressor in the bass region (below ~260 Hz) to dynamically reinforce punch. When DBFB is active, Auto-EQ backs off its own bass corrections and lets DBFB handle the heavy lifting, avoiding double-correction.
+Three modes (Off, Normal, High) that use a multiband compressor in the bass region (below ~260 Hz) to dynamically reinforce punch.
+
+### 📱 JadOO Mobile Bass
+Adds fuller bass specifically tuned for your phone's own tiny speaker — aware of the hardware excursion limits built into modern phone amplifiers. Only shows up when audio is actually routed to the phone speaker.
+
+### ✨ Harmonic Exciter
+A BBE/Aphex-style presence enhancer that adds clarity and sparkle in the 2–8 kHz range. Works on every output, including headphones and Bluetooth.
+
+### 💾 Export & Import
+Back up every setting — including your manual EQ curve and saved presets — to a single file, and restore it later or move it to another device.
 
 ---
 
@@ -135,11 +128,10 @@ MainActivity (Compose)
             │                           Parametric EQ (8 independent bands)
             ├── AnalogBassEngine     — holds Drive/Warmth/Pultec parameters,
             │                           translated into MBC + PostEQ bands by DspEngine
-            ├── PsychoacousticsBrain — Auto-EQ FFT analysis & glide loop
             └── SessionController    — per-app audio session resolution
 ```
 
-The service runs as a **foreground service** with an ongoing notification, and applies effects via Android's `DynamicsProcessing`, `LoudnessEnhancer`, `Visualizer` and `AudioEffect` APIs — no root required. JadOO can register as the system's **External Equalizer** (`DISPLAY_AUDIO_EFFECT_CONTROL_PANEL`), so apps like media players can hand their session to it directly; for everything else it falls back to `MediaSessionManager` and an optional `DumpSys`-based scan to find the active session.
+The service runs as a **foreground service** with an ongoing notification, and applies effects via Android's `DynamicsProcessing`, `LoudnessEnhancer` and `AudioEffect` APIs — no root required. JadOO can register as the system's **External Equalizer** (`DISPLAY_AUDIO_EFFECT_CONTROL_PANEL`), so apps like media players can hand their session to it directly; for everything else it falls back to `MediaSessionManager` and an optional `DumpSys`-based scan to find the active session.
 
 All state is managed as `StateFlow` and observed by the Compose UI. The service exposes a local `IBinder` so the UI and service share the same process without IPC overhead.
 
@@ -148,7 +140,7 @@ All state is managed as `StateFlow` and observed by the Compose UI. The service 
 ## UI Screens
 
 ### Dashboard
-The main screen. Every module — Graphic EQ, Auto-EQ, Tube Warmth, Analog Bass, Hi-Res Upscaler, HDR Dynamics, Surround+, DBFB — has its own card: toggle on/off, adjust intensity, tap to expand. The active app label and audio session ID are shown live at the top so you always know what's being processed, plus a help (ⓘ) button on every card explaining exactly what it does.
+The main screen. Every module — Graphic EQ, Tube Warmth, Analog Bass, Hi-Res Upscaler, HDR Dynamics, Surround+, DBFB — has its own card: toggle on/off, adjust intensity, tap to expand. The active app label and audio session ID are shown live at the top so you always know what's being processed, plus a help (ⓘ) button on every card explaining exactly what it does.
 
 ### Parametric EQ
 A full-screen editor with:
@@ -165,12 +157,12 @@ A full-screen editor with:
 
 JadOO never sees raw PCM samples. Instead, it attaches a single `DynamicsProcessing` effect to Android's **global audio session** — the shared mix bus that every app's audio passes through after the OS sums it. That one effect instance has up to four stages, and every feature you toggle is translated into gain/ratio/threshold numbers for one or more bands inside it:
 
-1. **Pre-EQ** (15 bands) — your manual Graphic EQ, Auto-EQ's live corrections, and Surround+'s left/right treble swap, all summed per band
+1. **Pre-EQ** (15 bands) — your manual Graphic EQ and Surround+'s left/right treble swap, all summed per band
 2. **Multiband Compressor (MBC)** — up to 10 bands allocated dynamically across Analog Bass saturation, DBFB bass reinforcement, HDR Dynamics, and the Hi-Res air bands, each running on its own frequency range
 3. **Post-EQ** — Pultec-style boost/cut bands for Analog Bass
 4. **Limiter** — a safety ceiling whose threshold is recalculated from a "headroom budget" every time a gain-adding feature is toggled, so stacking features doesn't silently start clipping
 
-Tube Warmth runs as a separate `LoudnessEnhancer` effect alongside this chain, and Auto-EQ runs a `Visualizer` purely for FFT analysis — neither touches the DynamicsProcessing topology directly.
+Tube Warmth runs as a separate `LoudnessEnhancer` effect alongside this chain and never touches the DynamicsProcessing topology directly.
 
 Because every feature shares one effect instance, turning any module on or off rebuilds the whole topology in one atomic step — there's no "stack of independent effects" to get out of sync.
 
@@ -200,7 +192,6 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 | Permission | Why |
 |------------|-----|
-| `RECORD_AUDIO` | Attaches a `Visualizer` to the audio session for Auto-EQ's FFT analysis. Audio is read in memory only — never recorded, stored, or transmitted. |
 | `MODIFY_AUDIO_SETTINGS` | Required to create and configure `DynamicsProcessing` / `AudioEffect` / `LoudnessEnhancer` instances |
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | Keeps the DSP service alive while music plays, with the media-playback foreground service type required on Android 14+ |
 | `POST_NOTIFICATIONS` | Shows the persistent "DSP active" notification (required to post notifications on Android 13+) |
@@ -226,7 +217,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 When you sideload this APK, **Google Play Protect may block it** with a warning like *"Unsafe app blocked"* or flag it as harmful. **JadOO DSP is not malware** — this is a known, explainable false positive.
 
-Here's exactly why it happens: to do its job, JadOO needs `RECORD_AUDIO` (so it can attach a `Visualizer` and "see" the audio spectrum for Auto-EQ — nothing is ever recorded, saved, or sent anywhere), an always-on foreground service (so the DSP doesn't get killed mid-song), and the optional system `DUMP` permission (a fallback used to figure out which app is currently playing audio, on devices where that information isn't broadcast normally). **That combination — microphone access + a persistent background service + system-level audio session access — is the same fingerprint as audio-surveillance spyware**, so Play Protect's heuristics flag it automatically. It cannot tell the difference between "reading FFT data to run an equalizer" and "recording your microphone."
+Here's exactly why it can happen: to do its job, JadOO needs an always-on foreground service (so the DSP doesn't get killed mid-song) and the optional system `DUMP` permission (a fallback used to figure out which app is currently playing audio, on devices where that information isn't broadcast normally). Play Protect's heuristics can flag that combination automatically, even though no microphone or audio-recording access is involved.
 
 **To install anyway:**
 1. When Play Protect blocks the install, tap **More details → Install anyway**.

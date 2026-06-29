@@ -41,7 +41,6 @@ class JadooDspService : Service() {
     private val binder = LocalBinder()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val dspEngine = DspEngine()
-    lateinit var brain: PsychoacousticsBrain
     private lateinit var mediaSessionManager: MediaSessionManager
     private lateinit var sessionController: SessionController
     private lateinit var sessionPreferences: SessionPreferences
@@ -77,12 +76,6 @@ class JadooDspService : Service() {
     // passes through completely untouched (true bypass).
     private val _dspBypassed = MutableStateFlow(true)
     val dspBypassed: StateFlow<Boolean> = _dspBypassed.asStateFlow()
-
-    private val _jadooEnabled = MutableStateFlow(false)
-    val jadooEnabled: StateFlow<Boolean> = _jadooEnabled.asStateFlow()
-
-    private val _autoEqTargetMode = MutableStateFlow(AutoEqTargetMode.HarmanCurve)
-    val autoEqTargetMode: StateFlow<AutoEqTargetMode> = _autoEqTargetMode.asStateFlow()
 
     private val manualBandGains = FloatArray(EqBands.count) { 0f }
 
@@ -128,6 +121,15 @@ class JadooDspService : Service() {
     private val _mobileBassIntensity = MutableStateFlow(0.5f)
     val mobileBassIntensity: StateFlow<Float> = _mobileBassIntensity.asStateFlow()
 
+    // ── Harmonic Exciter state ────────────────────────────────────────
+    // BBE/Aphex-style presence-band saturation (2-8kHz) for added
+    // sparkle/clarity — works on every output device, unlike Mobile Bass.
+    private val _harmonicExciterEnabled = MutableStateFlow(false)
+    val harmonicExciterEnabled: StateFlow<Boolean> = _harmonicExciterEnabled.asStateFlow()
+
+    private val _harmonicExciterIntensity = MutableStateFlow(0.5f)
+    val harmonicExciterIntensity: StateFlow<Float> = _harmonicExciterIntensity.asStateFlow()
+
     // ── Analog Bass state ────────────────────────────────────────────
     val analogBassEngine = AnalogBassEngine()
     val digitalFilterEngine = DigitalFilterEngine()
@@ -158,10 +160,6 @@ class JadooDspService : Service() {
         get() = digitalFilterEngine.bandStates
 
     private var saveDebounceJob: Job? = null
-    // Generation counter guarding delayed brain.start() restarts (AutoEQ mode
-    // changes, DSP topology rebuilds) so only the most recently scheduled
-    // restart actually fires, even if several are queued back-to-back.
-    private var autoEqRestartToken = 0
     // Generation counter guarding the delayed PreEQ "settle" re-apply after
     // HDR Dynamics is enabled (see setHdrDynamicsEnabled).
     private var hdrSettleToken = 0
@@ -176,7 +174,6 @@ class JadooDspService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        brain = PsychoacousticsBrain(this)
         // Detect actual device sample rate (fallback to 48000 if unavailable)
         val detectedRate = try {
             (getSystemService(Context.AUDIO_SERVICE) as AudioManager)
@@ -283,7 +280,7 @@ class JadooDspService : Service() {
      * default-initialize) the profile for the NEW device and apply it live.
      * Reuses rebuildDspTopology() — already proven to correctly re-attach the
      * DSP with every settings category (EQ gains, hiRes/dbfb/hdr/analogBass/
-     * tubeWarmth topology, surround tilt, PEQ) and restart Auto-EQ if needed.
+     * tubeWarmth topology, surround tilt, PEQ).
      */
     private fun switchToDeviceProfile(newKey: String, newLabel: String) {
         saveDebounceJob?.cancel()
@@ -296,11 +293,7 @@ class JadooDspService : Service() {
                 currentDeviceKey = newKey
                 _currentOutputDevice.value = newLabel
 
-                val wasJadooEnabled = _jadooEnabled.value
                 applyState(newState)
-                if (wasJadooEnabled && !_jadooEnabled.value) {
-                    brain.stop()
-                }
                 if (_masterEnabled.value) {
                     rebuildDspTopology()
                 }
@@ -317,7 +310,6 @@ class JadooDspService : Service() {
                 applyState(state)
 
                 if (state.masterEnabled) setMasterPower(true)
-                if (state.jadooEnabled)  setJadooEnabled(true)
                 val restoredSurround = SurroundMode.entries
                     .firstOrNull { it.name == state.surroundMode } ?: SurroundMode.Off
                 if (restoredSurround != SurroundMode.Off) setSurroundMode(restoredSurround)
@@ -331,8 +323,6 @@ class JadooDspService : Service() {
      * (restoreSession, switchToDeviceProfile) decide what to do afterwards.
      */
     private fun applyState(state: SessionState) {
-        _autoEqTargetMode.value = AutoEqTargetMode.entries
-            .firstOrNull { it.name == state.autoEqMode } ?: AutoEqTargetMode.HarmanCurve
         _preGainDb.value  = state.preGain
         _postGainDb.value = state.postGain
         _hiResUpscalerEnabled.value = state.hiResEnabled
@@ -366,17 +356,17 @@ class JadooDspService : Service() {
         // Restore Mobile Bass
         _mobileBassEnabled.value = state.mobileBassEnabled
         _mobileBassIntensity.value = state.mobileBassIntensity
+        // Restore Harmonic Exciter
+        _harmonicExciterEnabled.value = state.harmonicExciterEnabled
+        _harmonicExciterIntensity.value = state.harmonicExciterIntensity
         // Restore Parametric EQ
         digitalFilterEngine.enabled = state.peqEnabled
         deserializePeqBands(state.peqBands)
-        _jadooEnabled.value = state.jadooEnabled && _masterEnabled.value
     }
 
     /** Snapshot every current setting into a [SessionState] for persistence. */
     private fun buildSessionState(): SessionState = SessionState(
         masterEnabled = _masterEnabled.value,
-        jadooEnabled  = _jadooEnabled.value,
-        autoEqMode    = _autoEqTargetMode.value.name,
         preGain       = _preGainDb.value,
         postGain      = _postGainDb.value,
         hiResEnabled  = _hiResUpscalerEnabled.value,
@@ -398,6 +388,9 @@ class JadooDspService : Service() {
         // Mobile Bass
         mobileBassEnabled   = _mobileBassEnabled.value,
         mobileBassIntensity = _mobileBassIntensity.value,
+        // Harmonic Exciter
+        harmonicExciterEnabled   = _harmonicExciterEnabled.value,
+        harmonicExciterIntensity = _harmonicExciterIntensity.value,
         // Parametric EQ
         peqEnabled = digitalFilterEngine.enabled,
         peqBands   = serializePeqBands()
@@ -407,6 +400,26 @@ class JadooDspService : Service() {
         saveDebounceJob?.cancel()
         saveDebounceJob = serviceScope.launch(Dispatchers.IO) {
             delay(800)
+            sessionPreferences.save(buildSessionState(), currentDeviceKey)
+        }
+    }
+
+    /** Snapshot the active device profile's settings for export — see BackupCodec. */
+    fun exportSessionState(): SessionState = buildSessionState()
+
+    /**
+     * Apply an imported [SessionState] to the active device profile: updates
+     * every in-memory flow/engine, rebuilds the live DSP topology if the
+     * engine is running, and persists immediately (bypassing the normal
+     * 800ms debounce so a backup is never lost to a quick app kill right
+     * after import).
+     */
+    fun importSessionState(state: SessionState) {
+        saveDebounceJob?.cancel()
+        applyState(state)
+        if (state.masterEnabled) setMasterPower(true)
+        if (_masterEnabled.value) rebuildDspTopology()
+        serviceScope.launch(Dispatchers.IO) {
             sessionPreferences.save(buildSessionState(), currentDeviceKey)
         }
     }
@@ -516,7 +529,6 @@ class JadooDspService : Service() {
             (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(it)
         }
         audioDeviceCallback = null
-        brain.stop()
         dspEngine.release()
         serviceScope.cancel()
     }
@@ -572,7 +584,6 @@ class JadooDspService : Service() {
      * nothing is ever processed unless something is actually configured.
      */
     private fun hasActiveDspFeatures(): Boolean {
-        if (_jadooEnabled.value) return true
         if (_hiResUpscalerEnabled.value) return true
         if (_dbfbMode.value != DbfbMode.Off) return true
         if (_hdrDynamicsEnabled.value) return true
@@ -580,6 +591,7 @@ class JadooDspService : Service() {
         if (_analogBassEnabled.value) return true
         if (_tubeWarmthEnabled.value) return true
         if (_mobileBassEnabled.value) return true
+        if (_harmonicExciterEnabled.value) return true
         if (digitalFilterEngine.hasActiveBand()) return true
         if (_preGainDb.value != 0f) return true
         if (_postGainDb.value != 0f) return true
@@ -622,9 +634,9 @@ class JadooDspService : Service() {
         }
         _dspBypassed.value = false
         if (dspEngine.dynamicsProcessing == null || _audioSessionId.value != sessionId) {
-            if (dspEngine.attach(
+            val attached = dspEngine.attach(
                 sessionId = sessionId,
-                initialGains = _bandGains.value,
+                initialGains = manualBandGains.copyOf(),
                 initialPreGainDb = _preGainDb.value,
                 initialPostGainDb = _postGainDb.value,
                 hiResEnabled = _hiResUpscalerEnabled.value,
@@ -641,18 +653,40 @@ class JadooDspService : Service() {
                 tubeWarmthEnabled = _tubeWarmthEnabled.value,
                 tubeWarmthIntensity = _tubeWarmthIntensity.value,
                 mobileBassEnabled = _mobileBassEnabled.value,
-                mobileBassIntensity = _mobileBassIntensity.value
-            )) {
+                mobileBassIntensity = _mobileBassIntensity.value,
+                harmonicExciterEnabled = _harmonicExciterEnabled.value,
+                harmonicExciterIntensity = _harmonicExciterIntensity.value
+            )
+            if (attached) {
                 _audioSessionId.value = sessionId
                 _activePackageName.value = packageName
                 updateNotification()
                 applyDigitalFilterToPreEq()
+            } else {
+                // attach() failed for the NEW session (e.g. a malformed band
+                // config from a feature combination, or a device band-count
+                // limit) — any DynamicsProcessing instance that survived is
+                // still bound to the OLD session, not this one, so the new
+                // track/app would otherwise play with NO DSP at all while
+                // the UI still shows every feature as on. Fall back to a
+                // plain transparent passthrough on the new session so
+                // processing keeps working (even if every custom feature is
+                // briefly inert) instead of going silent until the user
+                // happens to toggle something.
+                Log.e(TAG, "attach() failed for session=$sessionId — falling back to a transparent passthrough")
+                dspEngine.release()
+                if (dspEngine.attach(sessionId = sessionId, initialGains = manualBandGains.copyOf())) {
+                    _audioSessionId.value = sessionId
+                    _activePackageName.value = packageName
+                    updateNotification()
+                } else {
+                    _dspBypassed.value = true
+                }
             }
         }
     }
 
     private fun detachSession() {
-        brain.stop()
         dspEngine.release()
         _audioSessionId.value = null
         _dspBypassed.value = true
@@ -674,9 +708,6 @@ class JadooDspService : Service() {
         } else {
             resolveAndAttachSession(packageName)
         }
-        if (_jadooEnabled.value) {
-            brain.start(_audioSessionId.value)
-        }
         updateNotification()
         saveSession()
     }
@@ -685,14 +716,7 @@ class JadooDspService : Service() {
         _masterEnabled.value = enabled
         if (enabled) {
             resolveAndAttachSession()
-            if (_jadooEnabled.value) {
-                brain.start(_audioSessionId.value)
-            }
         } else {
-            // Do NOT clear _jadooEnabled — it's a user preference that should
-            // persist across master power cycles. When master comes back on,
-            // Jadoo will automatically restart if it was previously enabled.
-            brain.stop()
             updateBandGains(manualBandGains.copyOf())
             detachSession()
         }
@@ -700,54 +724,16 @@ class JadooDspService : Service() {
         saveSession()
     }
 
-    fun setJadooEnabled(enabled: Boolean) {
-        _jadooEnabled.value = enabled && _masterEnabled.value
-        if (_jadooEnabled.value) {
-            // Wait for the (async) session resolve/attach to finish before
-            // starting the brain — starting it immediately can hand it a
-            // stale or null session ID, leaving Auto-EQ silently inert until
-            // toggled again.
-            val token = ++autoEqRestartToken
-            resolveAndAttachSession {
-                if (_jadooEnabled.value && token == autoEqRestartToken) brain.start(_audioSessionId.value)
-            }
-        } else {
-            brain.stop()
-            restoreManualEq()
-        }
-        saveSession()
-    }
-
-    fun setAutoEqTargetMode(mode: AutoEqTargetMode) {
-        _autoEqTargetMode.value = mode
-        if (_jadooEnabled.value) {
-            // The brain's correction loop reads autoEqTargetMode.value each cycle,
-            // so it will adapt on the next correction pass without a full restart.
-            // Only restart if we need to flush the rolling window (e.g. drastic change).
-            // A soft restart preserves currentGains to avoid audible jumps:
-            // stop clears FFT buffer, start re-syncs gains from the current bandGains.
-            brain.stop()
-            // Small delay to ensure cancellation propagates before restarting.
-            // Token guard: if the mode (or another restart) changes again
-            // before this fires, skip — only the latest restart should run.
-            val token = ++autoEqRestartToken
-            serviceScope.launch {
-                kotlinx.coroutines.delay(50)
-                if (_jadooEnabled.value && token == autoEqRestartToken) brain.start(_audioSessionId.value)
-            }
-        }
-        saveSession()
-    }
-    
     fun setManualBandGain(bandIndex: Int, gainDb: Float) {
         if (bandIndex !in 0 until EqBands.count) return
 
-        manualBandGains[bandIndex] = gainDb.coerceIn(-15f, 15f)
+        val clamped = gainDb.coerceIn(-15f, 15f)
+        manualBandGains[bandIndex] = clamped
         updateBandGains(manualBandGains.copyOf())  // show raw gains without hi-res
 
-        if (_masterEnabled.value && !_jadooEnabled.value) {
+        if (_masterEnabled.value) {
             attachGlobalSession()
-            applyAllBands(manualBandGains)
+            applySingleBand(bandIndex, clamped)
         }
         saveSession()
     }
@@ -763,7 +749,7 @@ class JadooDspService : Service() {
             manualBandGains[index] = gains.getOrNull(index)?.coerceIn(-15f, 15f) ?: 0f
         }
         updateBandGains(manualBandGains.copyOf())
-        if (_masterEnabled.value && !_jadooEnabled.value) {
+        if (_masterEnabled.value) {
             attachGlobalSession()
             applyAllBands(manualBandGains)
         }
@@ -812,7 +798,7 @@ class JadooDspService : Service() {
                 // shortly after gives it time to settle — mirroring the manual
                 // "disable then re-enable" workaround that already fixes this.
                 val token = ++hdrSettleToken
-                val gainsSnapshot = if (_jadooEnabled.value) _bandGains.value.copyOf() else manualBandGains.copyOf()
+                val gainsSnapshot = manualBandGains.copyOf()
                 serviceScope.launch {
                     kotlinx.coroutines.delay(200)
                     if (_hdrDynamicsEnabled.value && token == hdrSettleToken) applyAllBands(gainsSnapshot)
@@ -860,7 +846,9 @@ class JadooDspService : Service() {
                 tubeWarmthIntensity = _tubeWarmthIntensity.value,
                 mobileBassEnabled = _mobileBassEnabled.value,
                 mobileBassIntensity = _mobileBassIntensity.value,
-                surroundMode = mode
+                surroundMode = mode,
+                harmonicExciterEnabled = _harmonicExciterEnabled.value,
+                harmonicExciterIntensity = _harmonicExciterIntensity.value
             )
         }
         saveSession()
@@ -956,10 +944,11 @@ class JadooDspService : Service() {
                 tubeWarmthIntensity = clamped,
                 mobileBassEnabled = _mobileBassEnabled.value,
                 mobileBassIntensity = _mobileBassIntensity.value,
-                surroundMode = _surroundMode.value
+                surroundMode = _surroundMode.value,
+                harmonicExciterEnabled = _harmonicExciterEnabled.value,
+                harmonicExciterIntensity = _harmonicExciterIntensity.value
             )
-            val currentGains = if (_jadooEnabled.value) _bandGains.value.copyOf() else manualBandGains.copyOf()
-            applyAllBands(currentGains)
+            applyAllBands(manualBandGains.copyOf())
         }
         saveSession()
     }
@@ -985,7 +974,44 @@ class JadooDspService : Service() {
                 tubeWarmthIntensity = _tubeWarmthIntensity.value,
                 mobileBassEnabled = true,
                 mobileBassIntensity = clamped,
-                surroundMode = _surroundMode.value
+                surroundMode = _surroundMode.value,
+                harmonicExciterEnabled = _harmonicExciterEnabled.value,
+                harmonicExciterIntensity = _harmonicExciterIntensity.value
+            )
+        }
+        saveSession()
+    }
+
+    // ── Harmonic Exciter Controls ──────────────────────────────────────
+
+    fun setHarmonicExciterEnabled(enabled: Boolean) {
+        _harmonicExciterEnabled.value = enabled
+        if (_masterEnabled.value) rebuildDspTopology()
+        saveSession()
+    }
+
+    fun setHarmonicExciterIntensity(value: Float) {
+        val clamped = value.coerceIn(0f, 1f)
+        _harmonicExciterIntensity.value = clamped
+        if (_harmonicExciterEnabled.value && _masterEnabled.value) {
+            dspEngine.updateHarmonicExciterIntensity(
+                clamped,
+                _analogBassEnabled.value,
+                _dbfbMode.value,
+                _mobileBassEnabled.value,
+                _hdrDynamicsEnabled.value
+            )
+            dspEngine.updateHeadroom(
+                hiResEnabled = _hiResUpscalerEnabled.value,
+                dbfbMode = _dbfbMode.value,
+                analogBassEnabled = _analogBassEnabled.value,
+                tubeWarmthEnabled = _tubeWarmthEnabled.value,
+                tubeWarmthIntensity = _tubeWarmthIntensity.value,
+                mobileBassEnabled = _mobileBassEnabled.value,
+                mobileBassIntensity = _mobileBassIntensity.value,
+                surroundMode = _surroundMode.value,
+                harmonicExciterEnabled = true,
+                harmonicExciterIntensity = clamped
             )
         }
         saveSession()
@@ -993,7 +1019,6 @@ class JadooDspService : Service() {
 
     /**
      * Update engine sample rates when the actual audio session rate is detected.
-     * Called from PsychoacousticsBrain when the Visualizer reports a rate.
      */
     fun updateEngineSampleRate(sampleRateHz: Float) {
         if (sampleRateHz < 8000f) {
@@ -1109,9 +1134,8 @@ class JadooDspService : Service() {
         // HDR air boost, and applies the active surround mode's centered
         // tonal shape (see surroundBandProfile) — calling it here keeps all
         // of that from being wiped out by setPreEqBandAllChannelsTo inside DspEngine.
-        val currentGains = _bandGains.value
-        applyAllBands(currentGains)
-        Log.d(TAG, "PEQ applied via applyAllBands (preserves surround shape + Auto-EQ + HDR air)")
+        applyAllBands(manualBandGains.copyOf())
+        Log.d(TAG, "PEQ applied via applyAllBands (preserves surround shape + HDR air)")
     }
 
     /**
@@ -1120,8 +1144,7 @@ class JadooDspService : Service() {
      * identical on both channels — no L/R differential.
      */
     private fun applySurroundShaping() {
-        val currentGains = if (_jadooEnabled.value) _bandGains.value.copyOf() else manualBandGains.copyOf()
-        applyAllBands(currentGains)
+        applyAllBands(manualBandGains.copyOf())
     }
 
     private fun rebuildDspTopology() {
@@ -1135,17 +1158,13 @@ class JadooDspService : Service() {
             // The toggle that triggered this rebuild was the last active
             // feature being turned off — release for true bypass instead of
             // re-attaching a transparent-but-still-processing topology.
-            if (_jadooEnabled.value) brain.stop()
             dspEngine.release()
             _dspBypassed.value = true
             return
         }
         _dspBypassed.value = false
 
-        val wasJadooEnabled = _jadooEnabled.value
-        if (wasJadooEnabled) brain.stop()
-
-        val currentGains = if (wasJadooEnabled) _bandGains.value.copyOf() else manualBandGains.copyOf()
+        val currentGains = manualBandGains.copyOf()
         val attached = dspEngine.attach(
             sessionId = sessionId,
             initialGains = currentGains,
@@ -1165,17 +1184,12 @@ class JadooDspService : Service() {
             tubeWarmthEnabled = _tubeWarmthEnabled.value,
             tubeWarmthIntensity = _tubeWarmthIntensity.value,
             mobileBassEnabled = _mobileBassEnabled.value,
-            mobileBassIntensity = _mobileBassIntensity.value
+            mobileBassIntensity = _mobileBassIntensity.value,
+            harmonicExciterEnabled = _harmonicExciterEnabled.value,
+            harmonicExciterIntensity = _harmonicExciterIntensity.value
         )
         if (attached) {
             applyAllBands(currentGains)
-            if (wasJadooEnabled) {
-                val token = ++autoEqRestartToken
-                serviceScope.launch {
-                    kotlinx.coroutines.delay(30)
-                    if (_jadooEnabled.value && token == autoEqRestartToken) brain.start(_audioSessionId.value)
-                }
-            }
         }
     }
 
@@ -1190,19 +1204,6 @@ class JadooDspService : Service() {
             // Return null so it falls back to "Session X" instead
             null
         }
-    }
-
-    private fun restoreManualEq() {
-        updateBandGains(manualBandGains.copyOf())  // show raw gains, hi-res is invisible
-        if (_masterEnabled.value) {
-            attachGlobalSession()
-            applyAllBands(manualBandGains)
-        }
-    }
-
-    // Called by PsychoacousticsBrain to apply auto-EQ corrections
-    fun applyBandsToEngine(gains: FloatArray) {
-        applyAllBands(gains)
     }
 
     /**
@@ -1242,11 +1243,28 @@ class JadooDspService : Service() {
      */
     private fun surroundBandProfile(mode: SurroundMode, index: Int): Float = when (mode) {
         SurroundMode.Off -> 0f
+        // The bass leg's 25Hz/40Hz contribution was pulled back from
+        // 4.0/3.0 (Traditional) and 6.0/4.5 (Wide) — these are
+        // DynamicsProcessing.Eq bands, which are sequential/contiguous, not
+        // isolated peaking filters, so boosting 25/40/63/100Hz together
+        // with a smoothly decreasing ramp produces one continuous broad
+        // boost from ~0-200Hz rather than four separate "bumps". With no
+        // dynamics control in PreEQ (it's pure static gain), that broad,
+        // undifferentiated lift blurs sub-bass rumble into the punchier
+        // 60-100Hz note content — exactly what reads as "smeared" bass.
+        // Narrowing the low end so 63/100Hz (where actual bass note
+        // definition lives) keep their lift while 25/40Hz taper off faster
+        // keeps the "bigger" feel without washing out note definition.
+        // Treble leg, vocal lift, and stereo differential are unchanged.
         SurroundMode.Traditional -> when (index) {
-            0, 14 -> 4.0f   // 25 Hz / 16 kHz
-            1, 13 -> 3.0f   // 40 Hz / 10 kHz
-            2, 12 -> 2.0f   // 63 Hz / 6.3 kHz
-            3, 11 -> 1.0f   // 100 Hz / 4 kHz
+            0 -> 1.5f       // 25 Hz — tapered from 4.0f
+            1 -> 2.2f       // 40 Hz — tapered from 3.0f
+            2 -> 2.0f       // 63 Hz — unchanged, where bass definition lives
+            3 -> 1.0f       // 100 Hz — unchanged
+            14 -> 4.0f      // 16 kHz — unchanged
+            13 -> 3.0f      // 10 kHz — unchanged
+            12 -> 2.0f      // 6.3 kHz — unchanged
+            11 -> 1.0f      // 4 kHz — unchanged
             else -> 0f
         }
         SurroundMode.Front -> when (index) {
@@ -1259,10 +1277,14 @@ class JadooDspService : Service() {
             else -> 0f
         }
         SurroundMode.Wide -> when (index) {
-            0, 14 -> 6.0f   // 25 Hz / 16 kHz
-            1, 13 -> 4.5f   // 40 Hz / 10 kHz
-            2, 12 -> 3.0f   // 63 Hz / 6.3 kHz
-            3, 11 -> 1.5f   // 100 Hz / 4 kHz
+            0 -> 2.0f       // 25 Hz — tapered from 6.0f
+            1 -> 3.2f       // 40 Hz — tapered from 4.5f
+            2 -> 3.0f       // 63 Hz — unchanged, where bass definition lives
+            3 -> 1.5f       // 100 Hz — unchanged
+            14 -> 6.0f      // 16 kHz — unchanged
+            13 -> 4.5f      // 10 kHz — unchanged
+            12 -> 3.0f      // 6.3 kHz — unchanged
+            11 -> 1.5f      // 4 kHz — unchanged
             // 4-10 (160Hz-2.5kHz, vocals/mids): untouched — zero extra gain
             else -> 0f
         }
@@ -1317,61 +1339,84 @@ class JadooDspService : Service() {
         }
     }
 
+    /**
+     * Combines the manual graphic-EQ gain for [index] with every other
+     * tonal-shape contributor that also lands on that band (Parametric EQ,
+     * HDR's air-shelf, Tube Warmth's bloom/rolloff, Surround+'s smile) and
+     * writes the result to the live DSP. Shared by [applyAllBands] (full
+     * 15-band recombination, needed whenever something that affects every
+     * band's shape changes — a preset, PEQ, HDR, Tube Warmth, or Surround
+     * mode) and [applySingleBand] (the fast path for a manual-EQ slider/drag
+     * touching exactly one band).
+     */
+    private fun writeCombinedBand(index: Int, graphicGain: Float, mode: SurroundMode) {
+        val peqGain = digitalFilterEngine.evaluateMagnitudeResponseDb(EqBands.frequencies[index])
+        val hdrAirBoost = when {
+            !_hdrDynamicsEnabled.value -> 0f
+            _hdrMode.value != HdrMode.Restoration -> 0f
+            index == 13 -> 0.6f
+            index == 14 -> 1.0f
+            else -> 0f
+        }
+        // Tube Warmth tonal shape: a low-end "bloom" around 60-100Hz from
+        // transformer-coupled output stages, plus a gentle high-frequency
+        // roll-off above ~10kHz — the two tonal traits that, together with
+        // the LoudnessEnhancer saturation stage, give the "tube" character.
+        val tubeWarmthShape = if (_tubeWarmthEnabled.value) {
+            val intensity = _tubeWarmthIntensity.value
+            when (index) {
+                2 -> 1.2f * intensity   // 63 Hz bloom
+                3 -> 0.8f * intensity   // 100 Hz bloom
+                13 -> -1.2f * intensity // 10 kHz roll-off
+                14 -> -2.5f * intensity // 16 kHz roll-off
+                else -> 0f
+            }
+        } else 0f
+        val baseGain = graphicGain + peqGain + hdrAirBoost + tubeWarmthShape
+
+        val centered = baseGain + surroundBandProfile(mode, index)
+        val diff = surroundChannelDifferential(mode, index)
+        if (diff == 0f) {
+            dspEngine.setPreEqBandGainAllChannels(index, centered.coerceIn(-15f, 15f))
+        } else {
+            dspEngine.setPreEqBandGainByChannel(0, index, (centered + diff / 2f).coerceIn(-15f, 15f))
+            dspEngine.setPreEqBandGainByChannel(1, index, (centered - diff / 2f).coerceIn(-15f, 15f))
+        }
+    }
+
+    /**
+     * Fast path for a single manual-EQ band changing (slider/drag) — writes
+     * just that one band instead of [applyAllBands]'s full 15-band
+     * recombination. The drag handler in InteractiveEqGraph now calls this
+     * on every pointer-move (not just at gesture end), so this needed to be
+     * cheap: applyAllBands was doing up to 15 synchronized DynamicsProcessing
+     * band writes per call, which at "every move event during a drag"
+     * frequency was the actual cause of the laggy, multi-second-delayed feel
+     * — visually the dot tracked the finger instantly (that's local Compose
+     * state), but the audio was stuck re-running a 15-band combine+write on
+     * every single pixel of movement.
+     */
+    private fun applySingleBand(index: Int, gainDb: Float) {
+        try {
+            if (dspEngine.dynamicsProcessing == null) return
+            writeCombinedBand(index, gainDb, _surroundMode.value)
+        } catch (e: Exception) {
+            Log.w(TAG, "applySingleBand skipped: ${e.message}")
+        }
+    }
+
     private fun applyAllBands(gains: FloatArray) {
-        // Defensive: applyAllBands can be invoked from the PsychoacousticsBrain's
-        // background thread while a topology rebuild releases/swaps the
-        // DynamicsProcessing instance on the main thread. Guard the whole body
-        // so a transient "effect not initialized" race never crashes a caller
+        // Defensive: a topology rebuild can release/swap the DynamicsProcessing
+        // instance on the main thread between calls. Guard the whole body so a
+        // transient "effect not initialized" race never crashes a caller
         // (several call sites invoke this directly from UI callbacks without
         // their own try/catch).
         try {
             if (dspEngine.dynamicsProcessing == null) return
             val mode = _surroundMode.value
-
-            val baseGains = FloatArray(EqBands.count)
-            for (index in 0 until EqBands.count) {
-                val graphicGain = gains.getOrNull(index) ?: 0f
-                val peqGain = digitalFilterEngine.evaluateMagnitudeResponseDb(EqBands.frequencies[index])
-                val hdrAirBoost = when {
-                    !_hdrDynamicsEnabled.value -> 0f
-                    _hdrMode.value != HdrMode.Restoration -> 0f
-                    index == 13 -> 0.6f
-                    index == 14 -> 1.0f
-                    else -> 0f
-                }
-                // Tube Warmth tonal shape: a low-end "bloom" around 60-100Hz from
-                // transformer-coupled output stages, plus a gentle high-frequency
-                // roll-off above ~10kHz — the two tonal traits that, together with
-                // the LoudnessEnhancer saturation stage, give the "tube" character.
-                val tubeWarmthShape = if (_tubeWarmthEnabled.value) {
-                    val intensity = _tubeWarmthIntensity.value
-                    when (index) {
-                        2 -> 1.2f * intensity   // 63 Hz bloom
-                        3 -> 0.8f * intensity   // 100 Hz bloom
-                        13 -> -1.2f * intensity // 10 kHz roll-off
-                        14 -> -2.5f * intensity // 16 kHz roll-off
-                        else -> 0f
-                    }
-                } else 0f
-                baseGains[index] = graphicGain + peqGain + hdrAirBoost + tubeWarmthShape
-            }
-
             dspEngine.setPreGain(_preGainDb.value)
-
-            // Second pass: apply gains to DSP. Most bands are identical on
-            // both channels; only the treble bands in Traditional/Wide get a
-            // small, balanced left/right differential for stereo width (see
-            // surroundChannelDifferential) — and even then the centered total
-            // below is the midpoint, so loudness for that band is unchanged.
             for (index in 0 until EqBands.count) {
-                val centered = baseGains[index] + surroundBandProfile(mode, index)
-                val diff = surroundChannelDifferential(mode, index)
-                if (diff == 0f) {
-                    dspEngine.setPreEqBandGainAllChannels(index, centered.coerceIn(-15f, 15f))
-                } else {
-                    dspEngine.setPreEqBandGainByChannel(0, index, (centered + diff / 2f).coerceIn(-15f, 15f))
-                    dspEngine.setPreEqBandGainByChannel(1, index, (centered - diff / 2f).coerceIn(-15f, 15f))
-                }
+                writeCombinedBand(index, gains.getOrNull(index) ?: 0f, mode)
             }
         } catch (e: Exception) {
             Log.w(TAG, "applyAllBands skipped: ${e.message}")
