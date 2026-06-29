@@ -38,6 +38,21 @@
                 <action android:name="android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- Lets JadOO DSP appear in the "Share to..." sheet for .json
+                 files (e.g. a settings backup shared from Files/Drive), and
+                 when a .json file is tapped directly. Handled in
+                 MainActivity via handleIncomingBackupIntent(). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
         </activity>
 
         <service android:name=".audio.JadooDspService"

@@ -61,6 +61,9 @@ class MainActivity : ComponentActivity() {
     // Set when launched via a music app's "External EQ" picker
     // (ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL). Consumed once audioService is bound.
     private var pendingExternalSession by mutableStateOf<Pair<Int, String?>?>(null)
+    // Set when launched via "Share to JadOO DSP" or tapping a .json file
+    // directly (see handleIncomingBackupIntent). Consumed once audioService is bound.
+    private var pendingBackupUri by mutableStateOf<Uri?>(null)
     private lateinit var themePreferences: ThemePreferences
     private lateinit var eqPresetPreferences: EqPresetPreferences
     private lateinit var onboardingPreferences: OnboardingPreferences
@@ -88,6 +91,7 @@ class MainActivity : ComponentActivity() {
         updatePreferences = UpdatePreferences(this)
         refreshDumpPermission()
         handleExternalEqIntent(intent)
+        handleIncomingBackupIntent(intent)
 
         ContextCompat.startForegroundService(
             this,
@@ -135,15 +139,19 @@ class MainActivity : ComponentActivity() {
                     var newRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
 
                     // Runs on every launch, as requested — silently fails offline.
-                    // The dialog itself only appears once per genuinely new release,
-                    // tracked via UpdatePreferences, so it doesn't nag on every open.
+                    // Keeps showing on every launch until the update is actually
+                    // installed (a newer versionName than the release) — "Download
+                    // Update" opens the browser but does NOT suppress the popup,
+                    // since backing out without installing shouldn't mean never
+                    // seeing it again. Only "Remind me later" snoozes it, and only
+                    // temporarily (see UpdatePreferences).
                     LaunchedEffect(Unit) {
                         val release = UpdateChecker.fetchLatestRelease() ?: return@LaunchedEffect
                         val installedVersion = try {
                             packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
                         } catch (_: Exception) { "0" }
                         if (!UpdateChecker.isNewer(release.tagName, installedVersion)) return@LaunchedEffect
-                        if (updatePreferences.lastSeenTag() == release.tagName) return@LaunchedEffect
+                        if (updatePreferences.isSnoozed(release.tagName)) return@LaunchedEffect
                         newRelease = release
                     }
                     val permissionLauncher = rememberLauncherForActivityResult(
@@ -201,15 +209,36 @@ class MainActivity : ComponentActivity() {
                     newRelease?.let { release ->
                         WhatsNewDialog(
                             release = release,
-                            onDismiss = {
+                            onDownload = {
+                                // Closes the dialog for this session only — does NOT
+                                // snooze, so if the user backs out of the browser
+                                // without installing, they'll see this again next launch.
                                 newRelease = null
-                                lifecycleScope.launch { updatePreferences.markSeen(release.tagName) }
+                            },
+                            onRemindLater = {
+                                newRelease = null
+                                lifecycleScope.launch { updatePreferences.snooze(release.tagName) }
                             }
                         )
                     }
                                             } // end true -> branch
                     }   // end when(onboardingDone)
                 }
+            }
+        }
+    }
+
+    /** Shared by the in-app file picker and the share-target/file-tap entry points. */
+    private fun importBackupFrom(uri: Uri) {
+        val service = audioService ?: return
+        lifecycleScope.launch {
+            val raw = runCatching {
+                contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
+            }.getOrNull()
+            val decoded = raw?.let { BackupCodec.decode(it) } ?: return@launch
+            service.importSessionState(decoded.sessionState)
+            decoded.eqPresets.forEach { preset ->
+                eqPresetPreferences.savePreset(preset.name, preset.gains)
             }
         }
     }
@@ -281,18 +310,17 @@ class MainActivity : ComponentActivity() {
         }
         val importLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.OpenDocument()
-        ) { uri ->
-            val service = audioService ?: return@rememberLauncherForActivityResult
-            if (uri == null) return@rememberLauncherForActivityResult
-            lifecycleScope.launch {
-                val raw = runCatching {
-                    contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
-                }.getOrNull()
-                val decoded = raw?.let { BackupCodec.decode(it) } ?: return@launch
-                service.importSessionState(decoded.sessionState)
-                decoded.eqPresets.forEach { preset ->
-                    eqPresetPreferences.savePreset(preset.name, preset.gains)
-                }
+        ) { uri -> if (uri != null) importBackupFrom(uri) }
+
+        // Consumes a .json backup shared via "Share to JadOO DSP" or tapped
+        // directly in a file manager (see handleIncomingBackupIntent) — runs
+        // it through the same import path as the in-app picker above, once
+        // audioService is actually bound.
+        LaunchedEffect(audioService, pendingBackupUri) {
+            val uri = pendingBackupUri
+            if (uri != null && audioService != null) {
+                importBackupFrom(uri)
+                pendingBackupUri = null
             }
         }
 
@@ -516,6 +544,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleExternalEqIntent(intent)
+        handleIncomingBackupIntent(intent)
     }
 
     /**
@@ -530,7 +559,26 @@ class MainActivity : ComponentActivity() {
         pendingExternalSession = sessionId to packageName
     }
 
-    
+    /**
+     * Handles a .json backup shared via "Share to JadOO DSP" (ACTION_SEND)
+     * or tapped directly in a file manager (ACTION_VIEW). Stashes the URI so
+     * the MainContent LaunchedEffect can run it through the same
+     * BackupCodec import path as the in-app picker once audioService is bound.
+     */
+    private fun handleIncomingBackupIntent(intent: Intent?) {
+        val uri = when (intent?.action) {
+            Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            }
+            Intent.ACTION_VIEW -> intent.data
+            else -> null
+        } ?: return
+        pendingBackupUri = uri
+    }
+
+
     override fun onResume() {
         super.onResume()
         // Re-check every time the user returns so DUMP status updates after ADB grant

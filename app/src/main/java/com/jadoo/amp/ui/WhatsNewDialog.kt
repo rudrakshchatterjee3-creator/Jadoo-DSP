@@ -1,5 +1,7 @@
 package com.jadoo.amp.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -31,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -69,8 +73,17 @@ private val BlobTeal = Color(0xFF0EA5A4)
  * line rather than appearing all at once.
  */
 @Composable
-fun WhatsNewDialog(release: ReleaseInfo, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+fun WhatsNewDialog(
+    release: ReleaseInfo,
+    onDownload: () -> Unit,
+    onRemindLater: () -> Unit
+) {
+    val context = LocalContext.current
+    // Backing out of the dialog (tap outside / back button) is treated the
+    // same as "Remind me later" — it's a dismissal without acting, not "I
+    // installed it," so it should snooze rather than vanish forever AND
+    // rather than reappear instantly on the very next recomposition.
+    Dialog(onDismissRequest = onRemindLater, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxSize(), color = NavyBackground) {
             Box(modifier = Modifier.fillMaxSize()) {
                 AuroraBackground()
@@ -139,11 +152,21 @@ fun WhatsNewDialog(release: ReleaseInfo, onDismiss: () -> Unit) {
 
                     Spacer(Modifier.height(36.dp))
                     Button(
-                        onClick = onDismiss,
+                        onClick = {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl)))
+                            onDownload()
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = BrandCyan, contentColor = NavyBackground),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Continue", fontWeight = FontWeight.SemiBold)
+                        Text("Download Update", fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = onRemindLater,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Remind Me Later")
                     }
                     Spacer(Modifier.height(18.dp))
                     Text(
