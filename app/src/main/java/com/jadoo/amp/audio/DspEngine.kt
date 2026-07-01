@@ -28,6 +28,9 @@ class DspEngine {
     // Tube Warmth: a soft-knee compander stage providing the subtle 2nd-order-ish
     // saturation character that DynamicsProcessing's bands cannot produce on their own.
     private var loudnessEnhancer: LoudnessEnhancer? = null
+    // Track which session the LoudnessEnhancer is bound to so we can detect
+    // stale bindings and re-create it when the session changes.
+    private var loudnessEnhancerSessionId: Int = -1
 
     // ── PreEQ gain glide ─────────────────────────────────────────────
     // DynamicsProcessing.EqBand has no attack/release of its own (unlike
@@ -283,13 +286,27 @@ class DspEngine {
         try {
             if (enabled) {
                 val targetGainMb = (intensity.coerceIn(0f, 1f) * 400).toInt() // 0-4 dB
-                val enhancer = loudnessEnhancer ?: LoudnessEnhancer(sessionId).also { loudnessEnhancer = it }
+                // If the session changed, release the old LoudnessEnhancer and create a
+                // new one bound to the new session. Without this, Tube Warmth silently
+                // stays attached to the previous track's session and has no effect on
+                // the new one (the effect is still "running" on a session that no longer
+                // exists, so it processes nothing and wastes the headroom budget).
+                if (loudnessEnhancer != null && loudnessEnhancerSessionId != sessionId) {
+                    loudnessEnhancer?.enabled = false
+                    loudnessEnhancer?.release()
+                    loudnessEnhancer = null
+                }
+                val enhancer = loudnessEnhancer ?: LoudnessEnhancer(sessionId).also {
+                    loudnessEnhancer = it
+                    loudnessEnhancerSessionId = sessionId
+                }
                 enhancer.setTargetGain(targetGainMb)
                 enhancer.enabled = true
             } else {
                 loudnessEnhancer?.enabled = false
                 loudnessEnhancer?.release()
                 loudnessEnhancer = null
+                loudnessEnhancerSessionId = -1
             }
         } catch (e: Exception) {
             Log.e("DspEngine", "Error configuring Tube Warmth saturation", e)
@@ -987,18 +1004,11 @@ class DspEngine {
      *
      * Zones:
      *  - Bass (<300Hz): DBFB + AnalogBass genuinely overlap here (60-150Hz),
-     *    so they remain additive within this zone, exactly as before.
-     *  - Treble (>5kHz): HiRes air-band expansion.
+     *    so they remain additive within this zone.
+     *  - Treble (>2kHz): HiRes air-band expansion + Harmonic Exciter presence.
      *  - Broadband: Tube Warmth's LoudnessEnhancer compander raises the level
      *    of the WHOLE signal post-MBC, so it stacks on top of whichever zone
      *    is worst rather than being zone-limited itself.
-     *
-     * For any single feature alone, or for combos confined to one zone, this
-     * produces the exact same offset as the old purely-additive model
-     * (verified case-by-case). It only differs — by giving a higher ceiling —
-     * when active features are confined to *different* zones, where the old
-     * model over-penalised by stacking penalties that could never coincide
-     * in the same band.
      */
     private fun calculateHeadroomOffset(
         hiResEnabled: Boolean,
@@ -1074,14 +1084,11 @@ class DspEngine {
             SurroundMode.Traditional -> 4.0f  // 16kHz peak
             SurroundMode.Wide -> 6.0f          // 16kHz peak
         }
-        // Harmonic Exciter's presence-lift band now applies up to +5dB of
-        // direct postGain (see configureMbc) — the previous preGain-driven
-        // design netted under 1dB of real change after its own compression
-        // ate the drive, so 1.2dB of credit was roughly right for that; the
-        // redesigned direct-lift version needs real padding for its actual
-        // peak. Lands in the same treble zone as HiRes — both boost above
-        // 5kHz — so they share this zone's headroom budget via maxOf below
-        // rather than stacking additively.
+        // Harmonic Exciter's presence-lift band applies up to +5dB of direct
+        // postGain (see configureMbc). Sits in the treble zone (2-8kHz) but
+        // doesn't overlap much with HiRes (9.6kHz+), so they don't literally
+        // stack in the same narrow band — however both contribute to the
+        // broadband limiter's worst-case peak, so both are counted here.
         if (harmonicExciterEnabled) trebleZone += harmonicExciterIntensity.coerceIn(0f, 1f) * 5f
 
         var broadband = 0f
@@ -1106,6 +1113,7 @@ class DspEngine {
             Log.e("DspEngine", "Error releasing Tube Warmth saturation", e)
         }
         loudnessEnhancer = null
+        loudnessEnhancerSessionId = -1
     }
 
     /**

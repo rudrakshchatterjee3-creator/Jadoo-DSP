@@ -14,6 +14,8 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -167,6 +169,10 @@ class JadooDspService : Service() {
     // Per-output-device profile switching (see computeOutputDeviceKey/switchToDeviceProfile)
     @Volatile private var currentDeviceKey: String = "speaker"
     private var audioDeviceCallback: AudioDeviceCallback? = null
+    // Background thread for AudioDeviceCallback so routing-change logic
+    // (filter re-init, getDevices queries) never runs on the main looper.
+    private var audioDeviceHandlerThread: HandlerThread? = null
+    private var audioDeviceHandler: Handler? = null
 
     inner class LocalBinder : Binder() {
         fun getService(): JadooDspService = this@JadooDspService
@@ -197,57 +203,105 @@ class JadooDspService : Service() {
     }
 
     /**
-     * Identify the active audio output device so each one (phone speaker,
-     * wired headphones, Bluetooth headset, USB DAC...) can keep its own
-     * persisted DSP profile — mirroring Wavelet's per-device profiles.
-     * Priority: USB > Bluetooth > Wired > built-in speaker (default/fallback).
-     * Returns (deviceKey, displayLabel).
+     * Identify the ACTIVE audio output route so each device type can keep its
+     * own persisted DSP profile. Priority: USB > Bluetooth > Wired > Speaker.
+     *
+     * IMPORTANT: AudioManager.getDevices(GET_DEVICES_OUTPUTS) returns all
+     * *connected* output devices, NOT the currently active route — on most
+     * phones the built-in speaker is always present in that list even while
+     * headphones are plugged in. The correct APIs to detect the active route
+     * are the AudioManager state flags (isWiredHeadsetOn, isBluetoothA2dpOn)
+     * combined with getDevices() to look up the device name for BT.
+     * On API 31+ we also check for BLE Audio (TYPE_BLE_HEADSET/SPEAKER/BROADCAST).
      */
     private fun computeOutputDeviceKey(): Pair<String, String> {
-        val devices = try {
-            (getSystemService(Context.AUDIO_SERVICE) as AudioManager)
-                .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        } catch (_: Exception) {
-            emptyArray()
-        }
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-        val usb = devices.firstOrNull {
+        // ── USB: highest priority — check connected output list ──────────
+        // USB DAC/headset is always the active route when plugged in (Android
+        // forces routing to USB audio). getDevices() is correct here because
+        // USB audio is exclusive — if it's in the list it IS the active route.
+        val allOutputs = try { am.getDevices(AudioManager.GET_DEVICES_OUTPUTS) }
+                         catch (_: Exception) { emptyArray() }
+        val usb = allOutputs.firstOrNull {
             it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
                 it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
                 it.type == AudioDeviceInfo.TYPE_USB_ACCESSORY
         }
-        if (usb != null) return "usb" to "USB Audio"
-
-        val bluetooth = devices.firstOrNull {
-            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                    (it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER))
+        if (usb != null) {
+            // Re-detect sample rate for the USB DAC — it may differ from the
+            // phone's native rate (44100Hz, 96000Hz, 192000Hz are common).
+            // PROPERTY_OUTPUT_SAMPLE_RATE returns the HAL's current value which
+            // Android updates when USB audio is active.
+            val usbRate = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
+                              ?.toFloatOrNull() ?: 48000f
+            if (usbRate != digitalFilterEngine.sampleRateHz) {
+                analogBassEngine.initialize(usbRate)
+                digitalFilterEngine.initialize(usbRate)
+                Log.d(TAG, "USB DAC detected — re-initialized filters at ${usbRate}Hz")
+            }
+            return "usb" to "USB Audio"
         }
-        if (bluetooth != null) {
-            val rawName = try { bluetooth.productName?.toString()?.trim() } catch (_: Exception) { null }
+
+        // ── Bluetooth A2DP / BLE Audio ────────────────────────────────────
+        // isBluetoothA2dpOn() is the authoritative flag for the active A2DP
+        // route — true only when a BT device is both connected AND currently
+        // the audio output. getDevices() alone can include paired-but-idle BT
+        // devices which aren't actually playing.
+        @Suppress("DEPRECATION")
+        val btA2dpActive = am.isBluetoothA2dpOn
+        val bleActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            allOutputs.any {
+                it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                    it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
+                    (Build.VERSION.SDK_INT >= 33 && it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST)
+            }
+        } else false
+
+        if (btA2dpActive || bleActive) {
+            val btDevice = allOutputs.firstOrNull {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                        (it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                         it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER)) ||
+                    (Build.VERSION.SDK_INT >= 33 && it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST)
+            }
+            val rawName = try { btDevice?.productName?.toString()?.trim() } catch (_: Exception) { null }
             return if (!rawName.isNullOrBlank()) {
                 val safeName = rawName.filter { it.isLetterOrDigit() || it == ' ' || it == '-' }.trim().take(40)
-                if (safeName.isNotBlank()) {
-                    "bt_${safeName.replace(' ', '_')}" to "Bluetooth: $safeName"
-                } else {
-                    "bt" to "Bluetooth"
-                }
-            } else {
-                "bt" to "Bluetooth"
-            }
+                if (safeName.isNotBlank()) "bt_${safeName.replace(' ', '_')}" to "Bluetooth: $safeName"
+                else "bt" to "Bluetooth"
+            } else "bt" to "Bluetooth"
         }
 
-        val wired = devices.firstOrNull {
-            it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
-        }
-        if (wired != null) return "wired" to "Wired Headphones"
+        // ── Wired headset / headphones ────────────────────────────────────
+        // isWiredHeadsetOn() is the active-route flag; TYPE_WIRED_* in
+        // getDevices() is the connected flag. Use the flag to confirm routing.
+        @Suppress("DEPRECATION")
+        val wiredActive = am.isWiredHeadsetOn
+        if (wiredActive) return "wired" to "Wired Headphones"
 
+        // ── Phone speaker (default) ───────────────────────────────────────
+        // Also re-detect sample rate in case a USB DAC was unplugged — the
+        // HAL switches back to the phone's native rate.
+        val nativeRate = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
+                             ?.toFloatOrNull() ?: 48000f
+        if (nativeRate != digitalFilterEngine.sampleRateHz) {
+            analogBassEngine.initialize(nativeRate)
+            digitalFilterEngine.initialize(nativeRate)
+            Log.d(TAG, "Output reverted to speaker — re-initialized filters at ${nativeRate}Hz")
+        }
         return "speaker" to "Phone Speaker"
     }
 
     private fun registerAudioDeviceCallback() {
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        // Run callbacks on a dedicated background thread — computeOutputDeviceKey()
+        // re-initializes filter engines and queries AudioManager.getDevices(), both of
+        // which should not block the main looper.
+        val ht = HandlerThread("JadOO-AudioDevice").also { it.start() }
+        audioDeviceHandlerThread = ht
+        audioDeviceHandler = Handler(ht.looper)
         val callback = object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
                 handleOutputRouteChange()
@@ -257,7 +311,7 @@ class JadooDspService : Service() {
             }
         }
         audioDeviceCallback = callback
-        am.registerAudioDeviceCallback(callback, null)
+        am.registerAudioDeviceCallback(callback, audioDeviceHandler)
     }
 
     /**
@@ -353,8 +407,10 @@ class JadooDspService : Service() {
         // Restore Tube Warmth
         _tubeWarmthEnabled.value = state.tubeWarmthEnabled
         _tubeWarmthIntensity.value = state.tubeWarmthIntensity
-        // Restore Mobile Bass
-        _mobileBassEnabled.value = state.mobileBassEnabled
+        // Restore Mobile Bass — speaker-only feature. Force off on any non-speaker
+        // device regardless of what was saved, so it can never leak into a BT/wired/
+        // USB profile via legacy-key fallback or an imported backup from a speaker session.
+        _mobileBassEnabled.value = state.mobileBassEnabled && currentDeviceKey == "speaker"
         _mobileBassIntensity.value = state.mobileBassIntensity
         // Restore Harmonic Exciter
         _harmonicExciterEnabled.value = state.harmonicExciterEnabled
@@ -529,6 +585,9 @@ class JadooDspService : Service() {
             (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(it)
         }
         audioDeviceCallback = null
+        audioDeviceHandlerThread?.quitSafely()
+        audioDeviceHandlerThread = null
+        audioDeviceHandler = null
         dspEngine.release()
         serviceScope.cancel()
     }

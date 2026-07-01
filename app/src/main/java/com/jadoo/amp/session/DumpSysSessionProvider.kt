@@ -3,6 +3,7 @@ package com.jadoo.amp.session
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 
 class DumpSysSessionProvider : AudioSessionProvider {
 
@@ -19,7 +20,12 @@ class DumpSysSessionProvider : AudioSessionProvider {
     private fun runDumpsys(service: String): String {
         val process = Runtime.getRuntime().exec(arrayOf("dumpsys", service))
         val output = process.inputStream.bufferedReader().readText()
-        process.waitFor()
+        // 3-second hard timeout so a hung dumpsys process can't block the
+        // audio session resolver indefinitely (Dispatchers.IO thread pool).
+        if (!process.waitFor(3, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            Log.w("DumpSysSessionProvider", "dumpsys $service timed out — killed")
+        }
         return output
     }
 

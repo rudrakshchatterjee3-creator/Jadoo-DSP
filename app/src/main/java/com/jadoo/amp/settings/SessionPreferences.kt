@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
@@ -101,7 +102,7 @@ class SessionPreferences(private val context: Context) {
         val analogBassDrift         = floatPreferencesKey(KeyNames.ANALOG_BASS_DRIFT)
         val analogBassPultecBoost   = floatPreferencesKey(KeyNames.ANALOG_BASS_PULTEC_BOOST)
         val analogBassPultecCut     = floatPreferencesKey(KeyNames.ANALOG_BASS_PULTEC_CUT)
-        val analogBassPultecFreqIdx = stringPreferencesKey(KeyNames.ANALOG_BASS_PULTEC_FREQ_IDX)
+        val analogBassPultecFreqIdx = intPreferencesKey(KeyNames.ANALOG_BASS_PULTEC_FREQ_IDX)
         val tubeWarmthEnabled   = booleanPreferencesKey(KeyNames.TUBE_WARMTH_ENABLED)
         val tubeWarmthIntensity = floatPreferencesKey(KeyNames.TUBE_WARMTH_INTENSITY)
         val mobileBassEnabled   = booleanPreferencesKey(KeyNames.MOBILE_BASS_ENABLED)
@@ -115,6 +116,7 @@ class SessionPreferences(private val context: Context) {
     private fun deviceKeyName(base: String, deviceKey: String) = "${base}_$deviceKey"
     private fun boolKey(base: String, deviceKey: String) = booleanPreferencesKey(deviceKeyName(base, deviceKey))
     private fun floatKey(base: String, deviceKey: String) = floatPreferencesKey(deviceKeyName(base, deviceKey))
+    private fun intKey(base: String, deviceKey: String) = intPreferencesKey(deviceKeyName(base, deviceKey))
     private fun stringKey(base: String, deviceKey: String) = stringPreferencesKey(deviceKeyName(base, deviceKey))
 
     suspend fun save(state: SessionState, deviceKey: String) {
@@ -134,7 +136,7 @@ class SessionPreferences(private val context: Context) {
             p[floatKey(KeyNames.ANALOG_BASS_DRIFT, deviceKey)]      = state.analogBassDrift
             p[floatKey(KeyNames.ANALOG_BASS_PULTEC_BOOST, deviceKey)] = state.analogBassPultecBoost
             p[floatKey(KeyNames.ANALOG_BASS_PULTEC_CUT, deviceKey)]   = state.analogBassPultecCut
-            p[stringKey(KeyNames.ANALOG_BASS_PULTEC_FREQ_IDX, deviceKey)] = state.analogBassPultecFreqIndex.toString()
+            p[intKey(KeyNames.ANALOG_BASS_PULTEC_FREQ_IDX, deviceKey)] = state.analogBassPultecFreqIndex
             p[boolKey(KeyNames.TUBE_WARMTH_ENABLED, deviceKey)]   = state.tubeWarmthEnabled
             p[floatKey(KeyNames.TUBE_WARMTH_INTENSITY, deviceKey)] = state.tubeWarmthIntensity
             p[boolKey(KeyNames.MOBILE_BASS_ENABLED, deviceKey)]   = state.mobileBassEnabled
@@ -159,6 +161,8 @@ class SessionPreferences(private val context: Context) {
             p[boolKey(base, deviceKey)] ?: p[legacy] ?: default
         fun float(base: String, legacy: Preferences.Key<Float>, default: Float) =
             p[floatKey(base, deviceKey)] ?: p[legacy] ?: default
+        fun int(base: String, legacy: Preferences.Key<Int>, default: Int) =
+            p[intKey(base, deviceKey)] ?: p[legacy] ?: default
         fun string(base: String, legacy: Preferences.Key<String>, default: String) =
             p[stringKey(base, deviceKey)] ?: p[legacy] ?: default
 
@@ -183,8 +187,7 @@ class SessionPreferences(private val context: Context) {
             analogBassDrift       = float(KeyNames.ANALOG_BASS_DRIFT, LegacyKeys.analogBassDrift, 0.2f),
             analogBassPultecBoost = float(KeyNames.ANALOG_BASS_PULTEC_BOOST, LegacyKeys.analogBassPultecBoost, 0.5f),
             analogBassPultecCut   = float(KeyNames.ANALOG_BASS_PULTEC_CUT, LegacyKeys.analogBassPultecCut, 0.3f),
-            analogBassPultecFreqIndex = (p[stringKey(KeyNames.ANALOG_BASS_PULTEC_FREQ_IDX, deviceKey)]
-                ?: p[LegacyKeys.analogBassPultecFreqIdx])?.toIntOrNull() ?: 2,
+            analogBassPultecFreqIndex = int(KeyNames.ANALOG_BASS_PULTEC_FREQ_IDX, LegacyKeys.analogBassPultecFreqIdx, 2),
             tubeWarmthEnabled   = bool(KeyNames.TUBE_WARMTH_ENABLED, LegacyKeys.tubeWarmthEnabled, false),
             tubeWarmthIntensity = float(KeyNames.TUBE_WARMTH_INTENSITY, LegacyKeys.tubeWarmthIntensity, 0.5f),
             mobileBassEnabled   = bool(KeyNames.MOBILE_BASS_ENABLED, LegacyKeys.mobileBassEnabled, false),
