@@ -656,13 +656,14 @@ class JadooDspService : Service() {
                 null
             )
             mediaSessionListenerRegistered = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Media session listener unavailable; falling back to global session.", e)
+            return
+        }
+        try {
             handleActiveSessionsChanged(mediaSessionManager.getActiveSessions(null))
-        } catch (securityException: SecurityException) {
-            Log.w(
-                TAG,
-                "Media session access requires MEDIA_CONTENT_CONTROL or an enabled Notification Listener.",
-                securityException
-            )
+        } catch (e: Exception) {
+            Log.w(TAG, "getActiveSessions failed on this ROM; skipping initial session probe.", e)
         }
     }
 
