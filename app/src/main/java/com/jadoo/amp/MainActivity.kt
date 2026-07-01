@@ -291,7 +291,7 @@ class MainActivity : ComponentActivity() {
 
         // Digital Filters
         val digitalFilterBandStates by audioService?.digitalFilterBandStates?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
-        var digitalFilterEnabled by remember { mutableStateOf(false) }
+        val digitalFilterEnabled by audioService?.digitalFilterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
 
         // Export/import: SAF pickers write/read a single JSON backup file
         // covering the active device profile's SessionState plus every
@@ -444,7 +444,6 @@ class MainActivity : ComponentActivity() {
                 audioService?.setHarmonicExciterIntensity(value)
             },
             onDigitalFilterEnabledChanged = { enabled ->
-                digitalFilterEnabled = enabled
                 audioService?.setDigitalFilterEnabled(enabled)
             },
             onDigitalFilterBandEnabledChanged = { index, enabled ->

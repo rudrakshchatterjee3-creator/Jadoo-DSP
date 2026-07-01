@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -42,7 +43,7 @@ class DspEngine {
     // Each band index gets its own glide job so dragging one band never
     // interferes with another band's in-flight glide; a new target for the
     // SAME band cancels and restarts from wherever the glide currently is.
-    private val glideScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private var glideScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val allChannelGlideJobs = arrayOfNulls<Job?>(EqBands.count)
     private val perChannelGlideJobs = Array(2) { arrayOfNulls<Job?>(EqBands.count) }
     private val currentAllChannelGain = FloatArray(EqBands.count) { 0f }
@@ -66,6 +67,7 @@ class DspEngine {
         analogBassEnabled: Boolean = false,
         analogBassDrive: Float = 0.4f,
         analogBassWarmth: Float = 0.7f,
+        analogBassDrift: Float = 0.2f,
         analogBassPultecBoost: Float = 0.5f,
         analogBassPultecCut: Float = 0.3f,
         analogBassPultecFreqIndex: Int = 2,
@@ -124,7 +126,12 @@ class DspEngine {
             // does NOT reach 20kHz on its own, so the final closing band is
             // still needed in that case.
             val harmonicExciterBands = if (harmonicExciterEnabled) 2 else 0
-            val preHiResSafetyBand = if (hiResEnabled && !hdrDynamicsEnabled && dbfbMode == DbfbMode.Off) 1 else 0
+            // Safety band covers 0-5200Hz when HiRes is on but nothing else already
+            // closes that gap. Harmonic Exciter's lift band already ends at 5200Hz
+            // when HiRes is also on (see configureMbc), so the safety band must be
+            // skipped when the exciter is active — two bands with the same cutoff
+            // frequency would corrupt the MBC array.
+            val preHiResSafetyBand = if (hiResEnabled && !hdrDynamicsEnabled && dbfbMode == DbfbMode.Off && !harmonicExciterEnabled) 1 else 0
             val hiResBands = if (hiResEnabled) 3 else 0
             // A closing band is needed unless something already reaches
             // 20000Hz on its own: HiRes's last band always does; HDR's own
@@ -170,7 +177,7 @@ class DspEngine {
             configBuilder.setPreEqAllChannelsTo(preEq)
 
             val mbc = DynamicsProcessing.Mbc(true, true, mbcBandCount)
-            configureMbc(mbc, hiResEnabled, dbfbMode, hdrDynamicsEnabled, hdrMode, analogBassEnabled, analogBassDrive, analogBassWarmth, mobileBassEnabled, mobileBassIntensity, harmonicExciterEnabled, harmonicExciterIntensity)
+            configureMbc(mbc, hiResEnabled, dbfbMode, hdrDynamicsEnabled, hdrMode, analogBassEnabled, analogBassDrive, analogBassWarmth, analogBassDrift = analogBassDrift, mobileBassEnabled = mobileBassEnabled, mobileBassIntensity = mobileBassIntensity, harmonicExciterEnabled = harmonicExciterEnabled, harmonicExciterIntensity = harmonicExciterIntensity)
             configBuilder.setMbcAllChannelsTo(mbc)
 
             // ── PostEQ: Pultec-style Analog Bass curve, or Mobile Bass's
@@ -444,6 +451,7 @@ class DspEngine {
         analogBassEnabled: Boolean = false,
         analogBassDrive: Float = 0.4f,
         analogBassWarmth: Float = 0.7f,
+        analogBassDrift: Float = 0.2f,
         mobileBassEnabled: Boolean = false,
         mobileBassIntensity: Float = 0.5f,
         harmonicExciterEnabled: Boolean = false,
@@ -458,6 +466,14 @@ class DspEngine {
             val driveGain  = analogBassDrive  * 9f    // 0–9 dB input drive
             val warmthGain = analogBassWarmth * 3f    // 0–3 dB warmth output
             val compRatio  = 1.8f + analogBassDrive * 3.2f  // ratio 1.8–5.0
+            // Drift: widens the compression knee from tight/digital (8dB) to
+            // loose/vintage (28dB). A wider knee means the compressor eases in
+            // gradually over a broader range below threshold rather than snapping
+            // in at a fixed point — this softer onset is the audible "looseness"
+            // associated with analog hardware. At drift=0 the knee is narrow and
+            // the onset is precise (modern/digital feel); at drift=1 it's wide and
+            // forgiving (worn/vintage feel).
+            val driftKnee  = 8f + analogBassDrift * 20f  // 8–28 dB knee
 
             // Sub-bass (20-60Hz): heavy saturation drive
             mbc.getBand(index++).apply {
@@ -466,7 +482,7 @@ class DspEngine {
                 releaseTime = 200f
                 ratio = compRatio
                 threshold = -35f + analogBassDrive * 15f  // -35 to -20 dB
-                kneeWidth = 12f
+                kneeWidth = driftKnee
                 noiseGateThreshold = -85f
                 expanderRatio = 1f
                 preGain  = driveGain                          // drive into compressor
@@ -479,7 +495,7 @@ class DspEngine {
                 releaseTime = 180f
                 ratio = 1.4f + analogBassWarmth * 1.2f
                 threshold = -30f
-                kneeWidth = 15f
+                kneeWidth = driftKnee
                 noiseGateThreshold = -88f
                 expanderRatio = 1f
                 preGain  = warmthGain * 0.8f
@@ -492,7 +508,7 @@ class DspEngine {
                 releaseTime = 160f
                 ratio = 1.5f + analogBassDrive * 0.5f
                 threshold = -24f
-                kneeWidth = 10f
+                kneeWidth = driftKnee
                 noiseGateThreshold = -86f
                 expanderRatio = 1.05f
                 preGain  = -(analogBassWarmth * 1.5f)         // Pultec simultaneous dip
@@ -763,8 +779,10 @@ class DspEngine {
 
         // ── HiRes: Air-band expansion (5200Hz–20kHz) ─────────────────
         if (hiResEnabled) {
-            // If neither DBFB nor HDR provided bands below, add a safety band
-            if (!hdrDynamicsEnabled && dbfbMode == DbfbMode.Off) {
+            // If neither DBFB nor HDR nor Harmonic Exciter already covers 0-5200Hz, add a safety band.
+            // Harmonic Exciter's lift band ends at 5200Hz when HiRes is on — skip the safety band
+            // to avoid two consecutive bands with the same cutoff, which corrupts the MBC array.
+            if (!hdrDynamicsEnabled && dbfbMode == DbfbMode.Off && !harmonicExciterEnabled) {
                 mbc.getBand(index++).apply {
                     cutoffFrequency = 5200f
                     attackTime = 9f
@@ -959,28 +977,32 @@ class DspEngine {
         }
     }
 
-    /** Live-update the analog bass MBC bands (drive + warmth) without full rebuild. */
-    fun updateAnalogBassMbc(drive: Float, warmth: Float) = synchronized(this) {
+    /** Live-update the analog bass MBC bands (drive + warmth + drift) without full rebuild. */
+    fun updateAnalogBassMbc(drive: Float, warmth: Float, drift: Float) = synchronized(this) {
         val dp = dynamicsProcessing ?: return@synchronized
         try {
             val driveGain  = drive  * 9f
             val warmthGain = warmth * 3f
             val compRatio  = 1.8f + drive * 3.2f
+            val driftKnee  = 8f + drift * 20f
 
             val band0 = dp.getMbcByChannelIndex(0).getBand(0).apply {
                 ratio     = compRatio
                 threshold = -35f + drive * 15f
+                kneeWidth = driftKnee
                 preGain   = driveGain
                 postGain  = warmthGain - driveGain * 0.45f
             }
             val band1 = dp.getMbcByChannelIndex(0).getBand(1).apply {
-                ratio    = 1.4f + warmth * 1.2f
-                preGain  = warmthGain * 0.8f
-                postGain = warmthGain * 1.2f
+                ratio     = 1.4f + warmth * 1.2f
+                kneeWidth = driftKnee
+                preGain   = warmthGain * 0.8f
+                postGain  = warmthGain * 1.2f
             }
             val band2 = dp.getMbcByChannelIndex(0).getBand(2).apply {
-                ratio   = 1.5f + drive * 0.5f
-                preGain = -(warmth * 1.5f)
+                ratio     = 1.5f + drive * 0.5f
+                kneeWidth = driftKnee
+                preGain   = -(warmth * 1.5f)
             }
             dp.setMbcBandAllChannelsTo(0, band0)
             dp.setMbcBandAllChannelsTo(1, band1)
@@ -1102,6 +1124,8 @@ class DspEngine {
         perChannelGlideJobs.forEach { channelJobs ->
             channelJobs.forEachIndexed { i, job -> job?.cancel(); channelJobs[i] = null }
         }
+        glideScope.cancel()
+        glideScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
         dynamicsProcessing?.enabled = false
         dynamicsProcessing?.release()
         dynamicsProcessing = null

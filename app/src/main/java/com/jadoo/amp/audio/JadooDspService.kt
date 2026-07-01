@@ -161,6 +161,9 @@ class JadooDspService : Service() {
     val digitalFilterBandStates: StateFlow<List<DigitalFilterEngine.BiquadBandState>>
         get() = digitalFilterEngine.bandStates
 
+    private val _digitalFilterEnabled = MutableStateFlow(false)
+    val digitalFilterEnabled: StateFlow<Boolean> = _digitalFilterEnabled.asStateFlow()
+
     private var saveDebounceJob: Job? = null
     // Generation counter guarding the delayed PreEQ "settle" re-apply after
     // HDR Dynamics is enabled (see setHdrDynamicsEnabled).
@@ -391,10 +394,12 @@ class JadooDspService : Service() {
             kotlinx.coroutines.withContext(Dispatchers.Main) {
                 applyState(state)
 
+                // applyState already sets _surroundMode.value and _masterEnabled is NOT
+                // set by applyState (it's set here). setMasterPower → resolveAndAttachSession
+                // → attach() reads all current flow values including _surroundMode, so the
+                // surround mode is already included in the topology — no need to call
+                // setSurroundMode again (that would race with the async attach coroutine).
                 if (state.masterEnabled) setMasterPower(true)
-                val restoredSurround = SurroundMode.entries
-                    .firstOrNull { it.name == state.surroundMode } ?: SurroundMode.Off
-                if (restoredSurround != SurroundMode.Off) setSurroundMode(restoredSurround)
             }
         }
     }
@@ -445,6 +450,7 @@ class JadooDspService : Service() {
         _harmonicExciterIntensity.value = state.harmonicExciterIntensity
         // Restore Parametric EQ
         digitalFilterEngine.enabled = state.peqEnabled
+        _digitalFilterEnabled.value = state.peqEnabled
         deserializePeqBands(state.peqBands)
     }
 
@@ -501,8 +507,15 @@ class JadooDspService : Service() {
     fun importSessionState(state: SessionState) {
         saveDebounceJob?.cancel()
         applyState(state)
-        if (state.masterEnabled) setMasterPower(true)
-        if (_masterEnabled.value) rebuildDspTopology()
+        // Explicitly set master power to match the imported state — applyState does not
+        // touch _masterEnabled, so without this the power toggle stays at its prior value.
+        if (state.masterEnabled) {
+            setMasterPower(true)
+        } else {
+            _masterEnabled.value = false
+            detachSession()
+            updateNotification()
+        }
         serviceScope.launch(Dispatchers.IO) {
             sessionPreferences.save(buildSessionState(), currentDeviceKey)
         }
@@ -587,7 +600,9 @@ class JadooDspService : Service() {
                     _activePackageName.value = pkg
                     _activeAppLabel.value = resolveAppLabel(pkg)
                     if (_masterEnabled.value) {
-                        attachSession(sessionId, pkg)
+                        // A new player session opening is always a "new stream" event —
+                        // force re-attach even if the session ID happens to match the old one.
+                        attachSession(sessionId, pkg, forceReattach = true)
                     }
                 }
                 AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION -> {
@@ -698,7 +713,11 @@ class JadooDspService : Service() {
                 _activePackageName.value = sessionInfo.packageName
                 _activeAppLabel.value = resolveAppLabel(sessionInfo.packageName)
             }
-            attachSession(GLOBAL_AUDIO_SESSION_ID, resolvedPackageName)
+            // Force re-attach: when a new media session is active, the global mix
+            // session under the hood has changed even though sessionId stays 0.
+            // Without forceReattach, the stale DynamicsProcessing instance stays
+            // bound to the old (dead) mix and silently stops processing audio.
+            attachSession(GLOBAL_AUDIO_SESSION_ID, resolvedPackageName, forceReattach = true)
             onComplete()
         }
     }
@@ -707,7 +726,7 @@ class JadooDspService : Service() {
         attachSession(_audioSessionId.value ?: GLOBAL_AUDIO_SESSION_ID, packageName)
     }
 
-    private fun attachSession(sessionId: Int, packageName: String? = _activePackageName.value) {
+    private fun attachSession(sessionId: Int, packageName: String? = _activePackageName.value, forceReattach: Boolean = false) {
         if (!hasActiveDspFeatures()) {
             // Nothing to process — stay (or become) fully bypassed.
             if (dspEngine.dynamicsProcessing != null) {
@@ -720,7 +739,12 @@ class JadooDspService : Service() {
             return
         }
         _dspBypassed.value = false
-        if (dspEngine.dynamicsProcessing == null || _audioSessionId.value != sessionId) {
+        // forceReattach: used when the media session changed (new app/track) — even
+        // though the session ID is still 0 (global mix), the underlying AudioFlinger
+        // mix session has been replaced and the existing DynamicsProcessing effect is
+        // now stale/detached. Without forcing a re-attach here, the engine stays
+        // bound to the dead old session and silently stops processing audio.
+        if (forceReattach || dspEngine.dynamicsProcessing == null || _audioSessionId.value != sessionId) {
             val attached = dspEngine.attach(
                 sessionId = sessionId,
                 initialGains = manualBandGains.copyOf(),
@@ -734,6 +758,7 @@ class JadooDspService : Service() {
                 analogBassEnabled = _analogBassEnabled.value,
                 analogBassDrive = _analogBassDrive.value,
                 analogBassWarmth = _analogBassWarmth.value,
+                analogBassDrift = _analogBassDrift.value,
                 analogBassPultecBoost = _analogBassPultecBoost.value,
                 analogBassPultecCut = _analogBassPultecCut.value,
                 analogBassPultecFreqIndex = _analogBassPultecFreqIndex.value,
@@ -819,8 +844,16 @@ class JadooDspService : Service() {
         updateBandGains(manualBandGains.copyOf())  // show raw gains without hi-res
 
         if (_masterEnabled.value) {
+            val wasAttached = dspEngine.dynamicsProcessing != null
             attachGlobalSession()
-            applySingleBand(bandIndex, clamped)
+            // If the DSP was already attached, take the fast single-band path.
+            // If it was in bypass (wasAttached == false), attachGlobalSession() just
+            // called attachSession() which already invoked applyDigitalFilterToPreEq()
+            // → applyAllBands() on success — all 15 combined bands are already written,
+            // so no extra call is needed here.
+            if (wasAttached) {
+                applySingleBand(bandIndex, clamped)
+            }
         }
         saveSession()
     }
@@ -955,7 +988,7 @@ class JadooDspService : Service() {
         _analogBassDrive.value = clamped
         analogBassEngine.drive = clamped
         if (_analogBassEnabled.value && _masterEnabled.value) {
-            dspEngine.updateAnalogBassMbc(clamped, _analogBassWarmth.value)
+            dspEngine.updateAnalogBassMbc(clamped, _analogBassWarmth.value, _analogBassDrift.value)
         }
         saveSession()
     }
@@ -965,8 +998,12 @@ class JadooDspService : Service() {
         _analogBassWarmth.value = clamped
         analogBassEngine.warmth = clamped
         if (_analogBassEnabled.value && _masterEnabled.value) {
-            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, clamped)
-            dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, clamped)
+            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, clamped, _analogBassDrift.value)
+            // Mobile Bass owns the PostEQ layout when both features are on — skip Analog Bass
+            // PostEQ update to avoid writing Pultec frequencies onto Mobile Bass's band slots.
+            if (!_mobileBassEnabled.value) {
+                dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, clamped)
+            }
         }
         saveSession()
     }
@@ -975,6 +1012,9 @@ class JadooDspService : Service() {
         val clamped = value.coerceIn(0f, 1f)
         _analogBassDrift.value = clamped
         analogBassEngine.drift = clamped
+        if (_analogBassEnabled.value && _masterEnabled.value) {
+            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, _analogBassWarmth.value, clamped)
+        }
         saveSession()
     }
 
@@ -982,7 +1022,7 @@ class JadooDspService : Service() {
         val clamped = value.coerceIn(0f, 1f)
         _analogBassPultecBoost.value = clamped
         analogBassEngine.pultecBoost = clamped
-        if (_analogBassEnabled.value && _masterEnabled.value) {
+        if (_analogBassEnabled.value && _masterEnabled.value && !_mobileBassEnabled.value) {
             dspEngine.updateAnalogBassPostEq(clamped, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, _analogBassWarmth.value)
         }
         saveSession()
@@ -992,7 +1032,7 @@ class JadooDspService : Service() {
         val clamped = value.coerceIn(0f, 1f)
         _analogBassPultecCut.value = clamped
         analogBassEngine.pultecCut = clamped
-        if (_analogBassEnabled.value && _masterEnabled.value) {
+        if (_analogBassEnabled.value && _masterEnabled.value && !_mobileBassEnabled.value) {
             dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, clamped, _analogBassPultecFreqIndex.value, _analogBassWarmth.value)
         }
         saveSession()
@@ -1002,7 +1042,7 @@ class JadooDspService : Service() {
         val clamped = index.coerceIn(0, AnalogBassEngine.PULTEC_FREQUENCIES.size - 1)
         _analogBassPultecFreqIndex.value = clamped
         analogBassEngine.pultecFreqIndex = clamped
-        if (_analogBassEnabled.value && _masterEnabled.value) {
+        if (_analogBassEnabled.value && _masterEnabled.value && !_mobileBassEnabled.value) {
             dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, clamped, _analogBassWarmth.value)
         }
         saveSession()
@@ -1104,26 +1144,11 @@ class JadooDspService : Service() {
         saveSession()
     }
 
-    /**
-     * Update engine sample rates when the actual audio session rate is detected.
-     */
-    fun updateEngineSampleRate(sampleRateHz: Float) {
-        if (sampleRateHz < 8000f) {
-            Log.w(TAG, "Ignoring implausible sample rate: $sampleRateHz Hz")
-            return
-        }
-        val currentRate = digitalFilterEngine.sampleRateHz
-        if (kotlin.math.abs(currentRate - sampleRateHz) > 100f) {
-            Log.d(TAG, "Sample rate updated: $currentRate Hz -> $sampleRateHz Hz")
-            analogBassEngine.initialize(sampleRateHz)
-            digitalFilterEngine.initialize(sampleRateHz)
-        }
-    }
-
     // ── Digital Filter Controls ───────────────────────────────────────────
 
     fun setDigitalFilterEnabled(enabled: Boolean) {
         digitalFilterEngine.enabled = enabled
+        _digitalFilterEnabled.value = enabled
         if (_masterEnabled.value) {
             attachGlobalSession()
             applyDigitalFilterToPreEq()
@@ -1265,6 +1290,7 @@ class JadooDspService : Service() {
             analogBassEnabled = _analogBassEnabled.value,
             analogBassDrive = _analogBassDrive.value,
             analogBassWarmth = _analogBassWarmth.value,
+            analogBassDrift = _analogBassDrift.value,
             analogBassPultecBoost = _analogBassPultecBoost.value,
             analogBassPultecCut = _analogBassPultecCut.value,
             analogBassPultecFreqIndex = _analogBassPultecFreqIndex.value,

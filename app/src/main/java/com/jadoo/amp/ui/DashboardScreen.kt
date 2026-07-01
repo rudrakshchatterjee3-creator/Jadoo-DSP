@@ -194,7 +194,7 @@ private sealed class HelpContent(
 /** Picks a representative icon for the current output device label (see JadooDspService.computeOutputDeviceKey). */
 private fun outputDeviceIcon(deviceLabel: String): ImageVector = when {
     deviceLabel.startsWith("Bluetooth") -> Icons.Default.Bluetooth
-    deviceLabel == "USB Audio" -> Icons.Default.Usb
+    deviceLabel.startsWith("USB") -> Icons.Default.Usb
     deviceLabel == "Wired Headphones" -> Icons.Default.Headset
     else -> Icons.Default.VolumeUp
 }
@@ -287,8 +287,22 @@ fun DashboardScreen(
     var showSurroundPicker by remember { mutableStateOf(false) }
     var showParametricEq by remember { mutableStateOf(false) }
     val manualControlsEnabled = masterEnabled
-    var graphicEqEnabled by remember { mutableStateOf(false) }
-    var showGraphicEq by remember { mutableStateOf(false) }
+    // Derive initial EQ-enabled state from the restored band gains so that after
+    // orientation change or process death the toggle correctly reflects what the
+    // service is actually applying (instead of always resetting to "off").
+    var graphicEqEnabled by remember { mutableStateOf(bandGains.any { it != 0f }) }
+    var showGraphicEq by remember { mutableStateOf(bandGains.any { it != 0f }) }
+    // Promote to "enabled" whenever the service reports non-zero gains (rebind,
+    // restore, import). Never demote — the user controls the "off" direction
+    // via the toggle. FloatArray uses reference equality so this fires on every
+    // new array from the service, but the promotion-only guard makes that safe.
+    val hasNonZeroBands = bandGains.any { it != 0f }
+    LaunchedEffect(hasNonZeroBands) {
+        if (hasNonZeroBands && !graphicEqEnabled) {
+            graphicEqEnabled = true
+            showGraphicEq = true
+        }
+    }
     var savedBandGainsBeforeDisable by remember { mutableStateOf<FloatArray?>(null) }
     // Name of the preset (built-in or custom) the user last selected, kept
     // across EQ-dialog open/close so "Overwrite" can target it even after
@@ -548,7 +562,7 @@ fun DashboardScreen(
                         LabeledSlider(
                             label = "Cut",
                             value = analogBassPultecCut,
-                            valueLabel = "-${String.format("%.2f", analogBassPultecCut * 4)} dB",
+                            valueLabel = "-${String.format("%.2f", analogBassPultecCut * 5)} dB",
                             onValueChange = onAnalogBassPultecCutChanged,
                             steps = 40)
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
@@ -930,7 +944,7 @@ private fun HdrModeChips(
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        HdrMode.values().forEach { mode ->
+        HdrMode.entries.forEach { mode ->
             val selected = mode == selectedMode
             AssistChip(
                 onClick = { onModeSelected(mode) },
@@ -965,7 +979,7 @@ private fun DbfbModeChips(
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        DbfbMode.values().forEach { mode ->
+        DbfbMode.entries.forEach { mode ->
             val selected = mode == selectedMode
             AssistChip(
                 onClick = { onModeSelected(mode) },
@@ -1592,17 +1606,23 @@ private fun ExpandedEqDialog(
                 LaunchedEffect(matchedPresetName) {
                     if (matchedPresetName != selectedPresetName) onPresetNameChanged(matchedPresetName)
                 }
-                val selectedSavedPreset = savedPresets.find { it.name == matchedPresetName }
+                // Overwrite target: the last custom preset the user explicitly clicked,
+                // regardless of whether the current gains still content-match it.
+                // matchedPresetName becomes null the moment any band is moved (no longer
+                // an exact match), which previously caused the overwrite chip to vanish
+                // immediately after the first slider drag — selectedPresetName persists
+                // the intent even as the gains diverge from the saved values.
+                val overwriteTargetPreset = savedPresets.find { it.name == selectedPresetName }
                 val selectedBorder = BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
 
-                if (selectedSavedPreset != null && !selectedSavedPreset.gains.contentEquals(bandGains)) {
+                if (overwriteTargetPreset != null && !overwriteTargetPreset.gains.contentEquals(bandGains)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         AssistChip(
-                            onClick = { onSavePreset(selectedSavedPreset.name, bandGains.copyOf()) },
-                            label = { Text("Overwrite \"${selectedSavedPreset.name}\"") },
+                            onClick = { onSavePreset(overwriteTargetPreset.name, bandGains.copyOf()) },
+                            label = { Text("Overwrite \"${overwriteTargetPreset.name}\"") },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.Save,
