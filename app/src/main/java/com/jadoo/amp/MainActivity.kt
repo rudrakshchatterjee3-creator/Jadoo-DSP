@@ -38,6 +38,7 @@ import com.jadoo.amp.audio.JadooDspService
 import com.jadoo.amp.audio.SurroundMode
 import com.jadoo.amp.settings.BackupCodec
 import com.jadoo.amp.settings.EqPresetPreferences
+import com.jadoo.amp.settings.SessionState
 import com.jadoo.amp.settings.OnboardingPreferences
 import com.jadoo.amp.settings.ThemePreferences
 import com.jadoo.amp.settings.ThemeSettings
@@ -64,6 +65,8 @@ class MainActivity : ComponentActivity() {
     // Set when launched via "Share to JadOO DSP" or tapping a .json file
     // directly (see handleIncomingBackupIntent). Consumed once audioService is bound.
     private var pendingBackupUri by mutableStateOf<Uri?>(null)
+    // Decoded import waiting for user to name it before saving as a custom profile
+    private var pendingImportData by mutableStateOf<BackupCodec.DecodedBackup?>(null)
     private lateinit var themePreferences: ThemePreferences
     private lateinit var eqPresetPreferences: EqPresetPreferences
     private lateinit var onboardingPreferences: OnboardingPreferences
@@ -228,18 +231,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Shared by the in-app file picker and the share-target/file-tap entry points. */
+    /** Shared by the in-app file picker and the share-target/file-tap entry points.
+     *  Decodes the backup and shows the naming dialog — the profile is saved only
+     *  after the user confirms a unique name, so the current device profile is
+     *  never overwritten by an import. */
     private fun importBackupFrom(uri: Uri) {
-        val service = audioService ?: return
         lifecycleScope.launch {
             val raw = runCatching {
                 contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
             }.getOrNull()
             val decoded = raw?.let { BackupCodec.decode(it) } ?: return@launch
-            service.importSessionState(decoded.sessionState)
-            decoded.eqPresets.forEach { preset ->
-                eqPresetPreferences.savePreset(preset.name, preset.gains)
-            }
+            pendingImportData = decoded
         }
     }
 
@@ -292,6 +294,56 @@ class MainActivity : ComponentActivity() {
         // Digital Filters
         val digitalFilterBandStates by audioService?.digitalFilterBandStates?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
         val digitalFilterEnabled by audioService?.digitalFilterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+
+        // SBC Enhancement + custom profiles
+        val sbcModeEnabled by audioService?.sbcModeEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val customProfileNames by (audioService?.customProfileNames?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList<String>()) })
+
+        // Import profile naming dialog
+        val pendingImport = pendingImportData
+        if (pendingImport != null) {
+            var profileName by remember(pendingImport) { mutableStateOf("") }
+            var nameError by remember(pendingImport) { mutableStateOf<String?>(null) }
+            AlertDialog(
+                onDismissRequest = { pendingImportData = null },
+                title = { Text("Save Imported Profile") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Give this imported profile a name. It'll be saved separately — your current device profile won't be changed.")
+                        OutlinedTextField(
+                            value = profileName,
+                            onValueChange = { profileName = it; nameError = null },
+                            label = { Text("Profile name") },
+                            isError = nameError != null,
+                            supportingText = nameError?.let { { Text(it) } },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val name = profileName.trim()
+                        if (name.isBlank()) { nameError = "Please enter a name"; return@TextButton }
+                        lifecycleScope.launch {
+                            val exists = audioService?.profileExists(name) ?: false
+                            if (exists) {
+                                nameError = "Name already exists — try another"
+                            } else {
+                                audioService?.saveAsCustomProfile(name, pendingImport.sessionState)
+                                pendingImport.eqPresets.forEach { preset ->
+                                    eqPresetPreferences.savePreset(preset.name, preset.gains)
+                                }
+                                pendingImportData = null
+                            }
+                        }
+                    }) { Text("Save") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingImportData = null }) { Text("Cancel") }
+                }
+            )
+        }
 
         // Export/import: SAF pickers write/read a single JSON backup file
         // covering the active device profile's SessionState plus every
@@ -481,7 +533,14 @@ class MainActivity : ComponentActivity() {
             onImportSettings = {
                 importLauncher.launch(arrayOf("application/json"))
             },
-                    )
+            // SBC Enhancement
+            sbcModeEnabled = sbcModeEnabled,
+            onSbcModeEnabledChanged = { audioService?.setSbcModeEnabled(it) },
+            // Custom profiles
+            savedProfileNames = customProfileNames,
+            onLoadProfile = { name -> audioService?.loadCustomProfile(name) },
+            onDeleteProfile = { name -> audioService?.deleteCustomProfile(name) },
+        )
     }
 
     @Composable

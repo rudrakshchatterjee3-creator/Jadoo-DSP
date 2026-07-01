@@ -42,6 +42,7 @@ object BackupCodec {
         s.put("harmonicExciterIntensity", state.harmonicExciterIntensity)
         s.put("peqEnabled", state.peqEnabled)
         s.put("peqBands", state.peqBands)
+        s.put("sbcModeEnabled", state.sbcModeEnabled)
         root.put("sessionState", s)
 
         val presetsArray = JSONArray()
@@ -93,7 +94,8 @@ object BackupCodec {
             harmonicExciterEnabled = s.optBoolean("harmonicExciterEnabled", false),
             harmonicExciterIntensity = s.optDouble("harmonicExciterIntensity", 0.5).toFloat(),
             peqEnabled = s.optBoolean("peqEnabled", false),
-            peqBands = s.optString("peqBands", "")
+            peqBands = s.optString("peqBands", ""),
+            sbcModeEnabled = s.optBoolean("sbcModeEnabled", false)
         )
 
         val presetsArray = root.optJSONArray("eqPresets") ?: JSONArray()

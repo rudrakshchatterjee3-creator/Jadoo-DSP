@@ -16,8 +16,8 @@ android {
         applicationId = "com.jadoo.amp"
         minSdk = 28
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.4.1"
+        versionCode = 6
+        versionName = "1.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

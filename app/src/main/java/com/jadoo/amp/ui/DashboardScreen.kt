@@ -189,6 +189,11 @@ private sealed class HelpContent(
         body = "8-band surgical EQ for precise corrections — narrow notches, shelves, and passes, on top of the graphic EQ."
     )
 
+    data object SbcEnhancement : HelpContent(
+        title = "SBC Enhancement",
+        body = "Pre-emphasizes high frequencies before the signal reaches the SBC encoder, forcing SBC's bit-allocator to spend more bits on treble detail. Result: cleaner highs and less quantization harshness on SBC Bluetooth. Enable only for SBC devices — not for LDAC, LHDC, or aptX HD, which already have the headroom to reproduce treble faithfully."
+    )
+
 }
 
 /** Picks a representative icon for the current output device label (see JadooDspService.computeOutputDeviceKey). */
@@ -278,7 +283,14 @@ fun DashboardScreen(
     onCustomPrimaryColorChanged: (Color) -> Unit,
     onResetDigitalFilterBands: () -> Unit,
     onExportSettings: () -> Unit,
-    onImportSettings: () -> Unit
+    onImportSettings: () -> Unit,
+    // SBC Enhancement (Bluetooth-only)
+    sbcModeEnabled: Boolean,
+    onSbcModeEnabledChanged: (Boolean) -> Unit,
+    // Custom/imported profiles
+    savedProfileNames: List<String>,
+    onLoadProfile: (String) -> Unit,
+    onDeleteProfile: (String) -> Unit
 ) {
     var showExpandedEq by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -672,6 +684,34 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
+        // ── SBC ENHANCEMENT ──────────────────────────────────────────────
+        // Only shown on Bluetooth routes. Users with SBC codec devices enable
+        // this to get better treble detail; LDAC/LHDC users leave it off.
+        AnimatedVisibility(visible = currentOutputDevice.startsWith("Bluetooth"),
+            enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
+            exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()) {
+            Column {
+                SectionLabel("BLUETOOTH")
+                Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                        CompactToggleRow(
+                            title = "SBC Enhancement",
+                            subtitle = if (sbcModeEnabled) "Pre-emphasising highs for SBC codec"
+                                       else "Enable for SBC devices · not for LDAC/LHDC",
+                            checked = sbcModeEnabled, enabled = masterEnabled,
+                            leadingIcon = { Icon(Icons.Default.Bluetooth, null,
+                                tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                modifier = Modifier.size(22.dp)) },
+                            onCheckedChange = onSbcModeEnabledChanged,
+                            onHelpClick = { helpDialog = HelpContent.SbcEnhancement })
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+        }
+
         // ── SPATIAL ─────────────────────────────────────────────────
         SectionLabel("SPATIAL")
         Surface(modifier = Modifier.fillMaxWidth()
@@ -792,6 +832,26 @@ fun DashboardScreen(
                         if (manualControlsEnabled) {
                             Text("Tap to expand · drag nodes to tune",
                                  color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            // EQ headroom indicator: shows total dB added by positive band
+                            // gains, minus any negative pre-gain already compensating for it.
+                            val positiveGainSum = bandGains.filter { it > 0f }.sum()
+                            if (positiveGainSum > 0.05f) {
+                                val preGainOffset = if (preGainDb < 0f) -preGainDb else 0f
+                                val netBoost = (positiveGainSum - preGainOffset).coerceAtLeast(0f)
+                                val boostColor = when {
+                                    netBoost <= 1.5f -> MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                                    netBoost <= 3.0f -> Color(0xFFFFA726)
+                                    else -> Color(0xFFF44336)
+                                }
+                                Text(
+                                    text = if (preGainOffset > 0.05f)
+                                        "+${"%.1f".format(positiveGainSum)} dB EQ boost · −${"%.1f".format(preGainOffset)} dB pre-gain → net +${"%.1f".format(netBoost)} dB"
+                                    else
+                                        "+${"%.1f".format(positiveGainSum)} dB EQ boost total",
+                                    color = boostColor,
+                                    fontSize = 11.sp
+                                )
+                            }
                         } else {
                             Text("Enable master power for manual tuning",
                                  color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
@@ -827,6 +887,9 @@ fun DashboardScreen(
             onHelpRequested = { helpDialog = it },
             onExportSettings = onExportSettings,
             onImportSettings = onImportSettings,
+            savedProfileNames = savedProfileNames,
+            onLoadProfile = { name -> onLoadProfile(name); showSettings = false },
+            onDeleteProfile = onDeleteProfile,
             onDismiss = { showSettings = false }
         )
     }
@@ -1603,9 +1666,6 @@ private fun ExpandedEqDialog(
                     Presets.entries.find { it.value.contentEquals(bandGains) }?.key
                         ?: savedPresets.find { it.gains.contentEquals(bandGains) }?.name
                 }
-                LaunchedEffect(matchedPresetName) {
-                    if (matchedPresetName != selectedPresetName) onPresetNameChanged(matchedPresetName)
-                }
                 // Overwrite target: the last custom preset the user explicitly clicked,
                 // regardless of whether the current gains still content-match it.
                 // matchedPresetName becomes null the moment any band is moved (no longer
@@ -1808,6 +1868,9 @@ private fun SettingsDialog(
     onHelpRequested: (HelpContent) -> Unit,
     onExportSettings: () -> Unit,
     onImportSettings: () -> Unit,
+    savedProfileNames: List<String>,
+    onLoadProfile: (String) -> Unit,
+    onDeleteProfile: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -1913,6 +1976,35 @@ private fun SettingsDialog(
                             modifier = Modifier.weight(1f)
                         ) {
                             Text("Import")
+                        }
+                    }
+                }
+
+                if (savedProfileNames.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Saved Profiles",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Profiles imported from backups. Tap Load to apply to the current output device.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+                        savedProfileNames.forEach { name ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(name, modifier = Modifier.weight(1f),
+                                     style = MaterialTheme.typography.bodyMedium)
+                                Row {
+                                    TextButton(onClick = { onLoadProfile(name) }) { Text("Load") }
+                                    TextButton(onClick = { onDeleteProfile(name) }) { Text("Delete") }
+                                }
+                            }
                         }
                     }
                 }

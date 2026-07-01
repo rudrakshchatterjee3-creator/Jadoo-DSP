@@ -8,7 +8,9 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 private val Context.sessionDataStore by preferencesDataStore(name = "session_state")
 
@@ -41,7 +43,9 @@ data class SessionState(
     val harmonicExciterIntensity: Float = 0.5f,
     // Parametric EQ (8 bands, serialised as "type,freq,gain,q,enabled" joined by "|")
     val peqEnabled: Boolean = false,
-    val peqBands: String = ""       // "" means all-default (not yet configured)
+    val peqBands: String = "",       // "" means all-default (not yet configured)
+    // SBC Enhancement: pre-emphasis for Bluetooth SBC codec devices (not for LDAC/LHDC)
+    val sbcModeEnabled: Boolean = false
 )
 
 /**
@@ -82,6 +86,7 @@ class SessionPreferences(private val context: Context) {
         const val HARMONIC_EXCITER_INTENSITY = "harmonic_exciter_intensity"
         const val PEQ_ENABLED = "peq_enabled"
         const val PEQ_BANDS   = "peq_bands"
+        const val SBC_MODE_ENABLED = "sbc_mode_enabled"
     }
 
     // Legacy (pre-per-device) un-suffixed keys, kept only as a one-time
@@ -109,9 +114,12 @@ class SessionPreferences(private val context: Context) {
         val mobileBassIntensity = floatPreferencesKey(KeyNames.MOBILE_BASS_INTENSITY)
         val harmonicExciterEnabled   = booleanPreferencesKey(KeyNames.HARMONIC_EXCITER_ENABLED)
         val harmonicExciterIntensity = floatPreferencesKey(KeyNames.HARMONIC_EXCITER_INTENSITY)
-        val peqEnabled  = booleanPreferencesKey(KeyNames.PEQ_ENABLED)
-        val peqBands    = stringPreferencesKey(KeyNames.PEQ_BANDS)
+        val peqEnabled      = booleanPreferencesKey(KeyNames.PEQ_ENABLED)
+        val peqBands        = stringPreferencesKey(KeyNames.PEQ_BANDS)
+        val sbcModeEnabled  = booleanPreferencesKey(KeyNames.SBC_MODE_ENABLED)
     }
+
+    private val savedProfileNamesKey = stringPreferencesKey("saved_profile_names")
 
     private fun deviceKeyName(base: String, deviceKey: String) = "${base}_$deviceKey"
     private fun boolKey(base: String, deviceKey: String) = booleanPreferencesKey(deviceKeyName(base, deviceKey))
@@ -145,6 +153,7 @@ class SessionPreferences(private val context: Context) {
             p[floatKey(KeyNames.HARMONIC_EXCITER_INTENSITY, deviceKey)] = state.harmonicExciterIntensity
             p[boolKey(KeyNames.PEQ_ENABLED, deviceKey)] = state.peqEnabled
             p[stringKey(KeyNames.PEQ_BANDS, deviceKey)] = state.peqBands
+            p[boolKey(KeyNames.SBC_MODE_ENABLED, deviceKey)] = state.sbcModeEnabled
         }
     }
 
@@ -194,8 +203,45 @@ class SessionPreferences(private val context: Context) {
             mobileBassIntensity = float(KeyNames.MOBILE_BASS_INTENSITY, LegacyKeys.mobileBassIntensity, 0.5f),
             harmonicExciterEnabled   = bool(KeyNames.HARMONIC_EXCITER_ENABLED, LegacyKeys.harmonicExciterEnabled, false),
             harmonicExciterIntensity = float(KeyNames.HARMONIC_EXCITER_INTENSITY, LegacyKeys.harmonicExciterIntensity, 0.5f),
-            peqEnabled = bool(KeyNames.PEQ_ENABLED, LegacyKeys.peqEnabled, false),
-            peqBands   = string(KeyNames.PEQ_BANDS, LegacyKeys.peqBands, "")
+            peqEnabled     = bool(KeyNames.PEQ_ENABLED, LegacyKeys.peqEnabled, false),
+            peqBands       = string(KeyNames.PEQ_BANDS, LegacyKeys.peqBands, ""),
+            sbcModeEnabled = bool(KeyNames.SBC_MODE_ENABLED, LegacyKeys.sbcModeEnabled, false)
         )
+    }
+
+    // ── Custom (imported) profile management ──────────────────────────────
+
+    val customProfileNames: Flow<List<String>> = context.sessionDataStore.data.map { p ->
+        p[savedProfileNamesKey]?.split("|")?.filter { it.isNotBlank() } ?: emptyList()
+    }
+
+    suspend fun profileExists(name: String): Boolean {
+        val p = context.sessionDataStore.data.first()
+        val existing = p[savedProfileNamesKey] ?: ""
+        return name.trim() in existing.split("|")
+    }
+
+    suspend fun saveAsCustomProfile(name: String, state: SessionState) {
+        val key = "custom_${name.trim()}"
+        save(state, key)
+        context.sessionDataStore.edit { p ->
+            val existing = p[savedProfileNamesKey] ?: ""
+            val names = if (existing.isBlank()) mutableListOf() else existing.split("|").toMutableList()
+            if (name.trim() !in names) {
+                names.add(name.trim())
+                p[savedProfileNamesKey] = names.joinToString("|")
+            }
+        }
+    }
+
+    suspend fun loadCustomProfile(name: String): SessionState? = load("custom_${name.trim()}")
+
+    suspend fun deleteCustomProfile(name: String) {
+        context.sessionDataStore.edit { p ->
+            val existing = p[savedProfileNamesKey] ?: ""
+            val names = existing.split("|").toMutableList()
+            names.remove(name.trim())
+            p[savedProfileNamesKey] = names.filter { it.isNotBlank() }.joinToString("|")
+        }
     }
 }

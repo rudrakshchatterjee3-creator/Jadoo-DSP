@@ -28,6 +28,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -156,6 +157,13 @@ class JadooDspService : Service() {
 
     private val _analogBassPultecFreqIndex = MutableStateFlow(2)
     val analogBassPultecFreqIndex: StateFlow<Int> = _analogBassPultecFreqIndex.asStateFlow()
+
+    // ── SBC Enhancement state ─────────────────────────────────────────────
+    // Pre-emphasis for Bluetooth SBC codec: boosts 10–16kHz to force SBC's
+    // bit-allocator to spend more bits on treble, masking quantization
+    // harshness. Must never auto-enable on LDAC/LHDC profiles.
+    private val _sbcModeEnabled = MutableStateFlow(false)
+    val sbcModeEnabled: StateFlow<Boolean> = _sbcModeEnabled.asStateFlow()
 
     // ── Digital Filter State ───────────────────────────────────────────
     val digitalFilterBandStates: StateFlow<List<DigitalFilterEngine.BiquadBandState>>
@@ -452,6 +460,8 @@ class JadooDspService : Service() {
         digitalFilterEngine.enabled = state.peqEnabled
         _digitalFilterEnabled.value = state.peqEnabled
         deserializePeqBands(state.peqBands)
+        // SBC Enhancement — only meaningful on BT profiles
+        _sbcModeEnabled.value = state.sbcModeEnabled && currentDeviceKey.startsWith("bt")
     }
 
     /** Snapshot every current setting into a [SessionState] for persistence. */
@@ -483,7 +493,9 @@ class JadooDspService : Service() {
         harmonicExciterIntensity = _harmonicExciterIntensity.value,
         // Parametric EQ
         peqEnabled = digitalFilterEngine.enabled,
-        peqBands   = serializePeqBands()
+        peqBands   = serializePeqBands(),
+        // SBC Enhancement
+        sbcModeEnabled = _sbcModeEnabled.value
     )
 
     private fun saveSession() {
@@ -1234,6 +1246,39 @@ class JadooDspService : Service() {
         saveSession()
     }
 
+    fun setSbcModeEnabled(enabled: Boolean) {
+        _sbcModeEnabled.value = enabled
+        if (_masterEnabled.value) applyAllBands(manualBandGains.copyOf())
+        saveSession()
+    }
+
+    // ── Custom (imported) profile management ─────────────────────────────
+
+    val customProfileNames: Flow<List<String>> get() = sessionPreferences.customProfileNames
+
+    suspend fun profileExists(name: String): Boolean = sessionPreferences.profileExists(name)
+
+    fun saveAsCustomProfile(name: String, state: SessionState) {
+        serviceScope.launch(Dispatchers.IO) {
+            sessionPreferences.saveAsCustomProfile(name, state)
+        }
+    }
+
+    fun loadCustomProfile(name: String) {
+        serviceScope.launch(Dispatchers.IO) {
+            val state = sessionPreferences.loadCustomProfile(name) ?: return@launch
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                importSessionState(state)
+            }
+        }
+    }
+
+    fun deleteCustomProfile(name: String) {
+        serviceScope.launch(Dispatchers.IO) {
+            sessionPreferences.deleteCustomProfile(name)
+        }
+    }
+
     /**
      * Apply the parametric EQ (DigitalFilterEngine biquad response) to the DynamicsProcessing
      * PreEQ bands. Since JadOO intercepts audio at the OS session level (DynamicsProcessing API),
@@ -1485,7 +1530,20 @@ class JadooDspService : Service() {
                 else -> 0f
             }
         } else 0f
-        val baseGain = graphicGain + peqGain + hdrAirBoost + tubeWarmthShape
+        // SBC pre-emphasis: biases the PreEQ signal that the codec encodes so
+        // SBC's subband bit-allocator invests more bits in the treble bands —
+        // audible result is cleaner highs with less quantization grunge.
+        // Applied only when the user has explicitly enabled SBC Enhancement for
+        // this BT device; zero on all non-BT routes and LDAC/LHDC profiles.
+        val sbcPreEmphasis = if (_sbcModeEnabled.value && currentDeviceKey.startsWith("bt")) {
+            when (index) {
+                11 -> -0.3f  // 4kHz: soften SBC subband crossover artifact
+                13 ->  1.5f  // 10kHz: push SBC bit-allocator toward treble
+                14 ->  2.5f  // 16kHz: force SBC to spend bits on air/sparkle
+                else -> 0f
+            }
+        } else 0f
+        val baseGain = graphicGain + peqGain + hdrAirBoost + tubeWarmthShape + sbcPreEmphasis
 
         val centered = baseGain + surroundBandProfile(mode, index)
         val diff = surroundChannelDifferential(mode, index)
