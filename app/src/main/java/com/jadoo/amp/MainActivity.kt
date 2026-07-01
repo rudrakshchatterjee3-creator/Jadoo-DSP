@@ -160,7 +160,8 @@ class MainActivity : ComponentActivity() {
                     val permissionLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.RequestMultiplePermissions()
                     ) { permissions ->
-                        hasPermissions = permissions.entries.all { it.value }
+                        val notifGranted = permissions[Manifest.permission.POST_NOTIFICATIONS] ?: true
+                        hasPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) notifGranted else true
                     }
 
                     LaunchedEffect(Unit) {
@@ -179,7 +180,9 @@ class MainActivity : ComponentActivity() {
                     }
 
                     if (hasPermissions) {
-                        MainContent(themeSettings)
+                        MainContent(
+                            themeSettings = themeSettings
+                        )
                     } else {
                         PermissionsErrorCard()
                     }
@@ -246,7 +249,9 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun MainContent(themeSettings: ThemeSettings) {
+    private fun MainContent(
+        themeSettings: ThemeSettings
+    ) {
         // Forward an "External EQ" launch to the service once it's bound.
         LaunchedEffect(audioService, pendingExternalSession) {
             val pending = pendingExternalSession

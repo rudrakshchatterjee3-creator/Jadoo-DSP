@@ -227,7 +227,7 @@ class DspEngine {
                     baseLimiterThreshold = -0.1f
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        1f, 60f, 2f, baseLimiterThreshold + headroomDb, postGainDb
+                        20f, 40f, 2f, baseLimiterThreshold + headroomDb, postGainDb
                     )
                 }
                 tubeWarmthEnabled -> {
@@ -475,44 +475,46 @@ class DspEngine {
             // forgiving (worn/vintage feel).
             val driftKnee  = 8f + analogBassDrift * 20f  // 8–28 dB knee
 
-            // Sub-bass (20-60Hz): heavy saturation drive
+            // Sub-bass (20-60Hz): saturation drive — threshold raised to sit above
+            // typical program material so the compressor only engages on real peaks,
+            // not on the entire body of every bass note.
             mbc.getBand(index++).apply {
                 cutoffFrequency = 60f
-                attackTime = 8f
-                releaseTime = 200f
+                attackTime = 10f
+                releaseTime = 220f
                 ratio = compRatio
-                threshold = -35f + analogBassDrive * 15f  // -35 to -20 dB
+                threshold = -18f + analogBassDrive * 8f  // -18 to -10 dBFS: only clips peaks
                 kneeWidth = driftKnee
                 noiseGateThreshold = -85f
                 expanderRatio = 1f
-                preGain  = driveGain                          // drive into compressor
-                postGain = warmthGain - driveGain * 0.45f     // net: warmth minus drive bleed
+                preGain  = driveGain * 0.5f              // halved drive — was slamming too hard
+                postGain = warmthGain + driveGain * 0.2f // always additive
             }
-            // Low bass (60-120Hz): warmth body
+            // Low bass (60-120Hz): warmth body — no negative postGain path
             mbc.getBand(index++).apply {
                 cutoffFrequency = 120f
-                attackTime = 12f
-                releaseTime = 180f
-                ratio = 1.4f + analogBassWarmth * 1.2f
-                threshold = -30f
+                attackTime = 14f
+                releaseTime = 200f
+                ratio = 1.2f + analogBassWarmth * 0.8f  // gentler: 1.2–2.0
+                threshold = -20f
                 kneeWidth = driftKnee
                 noiseGateThreshold = -88f
                 expanderRatio = 1f
-                preGain  = warmthGain * 0.8f
-                postGain = warmthGain * 1.2f                  // warm body boost
+                preGain  = warmthGain * 0.5f
+                postGain = warmthGain * 1.5f             // warm body boost
             }
-            // Upper bass (120-300Hz): mud control + Pultec dip character
+            // Upper bass (120-300Hz): mud control — preGain removed (was causing net cut)
             mbc.getBand(index++).apply {
                 cutoffFrequency = 300f
-                attackTime = 15f
-                releaseTime = 160f
-                ratio = 1.5f + analogBassDrive * 0.5f
-                threshold = -24f
+                attackTime = 18f
+                releaseTime = 180f
+                ratio = 1.3f + analogBassDrive * 0.3f
+                threshold = -18f
                 kneeWidth = driftKnee
                 noiseGateThreshold = -86f
-                expanderRatio = 1.05f
-                preGain  = -(analogBassWarmth * 1.5f)         // Pultec simultaneous dip
-                postGain = 1.8f                               // body makeup gain
+                expanderRatio = 1f
+                preGain  = 0f
+                postGain = warmthGain * 0.6f             // gentle warmth, never a cut
             }
         }
 
@@ -796,44 +798,47 @@ class DspEngine {
                     postGain = 0f
                 }
             }
-            // 5.2–9.6 kHz: presence/clarity band
+            // 5.2–9.6 kHz: presence/clarity — pure linear boost, no compression
+            // Threshold-based compression here caused the presence band to be
+            // constantly squeezed on loud BT/SBC sources (which sit well above -14dBFS),
+            // making HiRes sound "closed" rather than open.
             mbc.getBand(index++).apply {
                 cutoffFrequency = 9600f
-                attackTime = 1.5f
-                releaseTime = 34f
-                ratio = 1.08f
-                threshold = -14f
-                kneeWidth = 9f
-                noiseGateThreshold = -86f
-                expanderRatio = 1.18f
-                preGain = 0.5f
-                postGain = 2.2f
+                attackTime = 2f
+                releaseTime = 50f
+                ratio = 1.0f
+                threshold = 0f
+                kneeWidth = 0f
+                noiseGateThreshold = -90f
+                expanderRatio = 1.0f
+                preGain = 0f
+                postGain = 2.5f
             }
-            // 9.6–14.5 kHz: the "silk" band
+            // 9.6–14.5 kHz: silk — pure linear boost
             mbc.getBand(index++).apply {
                 cutoffFrequency = 14500f
-                attackTime = 0.9f
-                releaseTime = 24f
-                ratio = 1.04f
-                threshold = -18f
-                kneeWidth = 10f
-                noiseGateThreshold = -88f
-                expanderRatio = 1.24f
-                preGain = 0.6f
-                postGain = 3.5f             // reduced from 4.2 to prevent harshness with HDR
+                attackTime = 2f
+                releaseTime = 50f
+                ratio = 1.0f
+                threshold = 0f
+                kneeWidth = 0f
+                noiseGateThreshold = -90f
+                expanderRatio = 1.0f
+                preGain = 0f
+                postGain = 4.0f
             }
-            // 14.5–20 kHz: pure air band
+            // 14.5–20 kHz: pure air — pure linear boost
             mbc.getBand(index).apply {
                 cutoffFrequency = 20000f
-                attackTime = 0.6f
-                releaseTime = 18f
-                ratio = 1.02f
-                threshold = -22f
-                kneeWidth = 12f
+                attackTime = 2f
+                releaseTime = 50f
+                ratio = 1.0f
+                threshold = 0f
+                kneeWidth = 0f
                 noiseGateThreshold = -90f
-                expanderRatio = 1.28f
-                preGain = 0.8f
-                postGain = 4.5f             // reduced from 5.5 to prevent intermod with HDR
+                expanderRatio = 1.0f
+                preGain = 0f
+                postGain = 5.5f
             }
             return  // fully configured: [AnalogBass?] + DBFB(opt) + [MobileBass?] + HDR(opt) + HiRes(4) = done
         }
@@ -988,21 +993,22 @@ class DspEngine {
 
             val band0 = dp.getMbcByChannelIndex(0).getBand(0).apply {
                 ratio     = compRatio
-                threshold = -35f + drive * 15f
+                threshold = -18f + drive * 8f
                 kneeWidth = driftKnee
-                preGain   = driveGain
-                postGain  = warmthGain - driveGain * 0.45f
+                preGain   = driveGain * 0.5f
+                postGain  = warmthGain + driveGain * 0.2f
             }
             val band1 = dp.getMbcByChannelIndex(0).getBand(1).apply {
-                ratio     = 1.4f + warmth * 1.2f
+                ratio     = 1.2f + warmth * 0.8f
                 kneeWidth = driftKnee
-                preGain   = warmthGain * 0.8f
-                postGain  = warmthGain * 1.2f
+                preGain   = warmthGain * 0.5f
+                postGain  = warmthGain * 1.5f
             }
             val band2 = dp.getMbcByChannelIndex(0).getBand(2).apply {
-                ratio     = 1.5f + drive * 0.5f
+                ratio     = 1.3f + drive * 0.3f
                 kneeWidth = driftKnee
-                preGain   = -(warmth * 1.5f)
+                preGain   = 0f
+                postGain  = warmthGain * 0.6f
             }
             dp.setMbcBandAllChannelsTo(0, band0)
             dp.setMbcBandAllChannelsTo(1, band1)
@@ -1055,7 +1061,7 @@ class DspEngine {
         // Analog Bass's 60-120Hz band alone can reach ~3.6dB postGain at max
         // warmth — the previous flat 1.5dB credit under-padded that peak by
         // ~2dB for the same reason as DBFB above.
-        if (analogBassEnabled) bassZone += 3.6f
+        if (analogBassEnabled) bassZone += 5.0f
         // Mobile Bass combines a small known PostEQ boost (up to +2.5dB)
         // with its 90-300Hz punch band's postGain (up to +6dB) — both known,
         // fixed-shape gain stages we configured ourselves. The two stack
@@ -1088,7 +1094,7 @@ class DspEngine {
         // Mobile Bass's limiter-slam bug, just milder here since the air
         // band's energy is narrower-band and less consistently present in
         // program material than a 90-300Hz bass thump is.
-        if (hiResEnabled) trebleZone += 4.5f
+        if (hiResEnabled) trebleZone += 5.5f
         // Surround mode's smile curve also has a treble leg (4kHz/6.3kHz/
         // 10kHz/16kHz — see surroundBandProfile in JadooDspService) that was
         // never credited here at all — only its bass leg (25-100Hz, above)

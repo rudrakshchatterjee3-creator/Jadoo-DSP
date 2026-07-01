@@ -1,4 +1,4 @@
-package com.jadoo.amp.ui
+﻿package com.jadoo.amp.ui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
@@ -161,17 +161,17 @@ private sealed class HelpContent(
 
     data object SpatialSurround : HelpContent(
         title = "JadOO Surround+",
-        body = "Widens the sound through EQ shaping alone — vocals stay centered. Traditional is natural width, Front Stage pushes vocals forward, Ultra Wide is the most spacious."
+        body = "Widens the sound through EQ shaping alone â€” vocals stay centered. Traditional is natural width, Front Stage pushes vocals forward, Ultra Wide is the most spacious."
     )
 
     data object DumpPermission : HelpContent(
         title = "DUMP permission",
-        body = "Optional — helps detect the active audio session. Grant via adb shell pm grant com.jadoo.amp android.permission.DUMP"
+        body = "Optional â€” helps detect the active audio session. Grant via adb shell pm grant com.jadoo.amp android.permission.DUMP"
     )
 
     data object TubeWarmth : HelpContent(
         title = "Tube Warmth",
-        body = "Valve-amp tonal character — gentle low-end bloom and a soft high-end roll-off. Good for thin or clinical-sounding tracks."
+        body = "Valve-amp tonal character â€” gentle low-end bloom and a soft high-end roll-off. Good for thin or clinical-sounding tracks."
     )
 
     data object MobileBass : HelpContent(
@@ -181,17 +181,17 @@ private sealed class HelpContent(
 
     data object HarmonicExciter : HelpContent(
         title = "Harmonic Exciter",
-        body = "Adds presence and sparkle to the 2-8kHz range. Kept gentle on purpose — push it too far on bright tracks and it can edge toward harsh. Works on every output."
+        body = "Adds presence and sparkle to the 2-8kHz range. Kept gentle on purpose â€” push it too far on bright tracks and it can edge toward harsh. Works on every output."
     )
 
     data object DigitalFilters : HelpContent(
         title = "Parametric EQ",
-        body = "8-band surgical EQ for precise corrections — narrow notches, shelves, and passes, on top of the graphic EQ."
+        body = "8-band surgical EQ for precise corrections â€” narrow notches, shelves, and passes, on top of the graphic EQ."
     )
 
     data object SbcEnhancement : HelpContent(
         title = "SBC Enhancement",
-        body = "Pre-emphasizes high frequencies before the signal reaches the SBC encoder, forcing SBC's bit-allocator to spend more bits on treble detail. Result: cleaner highs and less quantization harshness on SBC Bluetooth. Enable only for SBC devices — not for LDAC, LHDC, or aptX HD, which already have the headroom to reproduce treble faithfully."
+        body = "Pre-emphasizes high frequencies before the signal reaches the SBC encoder, forcing SBC's bit-allocator to spend more bits on treble detail. Result: cleaner highs and less quantization harshness on SBC Bluetooth. Enable only for SBC devices â€” not for LDAC, LHDC, or aptX HD, which already have the headroom to reproduce treble faithfully."
     )
 
 }
@@ -290,7 +290,7 @@ fun DashboardScreen(
     // Custom/imported profiles
     savedProfileNames: List<String>,
     onLoadProfile: (String) -> Unit,
-    onDeleteProfile: (String) -> Unit
+    onDeleteProfile: (String) -> Unit,
 ) {
     var showExpandedEq by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -305,7 +305,7 @@ fun DashboardScreen(
     var graphicEqEnabled by remember { mutableStateOf(bandGains.any { it != 0f }) }
     var showGraphicEq by remember { mutableStateOf(bandGains.any { it != 0f }) }
     // Promote to "enabled" whenever the service reports non-zero gains (rebind,
-    // restore, import). Never demote — the user controls the "off" direction
+    // restore, import). Never demote â€” the user controls the "off" direction
     // via the toggle. FloatArray uses reference equality so this fires on every
     // new array from the service, but the promotion-only guard makes that safe.
     val hasNonZeroBands = bandGains.any { it != 0f }
@@ -337,7 +337,7 @@ fun DashboardScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // ── MASTER POWER ────────────────────────────────────────────
+        // â”€â”€ MASTER POWER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         val powerBg by animateColorAsState(
             targetValue = if (masterEnabled) MaterialTheme.colorScheme.primaryContainer
                           else MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -416,7 +416,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // ── ENHANCEMENT ─────────────────────────────────────────────
+        // â”€â”€ ENHANCEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         SectionLabel("ENHANCEMENT")
         Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
@@ -500,7 +500,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // ── ANALOG TWEAKS (Analog Bass + Tube Warmth) ────────────────
+        // â”€â”€ ANALOG TWEAKS (Analog Bass + Tube Warmth) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         SectionLabel("ANALOG TWEAKS")
         Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
@@ -578,7 +578,7 @@ fun DashboardScreen(
                             onValueChange = onAnalogBassPultecCutChanged,
                             steps = 40)
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                        // Reset button — restores all Analog Bass sliders to default values
+                        // Reset button â€” restores all Analog Bass sliders to default values
                         OutlinedButton(
                             onClick = {
                                 onAnalogBassDriveChanged(0.4f)
@@ -599,7 +599,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(10.dp))
 
-        // Tube Warmth — second card under the same "ANALOG TWEAKS" heading.
+        // Tube Warmth â€” second card under the same "ANALOG TWEAKS" heading.
         Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
@@ -636,8 +636,8 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // ── MOBILE BASS ───────────────────────────────────────────────
-        // Only meaningful through the phone's own speaker — headphones,
+        // â”€â”€ MOBILE BASS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Only meaningful through the phone's own speaker â€” headphones,
         // Bluetooth and USB DACs already reproduce real bass, so the
         // section (and the toggle it controls) is hidden rather than
         // auto-engaged/disengaged on route changes.
@@ -684,7 +684,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // ── SBC ENHANCEMENT ──────────────────────────────────────────────
+        // â”€â”€ SBC ENHANCEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // Only shown on Bluetooth routes. Users with SBC codec devices enable
         // this to get better treble detail; LDAC/LHDC users leave it off.
         AnimatedVisibility(visible = currentOutputDevice.startsWith("Bluetooth"),
@@ -712,7 +712,7 @@ fun DashboardScreen(
             }
         }
 
-        // ── SPATIAL ─────────────────────────────────────────────────
+        // â”€â”€ SPATIAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         SectionLabel("SPATIAL")
         Surface(modifier = Modifier.fillMaxWidth()
                     .clickable(enabled = masterEnabled) { showSurroundPicker = true },
@@ -763,7 +763,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // ── PARAMETRIC EQ ────────────────────────────────────────────
+        // â”€â”€ PARAMETRIC EQ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         SectionLabel("PARAMETRIC EQ")
         Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
@@ -793,7 +793,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // ── EQUALIZER ───────────────────────────────────────────────
+        // â”€â”€ EQUALIZER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         SectionLabel("EQUALIZER")
         Surface(modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -832,26 +832,6 @@ fun DashboardScreen(
                         if (manualControlsEnabled) {
                             Text("Tap to expand · drag nodes to tune",
                                  color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                            // EQ headroom indicator: shows total dB added by positive band
-                            // gains, minus any negative pre-gain already compensating for it.
-                            val positiveGainSum = bandGains.filter { it > 0f }.sum()
-                            if (positiveGainSum > 0.05f) {
-                                val preGainOffset = if (preGainDb < 0f) -preGainDb else 0f
-                                val netBoost = (positiveGainSum - preGainOffset).coerceAtLeast(0f)
-                                val boostColor = when {
-                                    netBoost <= 1.5f -> MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                                    netBoost <= 3.0f -> Color(0xFFFFA726)
-                                    else -> Color(0xFFF44336)
-                                }
-                                Text(
-                                    text = if (preGainOffset > 0.05f)
-                                        "+${"%.1f".format(positiveGainSum)} dB EQ boost · −${"%.1f".format(preGainOffset)} dB pre-gain → net +${"%.1f".format(netBoost)} dB"
-                                    else
-                                        "+${"%.1f".format(positiveGainSum)} dB EQ boost total",
-                                    color = boostColor,
-                                    fontSize = 11.sp
-                                )
-                            }
                         } else {
                             Text("Enable master power for manual tuning",
                                  color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
@@ -1269,7 +1249,7 @@ private fun EqGraphWithStickyLabels(
     val gridColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
     val density = LocalDensity.current
     val labelTextSize = with(density) { if (expanded) 12.sp.toPx() else 10.sp.toPx() }
-    val labelHeight = with(density) { 34.dp.toPx() }
+    val labelHeight = with(density) { 50.dp.toPx() }
     val graphPaddingTop = with(density) { 14.dp.toPx() }
     val dbLabelWidthDp = if (expanded) 46.dp else 40.dp
 
@@ -1296,7 +1276,7 @@ private fun EqGraphWithStickyLabels(
             )
         }
 
-        // Sticky dB labels overlay on left — drawn in a Canvas so they align exactly
+        // Sticky dB labels overlay on left â€” drawn in a Canvas so they align exactly
         Canvas(
             modifier = Modifier
                 .width(dbLabelWidthDp)
@@ -1411,7 +1391,7 @@ fun InteractiveEqGraph(
     val normalRadius = with(density) { if (expanded) 6.dp.toPx() else 4.dp.toPx() }
     val strokeWidthPx = with(density) { if (expanded) 5.dp.toPx() else 4.dp.toPx() }
     val labelTextSize = with(density) { if (expanded) 12.sp.toPx() else 10.sp.toPx() }
-    val labelHeight = with(density) { 34.dp.toPx() }
+    val labelHeight = with(density) { 50.dp.toPx() }
     val graphPaddingTop = with(density) { 14.dp.toPx() }
 
     Canvas(
@@ -1466,11 +1446,11 @@ fun InteractiveEqGraph(
 
                     // Phase 2: consume and handle vertical band adjustment.
                     // onBandLevelChanged fires on every move (not just at
-                    // release) so the audio tracks the drag live — it used to
+                    // release) so the audio tracks the drag live â€” it used to
                     // only fire once in the `finally` block below, which made
                     // the dot move instantly on screen while the actual sound
                     // stayed frozen at the old gain until you lifted your
-                    // finger, then jumped all at once — exactly the "laggy,
+                    // finger, then jumped all at once â€” exactly the "laggy,
                     // takes a few seconds to reflect" feel.
                     try {
                         while (true) {
@@ -1567,15 +1547,33 @@ fun InteractiveEqGraph(
         }
 
         drawIntoCanvas { canvas ->
-            val paint = android.graphics.Paint().apply {
+            val freqPaint = android.graphics.Paint().apply {
                 isAntiAlias = true
-                color = labelColor.copy(alpha = 0.92f).toArgb()
+                color = labelColor.copy(alpha = 0.88f).toArgb()
                 textSize = labelTextSize
                 textAlign = android.graphics.Paint.Align.CENTER
             }
+            val dbPaint = android.graphics.Paint().apply {
+                isAntiAlias = true
+                textSize = labelTextSize * 0.86f
+                textAlign = android.graphics.Paint.Align.CENTER
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
             EqBands.labels.forEachIndexed { index, label ->
                 val x = (index / (EqBands.count - 1f)) * w
-                canvas.nativeCanvas.drawText(label, x, plotBottom + labelHeight * 0.62f, paint)
+                canvas.nativeCanvas.drawText(label, x, plotBottom + labelHeight * 0.36f, freqPaint)
+                val db = localGains[index].coerceIn(-15f, 15f)
+                dbPaint.color = when {
+                    db > 0.05f -> android.graphics.Color.argb(210, 90, 195, 90)
+                    db < -0.05f -> android.graphics.Color.argb(200, 220, 75, 75)
+                    else -> labelColor.copy(alpha = 0.38f).toArgb()
+                }
+                val dbText = when {
+                    db > 0.05f -> "+${"%.1f".format(db)}"
+                    db < -0.05f -> "${"%.1f".format(db)}"
+                    else -> "·"
+                }
+                canvas.nativeCanvas.drawText(dbText, x, plotBottom + labelHeight * 0.80f, dbPaint)
             }
         }
     }
@@ -1658,7 +1656,7 @@ private fun ExpandedEqDialog(
                 // instead of trusting the last-clicked name: that name is plain
                 // Compose `remember` state with no backing store, so it resets to
                 // null on process death, on switching output-device profiles (which
-                // loads a different bandGains array), and on app restart — making
+                // loads a different bandGains array), and on app restart â€” making
                 // the highlighted chip and the "Overwrite" affordance appear to
                 // randomly vanish even though the active curve is still a named
                 // preset. Matching by content is self-healing in all those cases.
@@ -1670,7 +1668,7 @@ private fun ExpandedEqDialog(
                 // regardless of whether the current gains still content-match it.
                 // matchedPresetName becomes null the moment any band is moved (no longer
                 // an exact match), which previously caused the overwrite chip to vanish
-                // immediately after the first slider drag — selectedPresetName persists
+                // immediately after the first slider drag â€” selectedPresetName persists
                 // the intent even as the gains diverge from the saved values.
                 val overwriteTargetPreset = savedPresets.find { it.name == selectedPresetName }
                 val selectedBorder = BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
@@ -1957,7 +1955,7 @@ private fun SettingsDialog(
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "Save every setting — including the manual 15-band EQ and all saved presets — to a file, or restore from one.",
+                        text = "Save every setting â€” including the manual 15-band EQ and all saved presets â€” to a file, or restore from one.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
@@ -2107,7 +2105,7 @@ private fun HelpDialog(
             )
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // ── Clean header ──────────────────────────────────────
+                // â”€â”€ Clean header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2139,7 +2137,7 @@ private fun HelpDialog(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                 )
 
-                // ── Scrollable body ──────────────────────────────────────
+                // â”€â”€ Scrollable body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -2173,13 +2171,13 @@ private fun HelpBodyText(body: String) {
     while (i < lines.size) {
         val line = lines[i]
         when {
-            // Empty line → small spacer
+            // Empty line â†’ small spacer
             line.isBlank() -> {
                 Spacer(modifier = Modifier.height(8.dp))
             }
             // Bullet line
-            line.trimStart().startsWith("•") -> {
-                val bulletText = line.trimStart().removePrefix("•").trim()
+            line.trimStart().startsWith("â€¢") -> {
+                val bulletText = line.trimStart().removePrefix("â€¢").trim()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2574,3 +2572,4 @@ private fun CompactToggleRow(
         )
     }
 }
+

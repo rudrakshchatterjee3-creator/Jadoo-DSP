@@ -602,8 +602,15 @@ class JadooDspService : Service() {
 
         // Sent by AudioEffectReceiver when a player broadcasts
         // ACTION_OPEN/CLOSE_AUDIO_EFFECT_CONTROL_SESSION (the official mechanism
-        // for "external audio effects" support) — gives us the EXACT session ID
-        // and package name for the app that's actually playing, no guessing needed.
+        // for "external audio effects" support) — gives us the package name for
+        // the app that is opening/closing a playback session.
+        //
+        // IMPORTANT: We do NOT attach DynamicsProcessing to the per-app session ID
+        // (even though it's provided here). DynamicsProcessing is always kept on
+        // GLOBAL_AUDIO_SESSION_ID (0) which is the output mix. Attaching to a
+        // per-app session causes two separate DynamicsProcessing effect chains to
+        // coexist (one on 0, one on the app session), which doubles processing,
+        // causes volume spikes on feature toggle, and glitches on many OEM ROMs.
         val sessionId = intent?.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, -1) ?: -1
         if (sessionId > 0) {
             when (intent?.action) {
@@ -611,17 +618,19 @@ class JadooDspService : Service() {
                     val pkg = intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME)
                     _activePackageName.value = pkg
                     _activeAppLabel.value = resolveAppLabel(pkg)
-                    if (_masterEnabled.value) {
-                        // A new player session opening is always a "new stream" event —
-                        // force re-attach even if the session ID happens to match the old one.
-                        attachSession(sessionId, pkg, forceReattach = true)
-                    }
+                    // New player session = new audio stream on the global mix.
+                    // Force re-attach to global session 0 so the DynamicsProcessing
+                    // effect is fresh and bound to the current mix (not a stale one).
+                    if (_masterEnabled.value) resolveAndAttachSession(pkg)
                 }
                 AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION -> {
-                    if (_masterEnabled.value && _audioSessionId.value == sessionId) {
+                    val closingPkg = intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME)
+                    if (_activePackageName.value == closingPkg) {
                         _activePackageName.value = null
                         _activeAppLabel.value = null
-                        attachGlobalSession(packageName = null)
+                        // Re-attach to global session so the effect is refreshed
+                        // for whoever plays next.
+                        if (_masterEnabled.value) resolveAndAttachSession(null)
                     }
                 }
             }
@@ -826,13 +835,12 @@ class JadooDspService : Service() {
      */
     fun attachExternalSession(sessionId: Int, packageName: String?) {
         _masterEnabled.value = true
-        if (sessionId > 0) {
+        if (packageName != null) {
             _activePackageName.value = packageName
             _activeAppLabel.value = resolveAppLabel(packageName)
-            attachSession(sessionId, packageName)
-        } else {
-            resolveAndAttachSession(packageName)
         }
+        // Always attach to global session 0 — never to a per-app session.
+        resolveAndAttachSession(packageName)
         updateNotification()
         saveSession()
     }
@@ -1536,11 +1544,25 @@ class JadooDspService : Service() {
         // audible result is cleaner highs with less quantization grunge.
         // Applied only when the user has explicitly enabled SBC Enhancement for
         // this BT device; zero on all non-BT routes and LDAC/LHDC profiles.
+        // SBC pre-emphasis: a carefully shaped curve tuned to SBC's specific failure modes.
+        // SBC uses only 8 subbands — its bit-allocator starves the top 2 subbands (roughly
+        // 10-22kHz) because they have less energy than the bass-heavy subbands. Boosting
+        // those bands forces the allocator to invest more bits there, reducing quantisation
+        // grunge. Simultaneously, SBC's subband boundaries at ~4kHz and ~8kHz introduce
+        // mild quantisation noise — a small cut there removes the harshness without dulling
+        // the sound. A gentle sub-bass lift (63-100Hz) restores the low-end "body" that
+        // SBC's wide subbands tend to spread and thin out. The result sounds like a better
+        // codec, not like an EQ was applied.
         val sbcPreEmphasis = if (_sbcModeEnabled.value && currentDeviceKey.startsWith("bt")) {
             when (index) {
-                11 -> -0.3f  // 4kHz: soften SBC subband crossover artifact
-                13 ->  1.5f  // 10kHz: push SBC bit-allocator toward treble
-                14 ->  2.5f  // 16kHz: force SBC to spend bits on air/sparkle
+                2  ->  1.2f  // 63Hz: restore sub-bass body SBC spreads across too-wide a band
+                3  ->  0.8f  // 100Hz: gentle warmth floor
+                9  -> -0.5f  // 1.6kHz: soften SBC's dense midrange quantisation noise
+                10 -> -1.2f  // 2.5kHz: reduce harshness at SBC's first upper subband edge
+                11 -> -2.5f  // 4kHz: SBC's worst subband transition — clear, audible cut
+                12 ->  1.5f  // 6.3kHz: smooth presence lift, fills the post-cut dip naturally
+                13 ->  4.5f  // 10kHz: strong bit-allocation push — SBC starves this range
+                14 ->  7.0f  // 16kHz: maximum air push — SBC spends almost no bits here naturally
                 else -> 0f
             }
         } else 0f
