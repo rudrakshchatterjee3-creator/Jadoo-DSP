@@ -229,18 +229,39 @@ class JadooDspService : Service() {
                 it.type == AudioDeviceInfo.TYPE_USB_ACCESSORY
         }
         if (usb != null) {
-            // Re-detect sample rate for the USB DAC — it may differ from the
-            // phone's native rate (44100Hz, 96000Hz, 192000Hz are common).
-            // PROPERTY_OUTPUT_SAMPLE_RATE returns the HAL's current value which
-            // Android updates when USB audio is active.
-            val usbRate = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
-                              ?.toFloatOrNull() ?: 48000f
+            // Build a per-device profile key using the DAC's product name, the
+            // same way Bluetooth headphone profiles are keyed. Two different USB
+            // DACs (e.g. Topping D10s vs Fiio BTR5) have different frequency
+            // responses and should each keep their own saved EQ profile.
+            val rawUsbName = try { usb.productName?.toString()?.trim() } catch (_: Exception) { null }
+            val (usbKey, usbLabel) = if (!rawUsbName.isNullOrBlank()) {
+                val safeName = rawUsbName.filter { it.isLetterOrDigit() || it == ' ' || it == '-' }.trim().take(40)
+                if (safeName.isNotBlank()) "usb_${safeName.replace(' ', '_')}" to "USB: $safeName"
+                else "usb" to "USB Audio"
+            } else "usb" to "USB Audio"
+
+            // Prefer the sample rate reported directly by the device over the
+            // HAL property — the property can be stale at callback time (HAL
+            // updates it asynchronously after the route switches). Pick the
+            // highest rate the DAC advertises that the HAL also confirms, so
+            // biquad coefficients are calculated at the rate audio actually flows.
+            val deviceRates = usb.sampleRates ?: IntArray(0)
+            val halRate = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toFloatOrNull() ?: 48000f
+            val usbRate = if (deviceRates.isNotEmpty()) {
+                // Use the HAL rate if it's one the device supports (most likely case),
+                // else fall back to the device's highest supported rate.
+                val halRateInt = halRate.toInt()
+                if (halRateInt in deviceRates) halRate
+                else deviceRates.max().toFloat()
+            } else halRate
+
             if (usbRate != digitalFilterEngine.sampleRateHz) {
                 analogBassEngine.initialize(usbRate)
                 digitalFilterEngine.initialize(usbRate)
-                Log.d(TAG, "USB DAC detected — re-initialized filters at ${usbRate}Hz")
+                Log.d(TAG, "USB DAC ($usbLabel) — filters re-initialized at ${usbRate}Hz " +
+                    "(device supports: ${deviceRates.joinToString()}, HAL reports: ${halRate}Hz)")
             }
-            return "usb" to "USB Audio"
+            return usbKey to usbLabel
         }
 
         // ── Bluetooth A2DP / BLE Audio ────────────────────────────────────
@@ -282,14 +303,21 @@ class JadooDspService : Service() {
         if (wiredActive) return "wired" to "Wired Headphones"
 
         // ── Phone speaker (default) ───────────────────────────────────────
-        // Also re-detect sample rate in case a USB DAC was unplugged — the
-        // HAL switches back to the phone's native rate.
-        val nativeRate = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
-                             ?.toFloatOrNull() ?: 48000f
+        // Re-detect sample rate in case a USB DAC was just unplugged — the HAL
+        // switches back to the phone's native rate. PROPERTY_OUTPUT_SAMPLE_RATE
+        // can still briefly reflect the USB rate right after removal; the built-in
+        // speaker's AudioDeviceInfo entry is more reliable for its supported rates.
+        val speakerDevice = allOutputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+        val speakerRates = speakerDevice?.sampleRates ?: IntArray(0)
+        val halRate = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toFloatOrNull() ?: 48000f
+        val nativeRate = if (speakerRates.isNotEmpty()) {
+            val halRateInt = halRate.toInt()
+            if (halRateInt in speakerRates) halRate else speakerRates.max().toFloat()
+        } else halRate
         if (nativeRate != digitalFilterEngine.sampleRateHz) {
             analogBassEngine.initialize(nativeRate)
             digitalFilterEngine.initialize(nativeRate)
-            Log.d(TAG, "Output reverted to speaker — re-initialized filters at ${nativeRate}Hz")
+            Log.d(TAG, "Output reverted to speaker — filters re-initialized at ${nativeRate}Hz")
         }
         return "speaker" to "Phone Speaker"
     }
