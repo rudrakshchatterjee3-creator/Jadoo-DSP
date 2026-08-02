@@ -78,7 +78,7 @@ private val onboardingPages = listOf(
     OnboardingPage(
         tag = "JADOO DSP",
         headline = "Your music deserves better.",
-        body = "Professional-grade audio processing built from first principles — running entirely on your phone, in real time.",
+        body = "Professional-grade audio processing built from first principles, running entirely on your phone, in real time.",
         accentColor = Color(0xFF9AD48F),
         visual = OnboardingVisual.Waveform
     ),
@@ -92,21 +92,21 @@ private val onboardingPages = listOf(
     OnboardingPage(
         tag = "GRAPHIC EQ",
         headline = "Precision that listens.",
-        body = "A full 15-band graphic EQ at ISO standard frequencies, plus an 8-band parametric EQ for surgical control — shape your sound exactly the way you want it.",
+        body = "A full 15-band graphic EQ at ISO standard frequencies, plus an 8-band parametric EQ for surgical control - shape your sound exactly the way you want it.",
         accentColor = Color(0xFFFFCC80),
         visual = OnboardingVisual.EqBars
     ),
     OnboardingPage(
         tag = "ANALOG BASS · SURROUND+",
         headline = "Warmth. Width. Life.",
-        body = "The Analog Bass Engine models vintage tube and transformer circuits — saturation, drift, Pultec EQ curves — to make bass feel three-dimensional.\n\nSurround+ stretches your stereo field without ever moving the vocals.",
+        body = "The Analog Bass Engine models vintage tube and transformer circuits - saturation, drift, Pultec EQ curves - to make bass feel three-dimensional.\n\nSurround+ stretches your stereo field without ever moving the vocals.",
         accentColor = Color(0xFFCE93D8),
         visual = OnboardingVisual.Surround
     ),
     OnboardingPage(
         tag = "READY",
         headline = "Your ears deserve this.",
-        body = "Everything runs locally. No cloud. No subscriptions. No compromises.\n\nGrant permissions when asked — the DSP engine needs them to reach your music.",
+        body = "Everything runs locally. No cloud. No subscriptions. No compromises.\n\nGrant permissions when asked - the DSP engine needs them to reach your music.",
         accentColor = Color(0xFF9AD48F),
         visual = OnboardingVisual.Constellation
     )

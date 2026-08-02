@@ -347,18 +347,22 @@ fun ParametricEqScreen(
             )
 
             Spacer(Modifier.height(8.dp))
+        } else if (selectedTab == 1) {
+            // ── Graphic View ──
+            GraphicView(
+                bandStates = bandStates,
+                modifier = Modifier.fillMaxWidth()
+            )
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(400.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (selectedTab == 1) "Graphic view coming soon" else "Table view coming soon",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            // ── Table View ──
+            TableView(
+                bandStates = bandStates,
+                preampDb = preampDb,
+                selectedBandIndex = selectedBandIndex,
+                onSelectBand = { selectedBandIndex = it },
+                onBandEnabledChanged = onBandEnabledChanged,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 
@@ -630,6 +634,314 @@ private fun EqGraph(
                 }
             }
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GRAPHIC VIEW
+// ═══════════════════════════════════════════════════════════
+
+@Composable
+private fun GraphicView(
+    bandStates: List<DigitalFilterEngine.BiquadBandState>,
+    modifier: Modifier = Modifier
+) {
+    val responsePoints = remember(bandStates) { calculateFrequencyResponse(bandStates) }
+    val graphBackground = MaterialTheme.colorScheme.surfaceContainerLow
+    val gridColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    val zeroDbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+    val curveColor = MaterialTheme.colorScheme.primary
+    val fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+    val textColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+    val enabledBands = bandStates.filter { it.isEnabled }
+    val peakGain = if (enabledBands.isEmpty()) 0f else responsePoints.maxOf { it.gain }
+    val peakFreq = if (enabledBands.isEmpty()) 0f else responsePoints.maxByOrNull { it.gain }?.frequency ?: 0f
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Large response curve
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(280.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = graphBackground)
+        ) {
+            Box(modifier = Modifier.fillMaxSize().padding(bottom = 20.dp)) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+                    val padding = 48f
+                    val logMin = log10(20f)
+                    val logMax = log10(20000f)
+
+                    fun freqToX(f: Float) = padding + ((log10(f.coerceIn(20f, 20000f)) - logMin) / (logMax - logMin)) * (w - 2 * padding)
+                    fun dbToY(db: Float) = h - padding - ((db.coerceIn(-20f, 20f) + 20f) / 40f) * (h - 2 * padding)
+
+                    // Grid lines at -15, -10, -5, 0, +5, +10, +15 dB
+                    listOf(-15f, -10f, -5f, 0f, 5f, 10f, 15f).forEach { db ->
+                        val y = dbToY(db)
+                        drawLine(if (db == 0f) zeroDbColor else gridColor, Offset(padding, y), Offset(w - padding, y), strokeWidth = if (db == 0f) 1.5f else 1f)
+                    }
+                    // Vertical grid at key frequencies
+                    listOf(50f, 100f, 200f, 500f, 1000f, 2000f, 5000f, 10000f).forEach { f ->
+                        val x = freqToX(f)
+                        drawLine(gridColor, Offset(x, padding), Offset(x, h - padding), strokeWidth = 1f)
+                    }
+
+                    if (responsePoints.size >= 2) {
+                        // Fill
+                        val fillPath = Path()
+                        fillPath.moveTo(freqToX(responsePoints.first().frequency), dbToY(0f))
+                        responsePoints.forEach { p -> fillPath.lineTo(freqToX(p.frequency), dbToY(p.gain)) }
+                        fillPath.lineTo(freqToX(responsePoints.last().frequency), dbToY(0f))
+                        fillPath.close()
+                        drawPath(fillPath, fillColor)
+
+                        // Curve
+                        val curvePath = Path()
+                        curvePath.moveTo(freqToX(responsePoints.first().frequency), dbToY(responsePoints.first().gain))
+                        responsePoints.drop(1).forEach { p -> curvePath.lineTo(freqToX(p.frequency), dbToY(p.gain)) }
+                        drawPath(curvePath, curveColor, style = Stroke(width = 2.5f))
+                    }
+                }
+
+                // dB labels left side
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 4.dp, bottom = 0.dp)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    listOf("+15", "+10", "+5", "0", "-5", "-10", "-15").forEach { label ->
+                        Text(label, color = textColor, style = MaterialTheme.typography.labelSmall, fontSize = 8.sp)
+                    }
+                }
+
+                // Frequency labels bottom
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 40.dp, end = 8.dp, bottom = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    listOf("20", "100", "500", "1k", "5k", "20k").forEach { label ->
+                        Text(label, color = textColor, style = MaterialTheme.typography.labelSmall, fontSize = 8.sp)
+                    }
+                }
+            }
+        }
+
+        // Summary cards
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SummaryCard(
+                label = "Active Bands",
+                value = "${enabledBands.size} / ${bandStates.size}",
+                modifier = Modifier.weight(1f)
+            )
+            SummaryCard(
+                label = "Peak Gain",
+                value = if (enabledBands.isEmpty()) "Flat" else String.format("%+.1f dB", peakGain),
+                modifier = Modifier.weight(1f)
+            )
+            SummaryCard(
+                label = "Peak Freq",
+                value = if (enabledBands.isEmpty()) "-" else if (peakFreq >= 1000f) String.format("%.1f kHz", peakFreq / 1000f) else "${peakFreq.roundToInt()} Hz",
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // Per-band frequency tags
+        if (enabledBands.isNotEmpty()) {
+            Text(
+                text = "Active Bands",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                enabledBands.forEach { band ->
+                    val bandIdx = bandStates.indexOf(band)
+                    val bandColor = BandColors[(bandIdx % (BandColors.size - 1)) + 1]
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(bandColor))
+                            Text(
+                                "Band ${bandIdx + 1}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                band.type.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = run {
+                                val freqLabel = if (band.frequency >= 1000f)
+                                    String.format("%.1f kHz", band.frequency / 1000f)
+                                else
+                                    "${band.frequency.roundToInt()} Hz"
+                                "$freqLabel  ${String.format("%+.1f", band.gain)} dB  Q${String.format("%.2f", band.q)}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryCard(label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TABLE VIEW
+// ═══════════════════════════════════════════════════════════
+
+@Composable
+private fun TableView(
+    bandStates: List<DigitalFilterEngine.BiquadBandState>,
+    preampDb: Float,
+    selectedBandIndex: Int,
+    onSelectBand: (Int) -> Unit,
+    onBandEnabledChanged: (Int, Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Preamp row
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Preamp", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    String.format("%+.1f dB", preampDb),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        // Header row
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("#", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(24.dp))
+                Text("Type", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(72.dp))
+                Text("Freq", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Text("Gain", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Text("Q", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Text("On", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(36.dp))
+            }
+        }
+
+        // Band rows
+        bandStates.forEachIndexed { index, band ->
+            val isSelected = index == selectedBandIndex
+            val bandColor = BandColors[(index % (BandColors.size - 1)) + 1]
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.clickable { onSelectBand(index) }
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Band number with color dot
+                    Row(modifier = Modifier.width(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if (band.isEnabled) bandColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)))
+                    }
+                    // Type
+                    Text(
+                        text = if (band.isEnabled) band.type.name else "BYPASS",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                                else if (band.isEnabled) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.width(72.dp)
+                    )
+                    // Frequency
+                    Text(
+                        text = if (band.isEnabled) (if (band.frequency >= 1000f) String.format("%.1fk", band.frequency / 1000f) else "${band.frequency.roundToInt()}") else "-",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    // Gain
+                    Text(
+                        text = if (band.isEnabled) String.format("%+.1f", band.gain) else "-",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = if (band.isEnabled && band.gain != 0f) FontWeight.Bold else FontWeight.Normal,
+                        color = when {
+                            !band.isEnabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+                            band.gain > 0f -> MaterialTheme.colorScheme.primary
+                            band.gain < 0f -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onSurface
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    // Q
+                    Text(
+                        text = if (band.isEnabled) String.format("%.2f", band.q) else "-",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    // Toggle
+                    Switch(
+                        checked = band.isEnabled,
+                        onCheckedChange = { onBandEnabledChanged(index, it) },
+                        modifier = Modifier.width(36.dp).height(20.dp),
+                        colors = SwitchDefaults.colors(
+                            checkedTrackColor = bandColor.copy(alpha = 0.7f),
+                            checkedThumbColor = bandColor
+                        )
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
     }
 }
 

@@ -20,6 +20,9 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -32,8 +35,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Info
@@ -51,11 +56,17 @@ import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.ui.draw.scale
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -121,7 +132,11 @@ private val Presets = mapOf(
     "Bass" to floatArrayOf(6f, 5.5f, 4.5f, 3f, 1.8f, 0.5f, 0f, -0.5f, -0.5f, 0f, 0.5f, 1f, 0.5f, 0f, 0f),
     "Beats" to floatArrayOf(5f, 4.5f, 4f, 2.5f, 1f, -0.5f, -1f, -0.5f, 0.5f, 1.5f, 3f, 4f, 3f, 2f, 1f),
     "Classic" to floatArrayOf(2f, 2f, 1.5f, 0.5f, 0f, 0f, -0.5f, -0.5f, 0f, 0.5f, 1f, 2f, 2.5f, 2f, 1f),
-    "Clear" to floatArrayOf(-1f, -0.5f, 0f, 0f, 0.5f, 1f, 1.5f, 2f, 2f, 2.5f, 3f, 3f, 2.5f, 2f, 1.5f)
+    "Clear" to floatArrayOf(-1f, -0.5f, 0f, 0f, 0.5f, 1f, 1.5f, 2f, 2f, 2.5f, 3f, 3f, 2.5f, 2f, 1.5f),
+    // Soulful Mids: vocal intimacy preset. Warmth body (160-400Hz) + deep vocal peak (1-2.5kHz)
+    // + boxiness cut at 630Hz so warmth breathes. Bass slightly pulled back to keep mids
+    // the center of gravity. Gentle air above 4kHz — present but never fatiguing.
+    "Soulful Mids" to floatArrayOf(-1f, -0.5f, 0f, 0.5f, 1.5f, 2f, 1.2f, -0.8f, 3f, 3.5f, 3f, 2f, 1f, 0.5f, 0f)
 )
 
 private val ColorPalette = listOf(
@@ -161,17 +176,17 @@ private sealed class HelpContent(
 
     data object SpatialSurround : HelpContent(
         title = "JadOO Surround+",
-        body = "Widens the sound through EQ shaping alone â€” vocals stay centered. Traditional is natural width, Front Stage pushes vocals forward, Ultra Wide is the most spacious."
+        body = "Widens the sound through EQ shaping alone - vocals stay centered. Traditional is natural width, Front Stage pushes vocals forward, Wide is the most spacious."
     )
 
     data object DumpPermission : HelpContent(
         title = "DUMP permission",
-        body = "Optional â€” helps detect the active audio session. Grant via adb shell pm grant com.jadoo.amp android.permission.DUMP"
+        body = "Optional - helps detect the active audio session. Grant via adb shell pm grant com.jadoo.amp android.permission.DUMP"
     )
 
     data object TubeWarmth : HelpContent(
         title = "Tube Warmth",
-        body = "Valve-amp tonal character â€” gentle low-end bloom and a soft high-end roll-off. Good for thin or clinical-sounding tracks."
+        body = "Valve-amp tonal character - gentle low-end bloom and a soft high-end roll-off. Good for thin or clinical-sounding tracks."
     )
 
     data object MobileBass : HelpContent(
@@ -179,19 +194,24 @@ private sealed class HelpContent(
         body = "Adds fuller bass on your phone's own speaker. Won't go as deep as a real subwoofer, but noticeably fuller than stock. Only shown when playing through the speaker."
     )
 
+    data object Crossfeed : HelpContent(
+        title = "Crossfeed (Beta)",
+        body = "Softens the hard left/right stereo split of headphone listening, closer to how speakers sound in a room. Uses your phone's built-in headphone virtualizer, so quality and strength support vary by device - marked Beta while that variance is being ironed out."
+    )
+
     data object HarmonicExciter : HelpContent(
         title = "Harmonic Exciter",
-        body = "Adds presence and sparkle to the 2-8kHz range. Kept gentle on purpose â€” push it too far on bright tracks and it can edge toward harsh. Works on every output."
+        body = "Adds presence and sparkle to the 2-8kHz range. Kept gentle on purpose - push it too far on bright tracks and it can edge toward harsh. Works on every output."
     )
 
     data object DigitalFilters : HelpContent(
         title = "Parametric EQ",
-        body = "8-band surgical EQ for precise corrections â€” narrow notches, shelves, and passes, on top of the graphic EQ."
+        body = "8-band surgical EQ for precise corrections - narrow notches, shelves, and passes, on top of the graphic EQ."
     )
 
     data object SbcEnhancement : HelpContent(
         title = "SBC Enhancement",
-        body = "Pre-emphasizes high frequencies before the signal reaches the SBC encoder, forcing SBC's bit-allocator to spend more bits on treble detail. Result: cleaner highs and less quantization harshness on SBC Bluetooth. Enable only for SBC devices â€” not for LDAC, LHDC, or aptX HD, which already have the headroom to reproduce treble faithfully."
+        body = "Pre-emphasizes high frequencies before the signal reaches the SBC encoder, forcing SBC's bit-allocator to spend more bits on treble detail. Result: cleaner highs and less quantization harshness on SBC Bluetooth. Enable only for SBC devices - not for LDAC, LHDC, or aptX HD, which already have the headroom to reproduce treble faithfully."
     )
 
 }
@@ -244,6 +264,10 @@ fun DashboardScreen(
     useMaterialYou: Boolean,
     customPrimaryColor: Color,
     dumpPermissionEnabled: Boolean,
+    deviceType: com.jadoo.amp.audio.DeviceType,
+    deviceQualityTier: Float,
+    crossfeedEnabled: Boolean,
+    crossfeedStrength: Float,
     onMasterPowerToggled: (Boolean) -> Unit,
     onPreGainChanged: (Float) -> Unit,
     onPostGainChanged: (Float) -> Unit,
@@ -273,6 +297,9 @@ fun DashboardScreen(
     // Harmonic Exciter callbacks
     onHarmonicExciterEnabledChanged: (Boolean) -> Unit,
     onHarmonicExciterIntensityChanged: (Float) -> Unit,
+    // Crossfeed callbacks
+    onCrossfeedEnabledChanged: (Boolean) -> Unit,
+    onCrossfeedStrengthChanged: (Float) -> Unit,
     onDigitalFilterEnabledChanged: (Boolean) -> Unit,
     onDigitalFilterBandEnabledChanged: (Int, Boolean) -> Unit,
     onDigitalFilterBandTypeChanged: (Int, DigitalFilterEngine.FilterType) -> Unit,
@@ -281,6 +308,8 @@ fun DashboardScreen(
     onDigitalFilterBandQChanged: (Int, Float) -> Unit,
     onUseMaterialYouChanged: (Boolean) -> Unit,
     onCustomPrimaryColorChanged: (Color) -> Unit,
+    onDeviceTypeChanged: (com.jadoo.amp.audio.DeviceType) -> Unit,
+    onDeviceQualityTierChanged: (Float) -> Unit,
     onResetDigitalFilterBands: () -> Unit,
     onExportSettings: () -> Unit,
     onImportSettings: () -> Unit,
@@ -305,7 +334,7 @@ fun DashboardScreen(
     var graphicEqEnabled by remember { mutableStateOf(bandGains.any { it != 0f }) }
     var showGraphicEq by remember { mutableStateOf(bandGains.any { it != 0f }) }
     // Promote to "enabled" whenever the service reports non-zero gains (rebind,
-    // restore, import). Never demote â€” the user controls the "off" direction
+    // restore, import). Never demote â€" the user controls the "off" direction
     // via the toggle. FloatArray uses reference equality so this fires on every
     // new array from the service, but the promotion-only guard makes that safe.
     val hasNonZeroBands = bandGains.any { it != 0f }
@@ -337,7 +366,7 @@ fun DashboardScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // â”€â”€ MASTER POWER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // â"€â"€ MASTER POWER â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
         val powerBg by animateColorAsState(
             targetValue = if (masterEnabled) MaterialTheme.colorScheme.primaryContainer
                           else MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -416,7 +445,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // â”€â”€ ENHANCEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // â"€â"€ ENHANCEMENT â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
         SectionLabel("ENHANCEMENT")
         Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
@@ -500,20 +529,22 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // â”€â”€ ANALOG TWEAKS (Analog Bass + Tube Warmth) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── ANALOG TWEAKS (Analog Bass + Tube Warmth) ────────────────────
         SectionLabel("ANALOG TWEAKS")
         Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                val analogBassBlockedByFront = surroundMode == SurroundMode.Front
                 CompactToggleRow(
                     title = "Analog Bass",
-                    subtitle = if (analogBassEnabled) "Tube warmth · Pultec EQ"
+                    subtitle = if (analogBassBlockedByFront) "Not available with Front Stage"
+                               else if (analogBassEnabled) "Tube warmth - Pultec EQ"
                                else "Vintage analog emulation",
-                    checked = analogBassEnabled, enabled = masterEnabled,
-                    leadingIcon = { Icon(Icons.Default.Radio, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
+                    checked = analogBassEnabled && !analogBassBlockedByFront, enabled = masterEnabled && !analogBassBlockedByFront,
+                    leadingIcon = { Icon(Icons.Default.Radio, null, tint = if (masterEnabled && !analogBassBlockedByFront) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
                     onCheckedChange = onAnalogBassEnabledChanged,
                     onHelpClick = { helpDialog = HelpContent.AnalogBass })
-                AnimatedVisibility(visible = analogBassEnabled && masterEnabled,
+                AnimatedVisibility(visible = analogBassEnabled && masterEnabled && !analogBassBlockedByFront,
                     enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
                     exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()) {
                     Column(modifier = Modifier.padding(bottom = 14.dp),
@@ -542,8 +573,12 @@ fun DashboardScreen(
                             steps = 100)
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                         // Pultec section
-                        Text("Pultec EQ", fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
-                             color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            if (mobileBassEnabled) "Pultec EQ (inactive - Mobile Bass active)" else "Pultec EQ",
+                            fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                            color = if (mobileBassEnabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    else MaterialTheme.colorScheme.onSurface
+                        )
                         // Pultec frequency selector
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             val pultecFreqs = listOf("20 Hz", "30 Hz", "60 Hz", "100 Hz")
@@ -578,7 +613,7 @@ fun DashboardScreen(
                             onValueChange = onAnalogBassPultecCutChanged,
                             steps = 40)
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                        // Reset button â€” restores all Analog Bass sliders to default values
+                        // Reset button â€" restores all Analog Bass sliders to default values
                         OutlinedButton(
                             onClick = {
                                 onAnalogBassDriveChanged(0.4f)
@@ -599,7 +634,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(10.dp))
 
-        // Tube Warmth â€” second card under the same "ANALOG TWEAKS" heading.
+        // Tube Warmth â€" second card under the same "ANALOG TWEAKS" heading.
         Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
@@ -636,8 +671,58 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // â”€â”€ MOBILE BASS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        // Only meaningful through the phone's own speaker â€” headphones,
+        // ── CROSSFEED (Beta) ──────────────────────────────────────────
+        // Headphones/earphones only — nothing to "feed across" on a single
+        // speaker cabinet.
+        AnimatedVisibility(
+            visible = deviceType == com.jadoo.amp.audio.DeviceType.Iem ||
+                deviceType == com.jadoo.amp.audio.DeviceType.OnEar ||
+                deviceType == com.jadoo.amp.audio.DeviceType.OverEar ||
+                deviceType == com.jadoo.amp.audio.DeviceType.General,
+            enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
+            exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()
+        ) {
+            Column {
+                SectionLabel("CROSSFEED (BETA)")
+                Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                        CompactToggleRow(
+                            title = "Crossfeed",
+                            subtitle = if (crossfeedEnabled) "Softer headphone stereo image"
+                                       else "Reduces harsh hard-panned stereo",
+                            checked = crossfeedEnabled, enabled = masterEnabled,
+                            leadingIcon = { Icon(Icons.Default.Headset, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
+                            onCheckedChange = onCrossfeedEnabledChanged,
+                            onHelpClick = { helpDialog = HelpContent.Crossfeed })
+                        AnimatedVisibility(visible = crossfeedEnabled && masterEnabled,
+                            enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
+                            exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()) {
+                            Column(modifier = Modifier.padding(bottom = 14.dp),
+                                   verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                LabeledSlider(
+                                    label = "Strength",
+                                    value = crossfeedStrength,
+                                    valueLabel = "${String.format("%.0f", crossfeedStrength * 100)}%",
+                                    onValueChange = onCrossfeedStrengthChanged,
+                                    steps = 100)
+                                Text(
+                                    text = "Uses your device's built-in headphone virtualizer. Effect strength and quality vary by phone.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        // â"€â"€ MOBILE BASS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        // Only meaningful through the phone's own speaker â€" headphones,
         // Bluetooth and USB DACs already reproduce real bass, so the
         // section (and the toggle it controls) is hidden rather than
         // auto-engaged/disengaged on route changes.
@@ -684,7 +769,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // â”€â”€ SBC ENHANCEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // â"€â"€ SBC ENHANCEMENT â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
         // Only shown on Bluetooth routes. Users with SBC codec devices enable
         // this to get better treble detail; LDAC/LHDC users leave it off.
         AnimatedVisibility(visible = currentOutputDevice.startsWith("Bluetooth"),
@@ -712,7 +797,7 @@ fun DashboardScreen(
             }
         }
 
-        // â”€â”€ SPATIAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // â"€â"€ SPATIAL â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
         SectionLabel("SPATIAL")
         Surface(modifier = Modifier.fillMaxWidth()
                     .clickable(enabled = masterEnabled) { showSurroundPicker = true },
@@ -763,7 +848,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // â”€â”€ PARAMETRIC EQ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // â"€â"€ PARAMETRIC EQ â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
         SectionLabel("PARAMETRIC EQ")
         Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
@@ -793,7 +878,7 @@ fun DashboardScreen(
 
         Spacer(Modifier.height(6.dp))
 
-        // â”€â”€ EQUALIZER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // â"€â"€ EQUALIZER â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
         SectionLabel("EQUALIZER")
         Surface(modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -862,6 +947,11 @@ fun DashboardScreen(
             useMaterialYou = useMaterialYou,
             customPrimaryColor = customPrimaryColor,
             dumpPermissionEnabled = dumpPermissionEnabled,
+            currentOutputDevice = currentOutputDevice,
+            deviceType = deviceType,
+            deviceQualityTier = deviceQualityTier,
+            onDeviceTypeChanged = onDeviceTypeChanged,
+            onDeviceQualityTierChanged = onDeviceQualityTierChanged,
             onUseMaterialYouChanged = onUseMaterialYouChanged,
             onCustomPrimaryColorChanged = onCustomPrimaryColorChanged,
             onHelpRequested = { helpDialog = it },
@@ -1041,6 +1131,137 @@ private fun DbfbModeChips(
                     null
                 }
             )
+        }
+    }
+}
+
+/** Representative icon for each physical device type, see DeviceType. */
+private fun deviceTypeIcon(type: com.jadoo.amp.audio.DeviceType): ImageVector =
+    when (type) {
+        com.jadoo.amp.audio.DeviceType.General -> Icons.Default.Tune
+        com.jadoo.amp.audio.DeviceType.Iem -> Icons.Default.GraphicEq
+        com.jadoo.amp.audio.DeviceType.OnEar -> Icons.Default.Headset
+        com.jadoo.amp.audio.DeviceType.OverEar -> Icons.Default.Headphones
+        com.jadoo.amp.audio.DeviceType.CompactSpeaker -> Icons.Default.SurroundSound
+        com.jadoo.amp.audio.DeviceType.HomeSpeaker -> Icons.Default.Speaker
+    }
+
+/**
+ * Device type picker: General gets a full-width row (it's "skip this feature",
+ * not a physical type), the 5 real device types fill a 2-column grid below.
+ * Same animated card pattern as everywhere else in this dialog: color, border,
+ * and scale all spring on selection, plus a small checkmark fade-in.
+ */
+@Composable
+private fun DeviceTypePicker(
+    selected: com.jadoo.amp.audio.DeviceType,
+    onSelected: (com.jadoo.amp.audio.DeviceType) -> Unit,
+    enabled: Boolean = true
+) {
+    val realTypes = com.jadoo.amp.audio.DeviceType.entries
+        .filter { it != com.jadoo.amp.audio.DeviceType.General }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        DeviceTypeCard(
+            type = com.jadoo.amp.audio.DeviceType.General,
+            isSelected = selected == com.jadoo.amp.audio.DeviceType.General,
+            onClick = { onSelected(com.jadoo.amp.audio.DeviceType.General) },
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth()
+        )
+        realTypes.chunked(2).forEach { rowTypes ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                rowTypes.forEach { type ->
+                    DeviceTypeCard(
+                        type = type,
+                        isSelected = type == selected,
+                        onClick = { onSelected(type) },
+                        enabled = enabled,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (rowTypes.size < 2) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeviceTypeCard(
+    type: com.jadoo.amp.audio.DeviceType,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (!enabled) MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.5f)
+                      else if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                      else MaterialTheme.colorScheme.surfaceContainer,
+        label = "device_type_bg_${type.name}"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected && enabled) MaterialTheme.colorScheme.primary
+                      else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+        label = "device_type_border_${type.name}"
+    )
+    val borderWidth by animateDpAsState(
+        targetValue = if (isSelected && enabled) 2.dp else 1.dp,
+        label = "device_type_border_width_${type.name}"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (isSelected && enabled) 1.03f else 1f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 380f),
+        label = "device_type_scale_${type.name}"
+    )
+    val iconColor by animateColorAsState(
+        targetValue = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                      else if (isSelected) MaterialTheme.colorScheme.primary
+                      else MaterialTheme.colorScheme.onSurfaceVariant,
+        label = "device_type_icon_${type.name}"
+    )
+
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.scale(scale),
+        shape = RoundedCornerShape(18.dp),
+        color = containerColor,
+        border = BorderStroke(borderWidth, borderColor)
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(
+                    imageVector = deviceTypeIcon(type),
+                    contentDescription = null,
+                    tint = iconColor,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = type.displayName,
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            AnimatedVisibility(
+                visible = isSelected,
+                modifier = Modifier.align(Alignment.TopEnd),
+                enter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 400f)) + fadeIn(tween(150)),
+                exit = scaleOut(tween(100)) + fadeOut(tween(100))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }
@@ -1276,7 +1497,7 @@ private fun EqGraphWithStickyLabels(
             )
         }
 
-        // Sticky dB labels overlay on left â€” drawn in a Canvas so they align exactly
+        // Sticky dB labels overlay on left â€" drawn in a Canvas so they align exactly
         Canvas(
             modifier = Modifier
                 .width(dbLabelWidthDp)
@@ -1446,11 +1667,11 @@ fun InteractiveEqGraph(
 
                     // Phase 2: consume and handle vertical band adjustment.
                     // onBandLevelChanged fires on every move (not just at
-                    // release) so the audio tracks the drag live â€” it used to
+                    // release) so the audio tracks the drag live â€" it used to
                     // only fire once in the `finally` block below, which made
                     // the dot move instantly on screen while the actual sound
                     // stayed frozen at the old gain until you lifted your
-                    // finger, then jumped all at once â€” exactly the "laggy,
+                    // finger, then jumped all at once â€" exactly the "laggy,
                     // takes a few seconds to reflect" feel.
                     try {
                         while (true) {
@@ -1656,7 +1877,7 @@ private fun ExpandedEqDialog(
                 // instead of trusting the last-clicked name: that name is plain
                 // Compose `remember` state with no backing store, so it resets to
                 // null on process death, on switching output-device profiles (which
-                // loads a different bandGains array), and on app restart â€” making
+                // loads a different bandGains array), and on app restart â€" making
                 // the highlighted chip and the "Overwrite" affordance appear to
                 // randomly vanish even though the active curve is still a named
                 // preset. Matching by content is self-healing in all those cases.
@@ -1668,7 +1889,7 @@ private fun ExpandedEqDialog(
                 // regardless of whether the current gains still content-match it.
                 // matchedPresetName becomes null the moment any band is moved (no longer
                 // an exact match), which previously caused the overwrite chip to vanish
-                // immediately after the first slider drag â€” selectedPresetName persists
+                // immediately after the first slider drag â€" selectedPresetName persists
                 // the intent even as the gains diverge from the saved values.
                 val overwriteTargetPreset = savedPresets.find { it.name == selectedPresetName }
                 val selectedBorder = BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
@@ -1861,6 +2082,11 @@ private fun SettingsDialog(
     useMaterialYou: Boolean,
     customPrimaryColor: Color,
     dumpPermissionEnabled: Boolean,
+    currentOutputDevice: String,
+    deviceType: com.jadoo.amp.audio.DeviceType,
+    deviceQualityTier: Float,
+    onDeviceTypeChanged: (com.jadoo.amp.audio.DeviceType) -> Unit,
+    onDeviceQualityTierChanged: (Float) -> Unit,
     onUseMaterialYouChanged: (Boolean) -> Unit,
     onCustomPrimaryColorChanged: (Color) -> Unit,
     onHelpRequested: (HelpContent) -> Unit,
@@ -1950,12 +2176,33 @@ private fun SettingsDialog(
 
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
+                        text = "Device Type (Beta)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = if (currentOutputDevice == "Phone Speaker")
+                            "Locked to General on the phone's own speaker — Mobile Bass already scales for it."
+                        else
+                            "Scales bass/treble features to your driver. Pick General to keep the old behavior.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
+                    DeviceTypePicker(
+                        selected = deviceType,
+                        onSelected = onDeviceTypeChanged,
+                        enabled = currentOutputDevice != "Phone Speaker"
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
                         text = "Backup & Restore",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "Save every setting â€” including the manual 15-band EQ and all saved presets â€” to a file, or restore from one.",
+                        text = "Save every setting - including the manual 15-band EQ and all saved presets - to a file, or restore from one.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
@@ -2098,14 +2345,15 @@ private fun HelpDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
-                .fillMaxHeight(0.78f),
+                .wrapContentHeight()
+                .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.78f),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // â”€â”€ Clean header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            Column(modifier = Modifier.wrapContentHeight()) {
+                // â"€â"€ Clean header â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2137,7 +2385,7 @@ private fun HelpDialog(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                 )
 
-                // â”€â”€ Scrollable body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // â"€â"€ Scrollable body â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -2171,13 +2419,13 @@ private fun HelpBodyText(body: String) {
     while (i < lines.size) {
         val line = lines[i]
         when {
-            // Empty line â†’ small spacer
+            // Empty line â†' small spacer
             line.isBlank() -> {
                 Spacer(modifier = Modifier.height(8.dp))
             }
             // Bullet line
-            line.trimStart().startsWith("â€¢") -> {
-                val bulletText = line.trimStart().removePrefix("â€¢").trim()
+            line.trimStart().startsWith("•") -> {
+                val bulletText = line.trimStart().removePrefix("•").trim()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

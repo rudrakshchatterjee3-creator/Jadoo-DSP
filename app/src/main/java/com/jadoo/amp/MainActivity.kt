@@ -192,7 +192,7 @@ class MainActivity : ComponentActivity() {
                             onDismissRequest = { showBatteryDialog = false },
                             title = { Text("Allow unrestricted background usage") },
                             text = {
-                                Text("OriginOS may stop the JadOO DSP engine after a few seconds. Allow JadOO DSP to ignore battery optimizations so the DSP can keep running while music plays.")
+                                Text("Some OEM ROMs may stop the JadOO DSP engine after a few seconds. Allow JadOO DSP to ignore battery optimizations so the DSP can keep running while music plays.")
                             },
                             confirmButton = {
                                 TextButton(
@@ -296,6 +296,14 @@ class MainActivity : ComponentActivity() {
         val harmonicExciterEnabled by audioService?.harmonicExciterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val harmonicExciterIntensity by audioService?.harmonicExciterIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
 
+        // Device Type
+        val deviceType by audioService?.deviceType?.collectAsState(initial = com.jadoo.amp.audio.DeviceType.General) ?: remember { mutableStateOf(com.jadoo.amp.audio.DeviceType.General) }
+        val deviceQualityTier by audioService?.deviceQualityTier?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+
+        // Crossfeed (Beta)
+        val crossfeedEnabled by audioService?.crossfeedEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val crossfeedStrength by audioService?.crossfeedStrength?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+
         // Digital Filters
         val digitalFilterBandStates by audioService?.digitalFilterBandStates?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
         val digitalFilterEnabled by audioService?.digitalFilterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
@@ -314,7 +322,7 @@ class MainActivity : ComponentActivity() {
                 title = { Text("Save Imported Profile") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Give this imported profile a name. It'll be saved separately — your current device profile won't be changed.")
+                        Text("Give this imported profile a name. It'll be saved separately - your current device profile won't be changed.")
                         OutlinedTextField(
                             value = profileName,
                             onValueChange = { profileName = it; nameError = null },
@@ -333,7 +341,7 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             val exists = audioService?.profileExists(name) ?: false
                             if (exists) {
-                                nameError = "Name already exists — try another"
+                                nameError = "Name already exists - try another"
                             } else {
                                 audioService?.saveAsCustomProfile(name, pendingImport.sessionState)
                                 pendingImport.eqPresets.forEach { preset ->
@@ -413,6 +421,10 @@ class MainActivity : ComponentActivity() {
             // Harmonic Exciter
             harmonicExciterEnabled = harmonicExciterEnabled,
             harmonicExciterIntensity = harmonicExciterIntensity,
+            deviceType = deviceType,
+            deviceQualityTier = deviceQualityTier,
+            crossfeedEnabled = crossfeedEnabled,
+            crossfeedStrength = crossfeedStrength,
             // Digital Filters
             digitalFilterEnabled = digitalFilterEnabled,
             digitalFilterBandStates = digitalFilterBandStates,
@@ -443,6 +455,9 @@ class MainActivity : ComponentActivity() {
             },
             onSurroundModeChanged = { mode ->
                 audioService?.setSurroundMode(mode)
+                if (mode == com.jadoo.amp.audio.SurroundMode.Front) {
+                    audioService?.setAnalogBassEnabled(false)
+                }
             },
             onBandLevelChanged = { band, level ->
                 audioService?.setManualBandGain(band, level)
@@ -499,6 +514,18 @@ class MainActivity : ComponentActivity() {
             },
             onHarmonicExciterIntensityChanged = { value ->
                 audioService?.setHarmonicExciterIntensity(value)
+            },
+            onDeviceTypeChanged = { type ->
+                audioService?.setDeviceType(type)
+            },
+            onDeviceQualityTierChanged = { value ->
+                audioService?.setDeviceQualityTier(value)
+            },
+            onCrossfeedEnabledChanged = { enabled ->
+                audioService?.setCrossfeedEnabled(enabled)
+            },
+            onCrossfeedStrengthChanged = { value ->
+                audioService?.setCrossfeedStrength(value)
             },
             onDigitalFilterEnabledChanged = { enabled ->
                 audioService?.setDigitalFilterEnabled(enabled)

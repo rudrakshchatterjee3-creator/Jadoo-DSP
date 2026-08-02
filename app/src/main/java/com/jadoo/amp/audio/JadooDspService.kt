@@ -44,7 +44,7 @@ class JadooDspService : Service() {
     private val binder = LocalBinder()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val dspEngine = DspEngine()
-    private lateinit var mediaSessionManager: MediaSessionManager
+    private var mediaSessionManager: MediaSessionManager? = null
     private lateinit var sessionController: SessionController
     private lateinit var sessionPreferences: SessionPreferences
     private var mediaSessionListenerRegistered = false
@@ -133,6 +133,34 @@ class JadooDspService : Service() {
     private val _harmonicExciterIntensity = MutableStateFlow(0.5f)
     val harmonicExciterIntensity: StateFlow<Float> = _harmonicExciterIntensity.asStateFlow()
 
+    // Physical output device type + budget-to-flagship quality tier (see DeviceType) —
+    // scales how much bass/treble boost Analog Bass, DBFB, Mobile Bass, HiRes Upscaler,
+    // and Harmonic Exciter are allowed to request. "General" = no scaling.
+    private val _deviceType = MutableStateFlow(DeviceType.General)
+    val deviceType: StateFlow<DeviceType> = _deviceType.asStateFlow()
+
+    private val _deviceQualityTier = MutableStateFlow(0.5f)
+    val deviceQualityTier: StateFlow<Float> = _deviceQualityTier.asStateFlow()
+
+    private fun bassExtension(): Float = _deviceType.value.bassExtension(_deviceQualityTier.value)
+    private fun trebleExtension(): Float = _deviceType.value.trebleExtension(_deviceQualityTier.value)
+    // Mobile Bass always runs on the phone's own built-in speaker, never on
+    // whatever DeviceType the user has manually selected (that picker
+    // describes the OUTPUT device on the current route, which for Mobile
+    // Bass is irrelevant — it's gated to "Phone Speaker" regardless). Always
+    // scale it as CompactSpeaker so it can't be over/under-driven by an
+    // unrelated DeviceType choice like HomeSpeaker.
+    private fun mobileBassExtension(): Float = DeviceType.CompactSpeaker.bassExtension(_deviceQualityTier.value)
+
+    // ── Crossfeed state ───────────────────────────────────────────────
+    // Headphone-only stereo virtualizer (see DspEngine.configureCrossfeed
+    // for why this isn't true Bauer/Meier-style crossfeed).
+    private val _crossfeedEnabled = MutableStateFlow(false)
+    val crossfeedEnabled: StateFlow<Boolean> = _crossfeedEnabled.asStateFlow()
+
+    private val _crossfeedStrength = MutableStateFlow(0.5f)
+    val crossfeedStrength: StateFlow<Float> = _crossfeedStrength.asStateFlow()
+
     // ── Analog Bass state ────────────────────────────────────────────
     val analogBassEngine = AnalogBassEngine()
     val digitalFilterEngine = DigitalFilterEngine()
@@ -179,6 +207,7 @@ class JadooDspService : Service() {
 
     // Per-output-device profile switching (see computeOutputDeviceKey/switchToDeviceProfile)
     @Volatile private var currentDeviceKey: String = "speaker"
+
     private var audioDeviceCallback: AudioDeviceCallback? = null
     // Background thread for AudioDeviceCallback so routing-change logic
     // (filter re-init, getDevices queries) never runs on the main looper.
@@ -199,7 +228,7 @@ class JadooDspService : Service() {
         } catch (_: Exception) { 48000f }
         analogBassEngine.initialize(detectedRate)
         digitalFilterEngine.initialize(detectedRate)
-        mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+        mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
         sessionController = SessionController(this)
         sessionPreferences = SessionPreferences(this)
 
@@ -430,15 +459,17 @@ class JadooDspService : Service() {
             .firstOrNull { it.name == state.surroundMode } ?: SurroundMode.Off
         for (i in state.bandGains.indices) manualBandGains[i] = state.bandGains[i]
         updateBandGains(manualBandGains.copyOf())
-        // Restore Analog Bass
-        _analogBassEnabled.value = state.analogBassEnabled
+        // Restore Analog Bass — Front Stage's own bass shaping conflicts with
+        // it, so force off on restore if a stale/imported profile has both.
+        val analogBassEnabledResolved = state.analogBassEnabled && _surroundMode.value != SurroundMode.Front
+        _analogBassEnabled.value = analogBassEnabledResolved
         _analogBassDrive.value = state.analogBassDrive
         _analogBassWarmth.value = state.analogBassWarmth
         _analogBassDrift.value = state.analogBassDrift
         _analogBassPultecBoost.value = state.analogBassPultecBoost
         _analogBassPultecCut.value = state.analogBassPultecCut
         _analogBassPultecFreqIndex.value = state.analogBassPultecFreqIndex
-        analogBassEngine.enabled = state.analogBassEnabled
+        analogBassEngine.enabled = analogBassEnabledResolved
         analogBassEngine.drive = state.analogBassDrive
         analogBassEngine.warmth = state.analogBassWarmth
         analogBassEngine.drift = state.analogBassDrift
@@ -462,6 +493,17 @@ class JadooDspService : Service() {
         deserializePeqBands(state.peqBands)
         // SBC Enhancement — only meaningful on BT profiles
         _sbcModeEnabled.value = state.sbcModeEnabled && currentDeviceKey.startsWith("bt")
+        // Restore device type + quality tier — locked to General on the phone's
+        // own speaker. That route already has its own dedicated scaling
+        // (Mobile Bass is hardcoded to CompactSpeaker's extension regardless
+        // of this picker — see mobileBassExtension()), and the picker's real
+        // categories (IEM/OnEar/OverEar/HomeSpeaker) don't describe it.
+        val restoredDeviceType = DeviceType.entries.firstOrNull { it.name == state.deviceType } ?: DeviceType.General
+        _deviceType.value = if (currentDeviceKey == "speaker") DeviceType.General else restoredDeviceType
+        _deviceQualityTier.value = state.deviceQualityTier
+        // Restore Crossfeed
+        _crossfeedEnabled.value = state.crossfeedEnabled
+        _crossfeedStrength.value = state.crossfeedStrength
     }
 
     /** Snapshot every current setting into a [SessionState] for persistence. */
@@ -495,7 +537,12 @@ class JadooDspService : Service() {
         peqEnabled = digitalFilterEngine.enabled,
         peqBands   = serializePeqBands(),
         // SBC Enhancement
-        sbcModeEnabled = _sbcModeEnabled.value
+        sbcModeEnabled = _sbcModeEnabled.value,
+        deviceType = _deviceType.value.name,
+        deviceQualityTier = _deviceQualityTier.value,
+        // Crossfeed
+        crossfeedEnabled = _crossfeedEnabled.value,
+        crossfeedStrength = _crossfeedStrength.value
     )
 
     private fun saveSession() {
@@ -658,19 +705,17 @@ class JadooDspService : Service() {
 
     private fun registerMediaSessionListener() {
         if (mediaSessionListenerRegistered) return
+        val msm = mediaSessionManager ?: return
 
         try {
-            mediaSessionManager.addOnActiveSessionsChangedListener(
-                activeSessionsListener,
-                null
-            )
+            msm.addOnActiveSessionsChangedListener(activeSessionsListener, null)
             mediaSessionListenerRegistered = true
         } catch (e: Exception) {
             Log.w(TAG, "Media session listener unavailable; falling back to global session.", e)
             return
         }
         try {
-            handleActiveSessionsChanged(mediaSessionManager.getActiveSessions(null))
+            handleActiveSessionsChanged(msm.getActiveSessions(null))
         } catch (e: Exception) {
             Log.w(TAG, "getActiveSessions failed on this ROM; skipping initial session probe.", e)
         }
@@ -678,8 +723,11 @@ class JadooDspService : Service() {
 
     private fun unregisterMediaSessionListener() {
         if (!mediaSessionListenerRegistered) return
-
-        mediaSessionManager.removeOnActiveSessionsChangedListener(activeSessionsListener)
+        val msm = mediaSessionManager ?: run {
+            mediaSessionListenerRegistered = false
+            return
+        }
+        msm.removeOnActiveSessionsChangedListener(activeSessionsListener)
         mediaSessionListenerRegistered = false
     }
 
@@ -789,7 +837,12 @@ class JadooDspService : Service() {
                 mobileBassEnabled = _mobileBassEnabled.value,
                 mobileBassIntensity = _mobileBassIntensity.value,
                 harmonicExciterEnabled = _harmonicExciterEnabled.value,
-                harmonicExciterIntensity = _harmonicExciterIntensity.value
+                harmonicExciterIntensity = _harmonicExciterIntensity.value,
+                crossfeedEnabled = _crossfeedEnabled.value,
+                crossfeedStrength = _crossfeedStrength.value,
+                bassExtension = bassExtension(),
+                trebleExtension = trebleExtension(),
+                mobileBassExtension = mobileBassExtension()
             )
             if (attached) {
                 _audioSessionId.value = sessionId
@@ -958,6 +1011,14 @@ class JadooDspService : Service() {
     fun setSurroundMode(mode: SurroundMode) {
         val oldMode = _surroundMode.value
         _surroundMode.value = mode
+        // Front Stage's own bass shaping conflicts with Analog Bass; enforced
+        // here (not just in the UI callback) so every entry point that can
+        // set surround mode — restore, device-profile switch, backup import —
+        // converges on the same rule.
+        if (mode == SurroundMode.Front && _analogBassEnabled.value) {
+            _analogBassEnabled.value = false
+            analogBassEngine.enabled = false
+        }
         if (oldMode != SurroundMode.Off && mode == SurroundMode.Off) {
             applySurroundShaping()
             // Re-evaluate: if surround was the only active feature, this
@@ -989,7 +1050,10 @@ class JadooDspService : Service() {
                 mobileBassIntensity = _mobileBassIntensity.value,
                 surroundMode = mode,
                 harmonicExciterEnabled = _harmonicExciterEnabled.value,
-                harmonicExciterIntensity = _harmonicExciterIntensity.value
+                harmonicExciterIntensity = _harmonicExciterIntensity.value,
+                bassExtension = bassExtension(),
+                trebleExtension = trebleExtension(),
+                mobileBassExtension = mobileBassExtension()
             )
         }
         saveSession()
@@ -997,9 +1061,11 @@ class JadooDspService : Service() {
 
     // ── Analog Bass Controls ─────────────────────────────────────────
 
+    /** Front Stage's own bass shaping conflicts with Analog Bass; never allow both at once. */
     fun setAnalogBassEnabled(enabled: Boolean) {
-        _analogBassEnabled.value = enabled
-        analogBassEngine.enabled = enabled
+        val resolved = enabled && _surroundMode.value != SurroundMode.Front
+        _analogBassEnabled.value = resolved
+        analogBassEngine.enabled = resolved
         if (_masterEnabled.value) rebuildDspTopology()
         saveSession()
     }
@@ -1009,7 +1075,7 @@ class JadooDspService : Service() {
         _analogBassDrive.value = clamped
         analogBassEngine.drive = clamped
         if (_analogBassEnabled.value && _masterEnabled.value) {
-            dspEngine.updateAnalogBassMbc(clamped, _analogBassWarmth.value, _analogBassDrift.value)
+            dspEngine.updateAnalogBassMbc(clamped, _analogBassWarmth.value, _analogBassDrift.value, bassExtension())
         }
         saveSession()
     }
@@ -1019,11 +1085,11 @@ class JadooDspService : Service() {
         _analogBassWarmth.value = clamped
         analogBassEngine.warmth = clamped
         if (_analogBassEnabled.value && _masterEnabled.value) {
-            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, clamped, _analogBassDrift.value)
+            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, clamped, _analogBassDrift.value, bassExtension())
             // Mobile Bass owns the PostEQ layout when both features are on — skip Analog Bass
             // PostEQ update to avoid writing Pultec frequencies onto Mobile Bass's band slots.
             if (!_mobileBassEnabled.value) {
-                dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, clamped)
+                dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, clamped, bassExtension())
             }
         }
         saveSession()
@@ -1034,7 +1100,7 @@ class JadooDspService : Service() {
         _analogBassDrift.value = clamped
         analogBassEngine.drift = clamped
         if (_analogBassEnabled.value && _masterEnabled.value) {
-            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, _analogBassWarmth.value, clamped)
+            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, _analogBassWarmth.value, clamped, bassExtension())
         }
         saveSession()
     }
@@ -1044,7 +1110,7 @@ class JadooDspService : Service() {
         _analogBassPultecBoost.value = clamped
         analogBassEngine.pultecBoost = clamped
         if (_analogBassEnabled.value && _masterEnabled.value && !_mobileBassEnabled.value) {
-            dspEngine.updateAnalogBassPostEq(clamped, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, _analogBassWarmth.value)
+            dspEngine.updateAnalogBassPostEq(clamped, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, _analogBassWarmth.value, bassExtension())
         }
         saveSession()
     }
@@ -1054,7 +1120,7 @@ class JadooDspService : Service() {
         _analogBassPultecCut.value = clamped
         analogBassEngine.pultecCut = clamped
         if (_analogBassEnabled.value && _masterEnabled.value && !_mobileBassEnabled.value) {
-            dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, clamped, _analogBassPultecFreqIndex.value, _analogBassWarmth.value)
+            dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, clamped, _analogBassPultecFreqIndex.value, _analogBassWarmth.value, bassExtension())
         }
         saveSession()
     }
@@ -1064,7 +1130,7 @@ class JadooDspService : Service() {
         _analogBassPultecFreqIndex.value = clamped
         analogBassEngine.pultecFreqIndex = clamped
         if (_analogBassEnabled.value && _masterEnabled.value && !_mobileBassEnabled.value) {
-            dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, clamped, _analogBassWarmth.value)
+            dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, clamped, _analogBassWarmth.value, bassExtension())
         }
         saveSession()
     }
@@ -1094,7 +1160,10 @@ class JadooDspService : Service() {
                 mobileBassIntensity = _mobileBassIntensity.value,
                 surroundMode = _surroundMode.value,
                 harmonicExciterEnabled = _harmonicExciterEnabled.value,
-                harmonicExciterIntensity = _harmonicExciterIntensity.value
+                harmonicExciterIntensity = _harmonicExciterIntensity.value,
+                bassExtension = bassExtension(),
+                trebleExtension = trebleExtension(),
+                mobileBassExtension = mobileBassExtension()
             )
             applyAllBands(manualBandGains.copyOf())
         }
@@ -1113,7 +1182,7 @@ class JadooDspService : Service() {
         val clamped = value.coerceIn(0f, 1f)
         _mobileBassIntensity.value = clamped
         if (_mobileBassEnabled.value && _masterEnabled.value) {
-            dspEngine.updateMobileBassIntensity(clamped, _analogBassEnabled.value, _dbfbMode.value)
+            dspEngine.updateMobileBassIntensity(clamped, _analogBassEnabled.value, _dbfbMode.value, mobileBassExtension())
             dspEngine.updateHeadroom(
                 hiResEnabled = _hiResUpscalerEnabled.value,
                 dbfbMode = _dbfbMode.value,
@@ -1124,7 +1193,10 @@ class JadooDspService : Service() {
                 mobileBassIntensity = clamped,
                 surroundMode = _surroundMode.value,
                 harmonicExciterEnabled = _harmonicExciterEnabled.value,
-                harmonicExciterIntensity = _harmonicExciterIntensity.value
+                harmonicExciterIntensity = _harmonicExciterIntensity.value,
+                bassExtension = bassExtension(),
+                trebleExtension = trebleExtension(),
+                mobileBassExtension = mobileBassExtension()
             )
         }
         saveSession()
@@ -1147,7 +1219,8 @@ class JadooDspService : Service() {
                 _analogBassEnabled.value,
                 _dbfbMode.value,
                 _mobileBassEnabled.value,
-                _hdrDynamicsEnabled.value
+                _hdrDynamicsEnabled.value,
+                trebleExtension()
             )
             dspEngine.updateHeadroom(
                 hiResEnabled = _hiResUpscalerEnabled.value,
@@ -1159,7 +1232,107 @@ class JadooDspService : Service() {
                 mobileBassIntensity = _mobileBassIntensity.value,
                 surroundMode = _surroundMode.value,
                 harmonicExciterEnabled = true,
-                harmonicExciterIntensity = clamped
+                harmonicExciterIntensity = clamped,
+                bassExtension = bassExtension(),
+                trebleExtension = trebleExtension()
+            )
+        }
+        saveSession()
+    }
+
+    // ── Device Type Controls ───────────────────────────────────────────
+
+    /**
+     * Manually set the output device's physical type (see DeviceType). Saved per output
+     * device profile like every other setting, so a Bluetooth speaker and a pair of
+     * Bluetooth earbuds keep separate choices. A full topology rebuild is used here
+     * since this is a rare settings change, not something dragged in real time.
+     */
+    fun setDeviceType(type: DeviceType) {
+        // Locked to General on the phone's own speaker — see applyState.
+        if (currentDeviceKey == "speaker" && type != DeviceType.General) return
+        _deviceType.value = type
+        // No user-facing quality slider anymore (it fought the sound too
+        // hard at its 0.5 midpoint default, cutting HiRes/Harmonic Exciter
+        // treble roughly in half on IEM/headphone profiles and making them
+        // sound noticeably duller than General). Fix the tier high instead
+        // of exposing it — most real drivers, even budget ones, reproduce
+        // treble far better than bass, so this stays close to the
+        // uncompromised General sound while still respecting each type's
+        // bass ceiling.
+        _deviceQualityTier.value = 0.85f
+        if (_masterEnabled.value) rebuildDspTopology()
+        saveSession()
+    }
+
+    // ── Crossfeed Controls ───────────────────────────────────────────────
+
+    fun setCrossfeedEnabled(enabled: Boolean) {
+        _crossfeedEnabled.value = enabled
+        if (_masterEnabled.value) rebuildDspTopology()
+        saveSession()
+    }
+
+    fun setCrossfeedStrength(value: Float) {
+        val clamped = value.coerceIn(0f, 1f)
+        _crossfeedStrength.value = clamped
+        if (_crossfeedEnabled.value && _masterEnabled.value) {
+            dspEngine.updateCrossfeedStrength(clamped)
+        }
+        saveSession()
+    }
+
+    /**
+     * The slider is dragged in real time (unlike setDeviceType above), so a
+     * full topology rebuild per tick would click/dropout on every step —
+     * instead this re-patches only the postGain/gain values already
+     * affected by bassExtension()/trebleExtension() via each feature's
+     * existing live-update helper, then refreshes the headroom credit.
+     */
+    fun setDeviceQualityTier(value: Float) {
+        _deviceQualityTier.value = value.coerceIn(0f, 1f)
+        if (_masterEnabled.value) {
+            val bass = bassExtension()
+            val treble = trebleExtension()
+            if (_dbfbMode.value != DbfbMode.Off) {
+                dspEngine.updateDbfbGain(_dbfbMode.value, _analogBassEnabled.value, bass)
+            }
+            if (_analogBassEnabled.value) {
+                dspEngine.updateAnalogBassMbc(_analogBassDrive.value, _analogBassWarmth.value, _analogBassDrift.value, bass)
+                dspEngine.updateAnalogBassPostEq(
+                    _analogBassPultecBoost.value, _analogBassPultecCut.value,
+                    _analogBassPultecFreqIndex.value, _analogBassWarmth.value, bass
+                )
+            }
+            if (_mobileBassEnabled.value) {
+                dspEngine.updateMobileBassIntensity(_mobileBassIntensity.value, _analogBassEnabled.value, _dbfbMode.value, mobileBassExtension())
+            }
+            if (_harmonicExciterEnabled.value) {
+                dspEngine.updateHarmonicExciterIntensity(
+                    _harmonicExciterIntensity.value, _analogBassEnabled.value, _dbfbMode.value,
+                    _mobileBassEnabled.value, _hdrDynamicsEnabled.value, treble
+                )
+            }
+            if (_hiResUpscalerEnabled.value) {
+                dspEngine.updateHiResGain(
+                    treble, _analogBassEnabled.value, _dbfbMode.value, _mobileBassEnabled.value,
+                    _hdrDynamicsEnabled.value, _harmonicExciterEnabled.value
+                )
+            }
+            dspEngine.updateHeadroom(
+                hiResEnabled = _hiResUpscalerEnabled.value,
+                dbfbMode = _dbfbMode.value,
+                analogBassEnabled = _analogBassEnabled.value,
+                tubeWarmthEnabled = _tubeWarmthEnabled.value,
+                tubeWarmthIntensity = _tubeWarmthIntensity.value,
+                mobileBassEnabled = _mobileBassEnabled.value,
+                mobileBassIntensity = _mobileBassIntensity.value,
+                surroundMode = _surroundMode.value,
+                harmonicExciterEnabled = _harmonicExciterEnabled.value,
+                harmonicExciterIntensity = _harmonicExciterIntensity.value,
+                bassExtension = bass,
+                trebleExtension = treble,
+                mobileBassExtension = mobileBassExtension()
             )
         }
         saveSession()
@@ -1353,7 +1526,12 @@ class JadooDspService : Service() {
             mobileBassEnabled = _mobileBassEnabled.value,
             mobileBassIntensity = _mobileBassIntensity.value,
             harmonicExciterEnabled = _harmonicExciterEnabled.value,
-            harmonicExciterIntensity = _harmonicExciterIntensity.value
+            harmonicExciterIntensity = _harmonicExciterIntensity.value,
+            crossfeedEnabled = _crossfeedEnabled.value,
+            crossfeedStrength = _crossfeedStrength.value,
+            bassExtension = bassExtension(),
+            trebleExtension = trebleExtension(),
+            mobileBassExtension = mobileBassExtension()
         )
         if (attached) {
             applyAllBands(currentGains)
@@ -1424,35 +1602,59 @@ class JadooDspService : Service() {
         // keeps the "bigger" feel without washing out note definition.
         // Treble leg, vocal lift, and stereo differential are unchanged.
         SurroundMode.Traditional -> when (index) {
-            0 -> 1.5f       // 25 Hz — tapered from 4.0f
-            1 -> 2.2f       // 40 Hz — tapered from 3.0f
-            2 -> 2.0f       // 63 Hz — unchanged, where bass definition lives
-            3 -> 1.0f       // 100 Hz — unchanged
-            14 -> 4.0f      // 16 kHz — unchanged
-            13 -> 3.0f      // 10 kHz — unchanged
-            12 -> 2.0f      // 6.3 kHz — unchanged
-            11 -> 1.0f      // 4 kHz — unchanged
+            0  ->  1.5f  // 25 Hz
+            1  ->  2.2f  // 40 Hz
+            2  ->  2.0f  // 63 Hz — bass definition
+            3  ->  1.0f  // 100 Hz
+            4  ->  0.3f  // 160 Hz — bridge; smooths 100Hz→mid step, fills 120-130Hz dip
+            7  -> -0.3f  // 630 Hz — mild mud cut; -0.5f recessed mids enough to unbalance bass weight with Analog Bass active
+            14 ->  3.6f  // 16 kHz — was 4.0f (sibilant) then 3.2f (too little air, bass felt heavy); 3.6f balances both
+            13 ->  2.9f  // 10 kHz — slight taper from 3.0f
+            12 ->  2.0f  // 6.3 kHz
+            11 ->  1.0f  // 4 kHz
             else -> 0f
         }
+        // Front Stage: tonal crossfeed approximation — same technique as PowerAmp EQ's
+        // crossfeed mode. Real crossfeed (Bauer/Meier) mixes a low-passed, attenuated
+        // copy of each channel into the opposite ear. Since we can't do cross-channel
+        // routing via AudioEffect API, we simulate the NET tonal result of that process:
+        //
+        // - The crosstalk bleed is low-passed (~700Hz), so it adds energy to the
+        //   low-mid region on both channels → slight lift 100–400Hz.
+        // - The stereo DIFFERENCE signal (L−R) is attenuated above 700Hz by the
+        //   crossfeed matrix. Net result on a summed signal: highs appear slightly
+        //   reduced, image narrows and moves forward → gentle cut above 4kHz.
+        // - Sub-bass stays neutral (crossfeed doesn't touch it).
+        // - Vocal presence (1–2.5kHz) pinned centered and forward — the phantom center
+        //   collapses to the front in a real crossfeed setup.
+        //
+        // The net curve: low-mid warmth + forward vocal lock + soft high rolloff.
+        // This is what crossfeed *sounds like* without actual channel mixing.
         SurroundMode.Front -> when (index) {
-            0, 14 -> 2.5f
-            1, 13 -> 1.8f
-            2, 12 -> 1.0f
-            8 -> 0.8f   // 1kHz vocal fundamental: forward, centered
-            9 -> 1.2f   // 1.6kHz vocal presence peak: forward, centered
-            10 -> 0.8f  // 2.5kHz vocal clarity: forward, centered
+            3  ->  1.5f  // 100 Hz: crosstalk low-mid energy addition
+            4  ->  1.8f  // 160 Hz: peak of crossfeed low-mid bloom
+            5  ->  1.2f  // 250 Hz: taper
+            6  ->  0.6f  // 400 Hz: taper end
+            8  ->  1.0f  // 1 kHz: phantom center forward lock
+            9  ->  1.2f  // 1.6 kHz: vocal presence, centered
+            10 ->  0.8f  // 2.5 kHz: taper
+            11 -> -0.8f  // 4 kHz: high-freq difference signal attenuation begins
+            12 -> -1.5f  // 6.3 kHz: crossfeed high rolloff
+            13 -> -2.0f  // 10 kHz: crossfeed high rolloff
+            14 -> -2.5f  // 16 kHz: maximum rolloff — stereo difference fully collapsed
             else -> 0f
         }
         SurroundMode.Wide -> when (index) {
-            0 -> 2.0f       // 25 Hz — tapered from 6.0f
-            1 -> 3.2f       // 40 Hz — tapered from 4.5f
-            2 -> 3.0f       // 63 Hz — unchanged, where bass definition lives
-            3 -> 1.5f       // 100 Hz — unchanged
-            14 -> 6.0f      // 16 kHz — unchanged
-            13 -> 4.5f      // 10 kHz — unchanged
-            12 -> 3.0f      // 6.3 kHz — unchanged
-            11 -> 1.5f      // 4 kHz — unchanged
-            // 4-10 (160Hz-2.5kHz, vocals/mids): untouched — zero extra gain
+            0  ->  2.0f  // 25 Hz
+            1  ->  3.2f  // 40 Hz
+            2  ->  3.0f  // 63 Hz — bass definition
+            3  ->  1.5f  // 100 Hz
+            4  ->  0.5f  // 160 Hz — transition bridge; fills 120-140Hz dip between 100Hz lift and flat mids
+            7  -> -0.5f  // 630 Hz — mud cut; classic width trick, makes image feel wider without scooping vocals
+            14 ->  4.5f  // 16 kHz — reduced from 6.0f; was causing ear fatigue/pain especially combined with ILD differential
+            13 ->  3.8f  // 10 kHz — reduced from 4.5f
+            12 ->  3.0f  // 6.3 kHz
+            11 ->  1.5f  // 4 kHz
             else -> 0f
         }
     }
@@ -1491,17 +1693,24 @@ class JadooDspService : Service() {
      *    noticeably wider, more enveloping image.
      */
     private fun surroundChannelDifferential(mode: SurroundMode, index: Int): Float = when (mode) {
-        SurroundMode.Off, SurroundMode.Front -> 0f
+        SurroundMode.Off -> 0f
+        // Front Stage: zero differential — real bookshelf speakers produce a phantom
+        // center at the listener's midpoint; the "in front" cue is entirely tonal
+        // (presence peak, sub-bass rolloff, room reinforcement), not a stereo width effect.
+        // Any L/R differential here reads as compression/comb, not speaker imaging.
+        SurroundMode.Front -> 0f
         SurroundMode.Traditional -> when (index) {
-            13 -> 1.5f   // 10 kHz: left leads
+            11 ->  1.0f  // 4 kHz: left leads — anchors width in audible range; previous 10/16kHz-only diff was inaudible on rolled-off drivers
+            12 -> -1.0f  // 6.3 kHz: right leads
+            13 ->  1.5f  // 10 kHz: left leads
             14 -> -1.5f  // 16 kHz: right leads
             else -> 0f
         }
         SurroundMode.Wide -> when (index) {
-            11 -> 2.5f   // 4 kHz: left leads
-            12 -> -2.5f  // 6.3 kHz: right leads
-            13 -> 3.5f   // 10 kHz: left leads
-            14 -> -3.5f  // 16 kHz: right leads
+            11 ->  1.0f  // 4 kHz: left leads
+            12 -> -2.0f  // 6.3 kHz: right leads — reduced from 2.5f
+            13 ->  2.5f  // 10 kHz: left leads — reduced from 3.5f
+            14 -> -2.5f  // 16 kHz: right leads — reduced from 3.5f; combined with centered gain was causing ear pain
             else -> 0f
         }
     }

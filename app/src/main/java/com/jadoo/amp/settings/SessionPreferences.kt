@@ -45,7 +45,15 @@ data class SessionState(
     val peqEnabled: Boolean = false,
     val peqBands: String = "",       // "" means all-default (not yet configured)
     // SBC Enhancement: pre-emphasis for Bluetooth SBC codec devices (not for LDAC/LHDC)
-    val sbcModeEnabled: Boolean = false
+    val sbcModeEnabled: Boolean = false,
+    // Device type (see DeviceType) and budget-to-flagship quality tier for this output
+    // device profile. "General" = no device-aware scaling, matches pre-existing behavior.
+    val deviceType: String = "General",
+    val deviceQualityTier: Float = 0.5f,
+    // Crossfeed: headphone-only stereo virtualizer (BETA — vendor-implemented,
+    // quality varies by device; see DspEngine.configureCrossfeed)
+    val crossfeedEnabled: Boolean = false,
+    val crossfeedStrength: Float = 0.5f
 )
 
 /**
@@ -87,6 +95,10 @@ class SessionPreferences(private val context: Context) {
         const val PEQ_ENABLED = "peq_enabled"
         const val PEQ_BANDS   = "peq_bands"
         const val SBC_MODE_ENABLED = "sbc_mode_enabled"
+        const val DEVICE_TYPE = "device_type"
+        const val DEVICE_QUALITY_TIER = "device_quality_tier"
+        const val CROSSFEED_ENABLED = "crossfeed_enabled"
+        const val CROSSFEED_STRENGTH = "crossfeed_strength"
     }
 
     // Legacy (pre-per-device) un-suffixed keys, kept only as a one-time
@@ -117,6 +129,10 @@ class SessionPreferences(private val context: Context) {
         val peqEnabled      = booleanPreferencesKey(KeyNames.PEQ_ENABLED)
         val peqBands        = stringPreferencesKey(KeyNames.PEQ_BANDS)
         val sbcModeEnabled  = booleanPreferencesKey(KeyNames.SBC_MODE_ENABLED)
+        val deviceType         = stringPreferencesKey(KeyNames.DEVICE_TYPE)
+        val deviceQualityTier  = floatPreferencesKey(KeyNames.DEVICE_QUALITY_TIER)
+        val crossfeedEnabled   = booleanPreferencesKey(KeyNames.CROSSFEED_ENABLED)
+        val crossfeedStrength  = floatPreferencesKey(KeyNames.CROSSFEED_STRENGTH)
     }
 
     private val savedProfileNamesKey = stringPreferencesKey("saved_profile_names")
@@ -154,6 +170,10 @@ class SessionPreferences(private val context: Context) {
             p[boolKey(KeyNames.PEQ_ENABLED, deviceKey)] = state.peqEnabled
             p[stringKey(KeyNames.PEQ_BANDS, deviceKey)] = state.peqBands
             p[boolKey(KeyNames.SBC_MODE_ENABLED, deviceKey)] = state.sbcModeEnabled
+            p[stringKey(KeyNames.DEVICE_TYPE, deviceKey)] = state.deviceType
+            p[floatKey(KeyNames.DEVICE_QUALITY_TIER, deviceKey)] = state.deviceQualityTier
+            p[boolKey(KeyNames.CROSSFEED_ENABLED, deviceKey)] = state.crossfeedEnabled
+            p[floatKey(KeyNames.CROSSFEED_STRENGTH, deviceKey)] = state.crossfeedStrength
         }
     }
 
@@ -205,7 +225,11 @@ class SessionPreferences(private val context: Context) {
             harmonicExciterIntensity = float(KeyNames.HARMONIC_EXCITER_INTENSITY, LegacyKeys.harmonicExciterIntensity, 0.5f),
             peqEnabled     = bool(KeyNames.PEQ_ENABLED, LegacyKeys.peqEnabled, false),
             peqBands       = string(KeyNames.PEQ_BANDS, LegacyKeys.peqBands, ""),
-            sbcModeEnabled = bool(KeyNames.SBC_MODE_ENABLED, LegacyKeys.sbcModeEnabled, false)
+            sbcModeEnabled = bool(KeyNames.SBC_MODE_ENABLED, LegacyKeys.sbcModeEnabled, false),
+            deviceType = string(KeyNames.DEVICE_TYPE, LegacyKeys.deviceType, "General"),
+            deviceQualityTier = float(KeyNames.DEVICE_QUALITY_TIER, LegacyKeys.deviceQualityTier, 0.5f),
+            crossfeedEnabled = bool(KeyNames.CROSSFEED_ENABLED, LegacyKeys.crossfeedEnabled, false),
+            crossfeedStrength = float(KeyNames.CROSSFEED_STRENGTH, LegacyKeys.crossfeedStrength, 0.5f)
         )
     }
 
