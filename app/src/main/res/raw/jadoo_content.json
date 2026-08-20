@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "contentVersion": 1,
+  "_comment": "Bundled fallback for the Lane A content channel. Always valid, always present, so a cold first launch with no network still resolves a complete document. The live copy lives at content/jadoo-content.json in the repo and is fetched from the default branch — publishing new content is a commit, not a release.",
+  "presets": [],
+  "headphoneProfiles": [],
+  "tuning": {
+    "hdrRestorationThreshold": -38.0,
+    "hdrRestorationKnee": 14.0,
+    "hdrRestorationExpanderRatio": 1.12
+  }
+}

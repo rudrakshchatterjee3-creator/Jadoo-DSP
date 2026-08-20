@@ -6,22 +6,29 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.database.ContentObserver
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
+import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.jadoo.amp.session.SessionController
 import com.jadoo.amp.settings.SessionPreferences
 import com.jadoo.amp.settings.SessionState
+import com.jadoo.amp.update.ContentRepository
+import com.jadoo.amp.update.RemoteContent
+import com.jadoo.amp.update.RemoteHeadphoneProfile
+import com.jadoo.amp.update.RemoteTuning
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,7 +39,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class JadooDspService : Service() {
 
@@ -80,9 +91,9 @@ class JadooDspService : Service() {
     private val _dspBypassed = MutableStateFlow(true)
     val dspBypassed: StateFlow<Boolean> = _dspBypassed.asStateFlow()
 
-    private val manualBandGains = FloatArray(EqBands.count) { 0f }
+    private val manualBandGains = FloatArray(EqBands.count)
 
-    private val _bandGains = MutableStateFlow(FloatArray(EqBands.count) { 0f })
+    private val _bandGains = MutableStateFlow(FloatArray(EqBands.count))
     val bandGains: StateFlow<FloatArray> = _bandGains.asStateFlow()
 
     private val _preGainDb = MutableStateFlow(0f)
@@ -152,14 +163,193 @@ class JadooDspService : Service() {
     // unrelated DeviceType choice like HomeSpeaker.
     private fun mobileBassExtension(): Float = DeviceType.CompactSpeaker.bassExtension(_deviceQualityTier.value)
 
+    /**
+     * The user's Crossfeed strength slider, scaled by how much of a problem
+     * Crossfeed actually solves on the connected headphone type — see
+     * DeviceType.crossfeedFactor. The RAW slider value is what gets
+     * persisted (buildSessionState); this is only ever computed at the point
+     * it's handed to the engine, so a later DeviceType change re-derives it
+     * rather than compounding on top of an already-scaled stored value.
+     */
+    private fun crossfeedEffectiveStrength(): Float =
+        _crossfeedStrength.value * _deviceType.value.crossfeedFactor()
+
+    /**
+     * Crossfeed's per-band PreEQ contribution — 0 everywhere unless enabled
+     * on a real headphone route (see isHeadphoneRoute).
+     *
+     * Used to run on Android's Virtualizer effect (vendor HRTF/virtual-
+     * surround processing) and it never sounded right — reported repeatedly
+     * as "muddy/smeared", because that's what it structurally is: an
+     * OEM-implemented spatializer, not a BS2B/Meier-style crossfeed circuit,
+     * and no amount of strength/mode tuning changes what algorithm is
+     * actually running. There is no way to build a REAL crossfeed circuit
+     * through the public AudioEffect API either — that needs sample-accurate
+     * cross-channel mixing (a low-passed, delayed copy of each channel
+     * summed into the other), and this app only ever gets a session-level
+     * effect attach, never raw PCM.
+     *
+     * So Crossfeed is this instead: the same shape of static tonal-EQ curve
+     * SurroundMode.Front uses to approximate crossfeed's net perceptual
+     * result (see surroundBandProfile's SurroundMode.Front case for the full
+     * reasoning — low-mid warmth, forward vocal lock, soft high rolloff),
+     * scaled up from Front's own magnitude — confirmed on real IEMs that
+     * Front's numbers, copied verbatim, were too small to register as
+     * audible at all. It can't narrow the stereo image the way real
+     * cross-channel mixing does, but it's a curve we fully control: no
+     * per-OEM variance, no reverb/room artefacts, completely predictable.
+     * Scaled by the same
+     * strength slider and DeviceType.crossfeedFactor as before.
+     */
+    private fun crossfeedShape(index: Int): Float {
+        if (!_crossfeedEnabled.value || !isHeadphoneRoute()) return 0f
+        val strength = crossfeedEffectiveStrength()
+        // Confirmed on real IEMs at max strength: the original magnitude
+        // (peak +1.8dB/-2.5dB, matching SurroundMode.Front's curve exactly)
+        // was correctly wired end-to-end but read as "does nothing" — not a
+        // bug, just too small a move to register, especially since this
+        // curve can never deliver the one thing that actually defines
+        // crossfeed to a listener (image narrowing needs real cross-channel
+        // mixing, which the platform doesn't expose — see crossfeedShape's
+        // class doc). Since subtlety was never the goal here — the whole
+        // point of dropping the Virtualizer was to trade "processed and
+        // wrong" for "small but honest" — there's no reason to also make it
+        // "honest but inaudible." Scaled up ~1.7x: peak now +3.0dB/-4.5dB,
+        // in the same range Surround Wide's own treble leg already uses
+        // safely elsewhere in this app.
+        val fullStrength = when (index) {
+            3  ->  2.5f  // 100 Hz
+            4  ->  3.0f  // 160 Hz: peak of the low-mid bloom
+            5  ->  2.0f  // 250 Hz
+            6  ->  1.0f  // 400 Hz
+            8  ->  1.5f  // 1 kHz: forward vocal lock
+            9  ->  1.8f  // 1.6 kHz
+            10 ->  1.2f  // 2.5 kHz
+            11 -> -1.5f  // 4 kHz: high rolloff begins
+            12 -> -2.5f  // 6.3 kHz
+            13 -> -3.5f  // 10 kHz
+            14 -> -4.5f  // 16 kHz: maximum rolloff
+            else -> 0f
+        }
+        return fullStrength * strength
+    }
+
+    /**
+     * Driver capability used to scale ONLY the Loudness Contour's sub-100 Hz
+     * leg — see LoudnessContour.compensationDb for why that leg is scaled and
+     * the rest is not.
+     *
+     * The phone's own speaker is always treated as a CompactSpeaker regardless
+     * of the DeviceType picker (which is locked to General on that route and
+     * doesn't describe it), for the same reason mobileBassExtension does.
+     */
+    private fun loudnessDriverExtension(): Float =
+        if (currentDeviceKey == "speaker") {
+            DeviceType.CompactSpeaker.bassExtension(_deviceQualityTier.value)
+        } else {
+            bassExtension()
+        }
+
     // ── Crossfeed state ───────────────────────────────────────────────
-    // Headphone-only stereo virtualizer (see DspEngine.configureCrossfeed
-    // for why this isn't true Bauer/Meier-style crossfeed).
+    // A static tonal-EQ curve applied via the ordinary PreEQ path — see
+    // crossfeedShape() for why (used to be the Virtualizer effect; dropped).
     private val _crossfeedEnabled = MutableStateFlow(false)
     val crossfeedEnabled: StateFlow<Boolean> = _crossfeedEnabled.asStateFlow()
 
     private val _crossfeedStrength = MutableStateFlow(0.5f)
     val crossfeedStrength: StateFlow<Float> = _crossfeedStrength.asStateFlow()
+
+    // ── Loudness Contour (ISO 226) state ──────────────────────────────
+    // Tracks the system media volume and re-tilts the PreEQ so the mix keeps
+    // its perceived tonal balance as the level drops. See LoudnessContour for
+    // the psychoacoustics and computeCurrentPhon() for how a volume index is
+    // turned into an SPL estimate.
+    private val _loudnessEnabled = MutableStateFlow(false)
+    val loudnessEnabled: StateFlow<Boolean> = _loudnessEnabled.asStateFlow()
+
+    private val _loudnessAmount = MutableStateFlow(0.7f)
+    val loudnessAmount: StateFlow<Float> = _loudnessAmount.asStateFlow()
+
+    /** Assumed SPL at maximum system volume for this output device. */
+    private val _loudnessReferencePhon = MutableStateFlow(LoudnessContour.DEFAULT_REFERENCE_PHON)
+    val loudnessReferencePhon: StateFlow<Float> = _loudnessReferencePhon.asStateFlow()
+
+    /** Estimated current listening level, surfaced in the UI so the correction is legible. */
+    private val _loudnessCurrentPhon = MutableStateFlow(LoudnessContour.DEFAULT_REFERENCE_PHON)
+    val loudnessCurrentPhon: StateFlow<Float> = _loudnessCurrentPhon.asStateFlow()
+
+    // ── Gain staging ──────────────────────────────────────────────────
+    // See DspEngine.splitGainBudget. ON is the corrected model; OFF restores
+    // the pre-v1.6 behaviour of paying the entire budget on the limiter
+    // threshold, kept only so the change is A/B-able by ear.
+    private val _preciseGainStaging = MutableStateFlow(true)
+    val preciseGainStaging: StateFlow<Boolean> = _preciseGainStaging.asStateFlow()
+
+    // Name of the EQ preset last explicitly selected, so the highlighted
+    // chip / "Overwrite" target survives a relaunch. Pure UI metadata, not
+    // DSP config — never passed to dspEngine.attach(), the actual band
+    // gains it produced are what's real and those already persist via
+    // manualBandGains/bandGains regardless of this field.
+    private val _selectedPresetName = MutableStateFlow("")
+    val selectedPresetName: StateFlow<String> = _selectedPresetName.asStateFlow()
+
+    /** Total gain budget the active feature stack is asking for, dB. */
+    private val _gainBudgetDb = MutableStateFlow(0f)
+    val gainBudgetDb: StateFlow<Float> = _gainBudgetDb.asStateFlow()
+
+    /** Automatic input trim currently applied, dB (0 or negative). */
+    private val _autoTrimDb = MutableStateFlow(0f)
+    val autoTrimDb: StateFlow<Float> = _autoTrimDb.asStateFlow()
+
+    /**
+     * The live per-band correction, summed into every PreEQ band write by
+     * writeCombinedBand(). All-zero whenever the feature is off, so the
+     * summing path needs no special-casing.
+     */
+    @Volatile private var loudnessCompensation = FloatArray(EqBands.count)
+
+    /**
+     * Peak static PreEQ gain currently sitting in the bass/treble zones from
+     * Graphic EQ + Loudness Contour + Crossfeed's tonal curve COMBINED — fed
+     * to DspEngine's gain-budget model (see calculateGainBudget) so a manual
+     * EQ boost gets the same limiter-headroom credit every other narrowband
+     * feature already gets. Graphic EQ and Crossfeed were both previously
+     * uncredited (Crossfeed used to run on the Virtualizer, which never
+     * touched PreEQ at all — now that it's a tonal-EQ curve, its own
+     * low-mid boost needs the same credit as everything else that lands there).
+     *
+     * Deliberately not the full writeCombinedBand sum (which also includes
+     * Parametric EQ, SBC pre-emphasis, HDR's air shelf, Tube Warmth's shape):
+     * those need DigitalFilterEngine's biquad evaluator to get a real
+     * per-band value, and this is recomputed on every tick of the Device
+     * Quality Tier slider (see setDeviceQualityTier/refreshHeadroom) — plain
+     * arithmetic here is free at that rate, a 15-band biquad evaluation is
+     * not. All three sources are summed PER BAND before the peak is taken,
+     * matching how they actually combine in the live PreEQ write, so gains
+     * landing on the same band credit correctly instead of double-counting
+     * different bands' separate peaks.
+     */
+    private fun preEqBassPeakDb(): Float =
+        LoudnessContour.BASS_BANDS.maxOf { manualBandGains[it] + loudnessCompensation[it] + crossfeedShape(it) }
+            .coerceAtLeast(0f)
+
+    private fun preEqTreblePeakDb(): Float =
+        LoudnessContour.TREBLE_BANDS.maxOf { manualBandGains[it] + loudnessCompensation[it] + crossfeedShape(it) }
+            .coerceAtLeast(0f)
+
+    private var volumeObserver: ContentObserver? = null
+    private var loudnessDebounceJob: Job? = null
+
+    /** Volume-tracking poll for the Loudness Contour — see updateLoudnessTracking. */
+    private var loudnessPollJob: Job? = null
+
+    /**
+     * AudioDeviceInfo.TYPE_* of the active output route, kept in sync by
+     * computeOutputDeviceKey(). Needed because getStreamVolumeDb() reports a
+     * DIFFERENT attenuation curve per device type — the same volume index is
+     * not the same dB on speaker vs Bluetooth.
+     */
+    @Volatile private var currentOutputDeviceApiType: Int = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
 
     // ── Analog Bass state ────────────────────────────────────────────
     val analogBassEngine = AnalogBassEngine()
@@ -205,8 +395,72 @@ class JadooDspService : Service() {
     // HDR Dynamics is enabled (see setHdrDynamicsEnabled).
     private var hdrSettleToken = 0
 
-    // Per-output-device profile switching (see computeOutputDeviceKey/switchToDeviceProfile)
+    // Per-output-device profile switching (see computeOutputDeviceKey/switchToProfile)
     @Volatile private var currentDeviceKey: String = "speaker"
+
+    /** Serializes profile switches — see [switchToProfileNow]. */
+    private val profileSwitchMutex = Mutex()
+
+    // ── Per-app profiles ──────────────────────────────────────────────────
+    // Opt-in per package. When an app is opted in, its settings are stored
+    // under "<deviceKey>@<package>" instead of plain "<deviceKey>", and the
+    // service swaps profiles when playback moves between apps — the same
+    // save-old/load-new dance already used for output-route changes.
+    // currentProfileKey is the single source of truth for which key
+    // saveSession()/switchToProfile() are actually operating on.
+    @Volatile private var currentProfileKey: String = "speaker"
+    @Volatile private var perAppPackages: Set<String> = emptySet()
+
+    /**
+     * False until restoreSession() has finished applying persisted state.
+     *
+     * Guards the save half of switchToProfile: a route or app change arriving
+     * in that window would otherwise persist the service's blank startup
+     * defaults over a real, already-tuned profile. Loading is always safe;
+     * only saving has to wait.
+     */
+    @Volatile private var sessionRestored = false
+
+    private val _perAppProfilePackages = MutableStateFlow<Set<String>>(emptySet())
+    val perAppProfilePackages: StateFlow<Set<String>> = _perAppProfilePackages.asStateFlow()
+
+    /** True when the settings currently on screen belong to a per-app profile, not the device profile. */
+    private val _perAppProfileActive = MutableStateFlow(false)
+    val perAppProfileActive: StateFlow<Boolean> = _perAppProfileActive.asStateFlow()
+
+    // ── Remotely updatable content (Lane A) ───────────────────────────────
+    // Tuning constants and device profiles that can change without an APK.
+    // See ContentRepository for the fetch/cache/fallback chain. Held as a
+    // plain field (not a flow) on the audio side because every read is on the
+    // hot PreEQ write path — see writeCombinedBand.
+    lateinit var contentRepository: ContentRepository
+        private set
+
+    @Volatile private var remoteTuning: RemoteTuning = RemoteTuning()
+
+    private val _remoteContent = MutableStateFlow(RemoteContent.EMPTY)
+    val remoteContent: StateFlow<RemoteContent> = _remoteContent.asStateFlow()
+
+    /**
+     * The content-channel device profile matching the current output, if any.
+     * Only a suggestion — it's surfaced in the UI as a one-tap "apply" rather
+     * than being forced, because the user's own DeviceType choice for a route
+     * is a deliberate setting and shouldn't be silently overwritten by a
+     * remote document.
+     */
+    private val _suggestedDeviceProfile = MutableStateFlow<RemoteHeadphoneProfile?>(null)
+    val suggestedDeviceProfile: StateFlow<RemoteHeadphoneProfile?> = _suggestedDeviceProfile.asStateFlow()
+
+    /**
+     * Profile key for the current (device, app) pair: the per-app key when the
+     * active package is opted in, otherwise the plain device key.
+     */
+    private fun resolveProfileKey(): String {
+        val pkg = _activePackageName.value
+        return if (pkg != null && pkg in perAppPackages) {
+            sessionPreferences.perAppProfileKey(currentDeviceKey, pkg)
+        } else currentDeviceKey
+    }
 
     private var audioDeviceCallback: AudioDeviceCallback? = null
     // Background thread for AudioDeviceCallback so routing-change logic
@@ -231,15 +485,75 @@ class JadooDspService : Service() {
         mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
         sessionController = SessionController(this)
         sessionPreferences = SessionPreferences(this)
+        contentRepository = ContentRepository(this)
+
+        // Lane A content: resolves bundled → cached immediately, then refreshes
+        // from the network if due. A newly adopted document can change the SBC
+        // curve and the HDR expander shape, so the live topology is rebuilt
+        // when one arrives (only when something is actually running).
+        serviceScope.launch {
+            contentRepository.content.collect { content ->
+                val tuningChanged = content.tuning != remoteTuning
+                remoteTuning = content.tuning
+                _remoteContent.value = content
+                refreshSuggestedDeviceProfile()
+                if (tuningChanged && _masterEnabled.value && dspEngine.dynamicsProcessing != null) {
+                    rebuildDspTopology()
+                }
+            }
+        }
+        serviceScope.launch { contentRepository.initialize() }
 
         val (initialDeviceKey, initialDeviceLabel) = computeOutputDeviceKey()
         currentDeviceKey = initialDeviceKey
+        currentProfileKey = initialDeviceKey
         _currentOutputDevice.value = initialDeviceLabel
+        refreshSuggestedDeviceProfile()
         registerAudioDeviceCallback()
+        registerVolumeObserver()
+
+        // Load the per-app opt-in list before anything can resolve a profile
+        // key from it, so the very first restoreSession() below already picks
+        // the per-app profile when the active app has one.
+        serviceScope.launch {
+            sessionPreferences.perAppProfilePackages.collect { packages ->
+                perAppPackages = packages
+                _perAppProfilePackages.value = packages
+                // The opt-in list changing can change which profile the
+                // CURRENT app should be using (the user just toggled it).
+                syncProfileForActiveApp()
+            }
+        }
 
         startForegroundService()
         registerMediaSessionListener()
         restoreSession()
+    }
+
+    /**
+     * Watches system volume changes so the Loudness Contour can re-tilt the
+     * PreEQ as the level moves.
+     *
+     * Android has no public broadcast for media-volume changes
+     * (VOLUME_CHANGED_ACTION is hidden), so the supported route is a
+     * ContentObserver on Settings.System — it fires for every volume-key
+     * press and every slider drag. It also fires for unrelated system
+     * settings, which is why recomputeLoudness() short-circuits when the
+     * resulting level hasn't actually moved.
+     */
+    private fun registerVolumeObserver() {
+        val handler = audioDeviceHandler ?: Handler(mainLooper)
+        val observer = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                recomputeLoudness()
+            }
+        }
+        volumeObserver = observer
+        try {
+            contentResolver.registerContentObserver(Settings.System.CONTENT_URI, true, observer)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not register volume observer: ${e.message}")
+        }
     }
 
     /**
@@ -301,6 +615,7 @@ class JadooDspService : Service() {
                 Log.d(TAG, "USB DAC ($usbLabel) — filters re-initialized at ${usbRate}Hz " +
                     "(device supports: ${deviceRates.joinToString()}, HAL reports: ${halRate}Hz)")
             }
+            currentOutputDeviceApiType = usb.type
             return usbKey to usbLabel
         }
 
@@ -327,6 +642,7 @@ class JadooDspService : Service() {
                          it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER)) ||
                     (Build.VERSION.SDK_INT >= 33 && it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST)
             }
+            currentOutputDeviceApiType = btDevice?.type ?: AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
             val rawName = try { btDevice?.productName?.toString()?.trim() } catch (_: Exception) { null }
             return if (!rawName.isNullOrBlank()) {
                 val safeName = rawName.filter { it.isLetterOrDigit() || it == ' ' || it == '-' }.trim().take(40)
@@ -340,7 +656,13 @@ class JadooDspService : Service() {
         // getDevices() is the connected flag. Use the flag to confirm routing.
         @Suppress("DEPRECATION")
         val wiredActive = am.isWiredHeadsetOn
-        if (wiredActive) return "wired" to "Wired Headphones"
+        if (wiredActive) {
+            currentOutputDeviceApiType = allOutputs.firstOrNull {
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET
+            }?.type ?: AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+            return "wired" to "Wired Headphones"
+        }
 
         // ── Phone speaker (default) ───────────────────────────────────────
         // Re-detect sample rate in case a USB DAC was just unplugged — the HAL
@@ -359,7 +681,224 @@ class JadooDspService : Service() {
             digitalFilterEngine.initialize(nativeRate)
             Log.d(TAG, "Output reverted to speaker — filters re-initialized at ${nativeRate}Hz")
         }
+        currentOutputDeviceApiType = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
         return "speaker" to "Phone Speaker"
+    }
+
+    // ── Loudness Contour ──────────────────────────────────────────────────
+
+    /**
+     * Estimates the current listening level in phon from the system media
+     * volume.
+     *
+     * getStreamVolumeDb (API 28) is the key API here: unlike getStreamVolume,
+     * which returns an opaque index whose relationship to loudness is
+     * non-linear and device-specific, this returns the ACTUAL attenuation in
+     * dB that the platform applies at that index on that output device. The
+     * current level is therefore the reference level minus however far below
+     * maximum the user currently is:
+     *
+     *   currentPhon = referencePhon - (maxVolumeDb - currentVolumeDb)
+     *
+     * The reference level itself can't be measured — it's the SPL the device
+     * actually produces at full volume, which depends on the transducer, not
+     * on anything Android exposes. It's a user-set per-device calibration
+     * (see loudnessReferencePhon); everything else here is measured.
+     */
+    private fun computeCurrentPhon(): Float {
+        val reference = _loudnessReferencePhon.value
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return reference
+        return try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val index = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val maxIndex = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if (maxIndex <= 0) return reference
+            val currentDb = am.getStreamVolumeDb(AudioManager.STREAM_MUSIC, index, currentOutputDeviceApiType)
+            val maxDb = am.getStreamVolumeDb(AudioManager.STREAM_MUSIC, maxIndex, currentOutputDeviceApiType)
+            // At volume 0 the platform reports a huge negative (often
+            // -Float.MAX_VALUE) for "muted". Nothing is audible there, so
+            // pinning to the model's floor is both correct and keeps the
+            // arithmetic finite.
+            if (!currentDb.isFinite() || !maxDb.isFinite()) return LoudnessContour.MIN_PHON
+            val attenuation = (maxDb - currentDb).coerceAtLeast(0f)
+            (reference - attenuation).coerceIn(LoudnessContour.MIN_PHON, LoudnessContour.MAX_PHON)
+        } catch (e: Exception) {
+            Log.w(TAG, "getStreamVolumeDb unavailable: ${e.message}")
+            reference
+        }
+    }
+
+    /**
+     * Recomputes the loudness correction and pushes it into the live PreEQ.
+     *
+     * Debounced because the ContentObserver fires on every volume-key repeat
+     * (and on unrelated Settings.System writes) — without it, holding
+     * volume-down would trigger a 15-band PreEQ rewrite plus a limiter
+     * headroom update per step. The comparison against the previous curve
+     * then discards the remaining no-op wakeups entirely.
+     */
+    private fun recomputeLoudness() {
+        loudnessDebounceJob?.cancel()
+        loudnessDebounceJob = serviceScope.launch {
+            delay(120)
+            applyLoudnessNow()
+        }
+    }
+
+    /**
+     * Starts/stops the volume-tracking poll that backs the Loudness Contour.
+     *
+     * The ContentObserver on Settings.System is NOT a dependable volume signal
+     * on modern Android — media volume is increasingly not written there, and
+     * on ROMs where it isn't, the observer never fires. The correction then
+     * freezes at whatever level it was last computed for: turn the volume down
+     * and no bass compensation arrives; turn it back up and a large stale
+     * boost stays applied. The feature looks broken and unpredictable, which
+     * matches the reported behaviour.
+     *
+     * A slow poll is the honest fix. One getStreamVolume plus two
+     * getStreamVolumeDb reads per second, and [applyLoudnessNow] already
+     * discards any change under 0.1 dB before it touches a single band — so in
+     * the steady state this costs three cheap AudioManager calls a second and
+     * nothing else. It only runs while the feature is actually engaged.
+     */
+    private fun updateLoudnessTracking() {
+        val shouldTrack = _loudnessEnabled.value && _masterEnabled.value
+        if (!shouldTrack) {
+            loudnessPollJob?.cancel()
+            loudnessPollJob = null
+            return
+        }
+        if (loudnessPollJob?.isActive == true) return
+        loudnessPollJob = serviceScope.launch {
+            while (isActive && _loudnessEnabled.value && _masterEnabled.value) {
+                delay(1000)
+                applyLoudnessNow()
+            }
+        }
+    }
+
+    /** Immediate (undebounced) recompute — for toggles and slider commits. */
+    private fun applyLoudnessNow() {
+        val enabled = _loudnessEnabled.value
+        val phon = if (enabled) computeCurrentPhon() else _loudnessReferencePhon.value
+        _loudnessCurrentPhon.value = phon
+        val next = if (enabled) {
+            LoudnessContour.compensationDb(
+                referencePhon = _loudnessReferencePhon.value,
+                currentPhon = phon,
+                amount = _loudnessAmount.value,
+                driverExtension = loudnessDriverExtension()
+            )
+        } else FloatArray(EqBands.count)
+
+        // Sub-0.1dB moves are inaudible and not worth a full band rewrite —
+        // this is what turns the ContentObserver's firehose of unrelated
+        // Settings.System changes into near-zero work.
+        val changed = next.indices.any { kotlin.math.abs(next[it] - loudnessCompensation[it]) > 0.1f }
+        if (!changed) return
+        loudnessCompensation = next
+
+        if (!_masterEnabled.value) return
+        if (dspEngine.dynamicsProcessing == null) {
+            // Feature was just switched on while the engine was fully bypassed
+            // (nothing else active) — attachSession now sees it as an active
+            // feature and will build the topology.
+            attachGlobalSession()
+            return
+        }
+        applyAllBands(manualBandGains.copyOf())
+        refreshHeadroom()
+    }
+
+    /**
+     * Re-applies the limiter's gain-budget headroom from every current flow
+     * value. Single entry point so a new boosting feature only has to be
+     * added to DspEngine.calculateHeadroomOffset and here, rather than to
+     * each of the half-dozen live-update call sites that all need the same
+     * full picture.
+     */
+    private fun refreshHeadroom() {
+        dspEngine.updateHeadroom(
+            hiResEnabled = _hiResUpscalerEnabled.value,
+            dbfbMode = _dbfbMode.value,
+            analogBassEnabled = _analogBassEnabled.value,
+            tubeWarmthEnabled = _tubeWarmthEnabled.value,
+            tubeWarmthIntensity = _tubeWarmthIntensity.value,
+            mobileBassEnabled = _mobileBassEnabled.value,
+            mobileBassIntensity = _mobileBassIntensity.value,
+            surroundMode = _surroundMode.value,
+            harmonicExciterEnabled = _harmonicExciterEnabled.value,
+            harmonicExciterIntensity = _harmonicExciterIntensity.value,
+            bassExtension = bassExtension(),
+            trebleExtension = trebleExtension(),
+            mobileBassExtension = mobileBassExtension(),
+            preEqBassPeakDb = preEqBassPeakDb(),
+            preEqTreblePeakDb = preEqTreblePeakDb(),
+            preciseGainStaging = _preciseGainStaging.value
+        )
+        publishGainStagingReadout()
+    }
+
+    /** Mirror the engine's live gain-staging numbers into the UI flows. */
+    private fun publishGainStagingReadout() {
+        _gainBudgetDb.value = dspEngine.gainBudgetDb
+        _autoTrimDb.value = dspEngine.autoTrimReadoutDb
+    }
+
+    /**
+     * Toggle between the corrected gain-staging model and the pre-v1.6 one.
+     * Needs a full rebuild rather than a headroom refresh: the two models
+     * differ in the INPUT gain as well as the limiter threshold, and the
+     * input stage is written during attach.
+     */
+    fun setPreciseGainStaging(enabled: Boolean) {
+        _preciseGainStaging.value = enabled
+        if (_masterEnabled.value) rebuildDspTopology()
+        saveSession()
+    }
+
+    /**
+     * Records which preset is "selected" (built-in or custom) so the
+     * highlighted chip and Overwrite target survive a relaunch. Pure UI
+     * bookkeeping — never touches the DSP chain, the band gains that preset
+     * produced are already live and already persisted independently of this.
+     */
+    fun setSelectedPresetName(name: String?) {
+        _selectedPresetName.value = name ?: ""
+        saveSession()
+    }
+
+    fun setLoudnessEnabled(enabled: Boolean) {
+        _loudnessEnabled.value = enabled
+        if (!enabled) {
+            // Zero the curve and re-flatten the PreEQ before anything else, so
+            // turning the feature off can never leave a stale tilt behind.
+            loudnessCompensation = FloatArray(EqBands.count)
+            if (_masterEnabled.value) {
+                applyAllBands(manualBandGains.copyOf())
+                // May have been the only active feature — re-evaluate so the
+                // engine can drop to true bypass.
+                attachGlobalSession()
+            }
+        } else if (_masterEnabled.value) {
+            applyLoudnessNow()
+        }
+        updateLoudnessTracking()
+        saveSession()
+    }
+
+    fun setLoudnessAmount(value: Float) {
+        _loudnessAmount.value = value.coerceIn(0f, 1f)
+        if (_loudnessEnabled.value && _masterEnabled.value) applyLoudnessNow()
+        saveSession()
+    }
+
+    fun setLoudnessReferencePhon(value: Float) {
+        _loudnessReferencePhon.value =
+            value.coerceIn(LoudnessContour.MIN_PHON, LoudnessContour.MAX_PHON)
+        if (_loudnessEnabled.value && _masterEnabled.value) applyLoudnessNow()
+        saveSession()
     }
 
     private fun registerAudioDeviceCallback() {
@@ -390,53 +929,200 @@ class JadooDspService : Service() {
      */
     private fun handleOutputRouteChange() {
         val (newKey, newLabel) = computeOutputDeviceKey()
+        _currentOutputDevice.value = newLabel
         if (newKey == currentDeviceKey) {
-            _currentOutputDevice.value = newLabel
+            // Same route, but the reported device type may have been refined
+            // (e.g. A2DP resolved to a named device) — the volume-to-SPL curve
+            // is per device type, so re-derive the loudness correction.
+            recomputeLoudness()
             return
         }
-        switchToDeviceProfile(newKey, newLabel)
+        currentDeviceKey = newKey
+        refreshSuggestedDeviceProfile()
+        switchToProfile(resolveProfileKey(), "output device: $newLabel")
     }
 
     /**
-     * Persist the current settings under the OLD device key, then load (or
-     * default-initialize) the profile for the NEW device and apply it live.
+     * Looks for a content-channel profile matching the current output device's
+     * label (e.g. "Bluetooth: WH-1000XM4"). Cleared on routes that carry no
+     * product name — the phone speaker and generic wired output can't be
+     * identified, so there's nothing to match against.
+     */
+    private fun refreshSuggestedDeviceProfile() {
+        val label = _currentOutputDevice.value
+        _suggestedDeviceProfile.value = _remoteContent.value.headphoneProfiles
+            .firstOrNull { it.matches(label) }
+            // Only meaningful once we know it would actually change something.
+            ?.takeIf {
+                it.deviceType != _deviceType.value.name ||
+                    kotlin.math.abs(it.qualityTier - _deviceQualityTier.value) > 0.01f
+            }
+    }
+
+    /**
+     * Applies the matched content-channel device profile — user-initiated
+     * only. Sets the same two values the manual DeviceType picker does, so it
+     * goes through exactly the same code path and persists in the current
+     * profile like any other manual change.
+     */
+    fun applySuggestedDeviceProfile() {
+        val suggestion = _suggestedDeviceProfile.value ?: return
+        val type = DeviceType.entries.firstOrNull { it.name == suggestion.deviceType }
+        if (type != null) setDeviceType(type)
+        setDeviceQualityTier(suggestion.qualityTier)
+        _suggestedDeviceProfile.value = null
+    }
+
+    /** Manual "check for new content now" — used by the settings UI. */
+    fun refreshRemoteContent(onComplete: (Boolean) -> Unit = {}) {
+        serviceScope.launch {
+            val updated = contentRepository.refresh()
+            onComplete(updated)
+        }
+    }
+
+    /**
+     * Called whenever the active app or the per-app opt-in list changes: if
+     * that means a different profile key now applies, switch to it. No-op in
+     * the common case where the active app has no per-app profile and the
+     * device profile was already loaded.
+     */
+    private fun syncProfileForActiveApp() {
+        serviceScope.launch { syncProfileForActiveAppNow(rebuild = true) }
+    }
+
+    /**
+     * Suspending form, so [resolveAndAttachSession] can WAIT for the profile
+     * to be in place before it attaches.
+     *
+     * It used to fire-and-forget: the attach then ran against whatever profile
+     * happened to still be loaded, and the correct one landed a few hundred ms
+     * later via its own rebuild. That is the "sometimes I have to toggle the
+     * app off and on again to make it sound normal" report — the DSP really was
+     * configured from the previous app's profile, and toggling forced a
+     * re-attach that happened to read the settled state.
+     *
+     * [rebuild] is false when the caller is going to attach itself right
+     * afterwards, so the profile switch doesn't tear the chain down and
+     * rebuild it only for the caller to do it again one line later.
+     */
+    private suspend fun syncProfileForActiveAppNow(rebuild: Boolean) {
+        val target = resolveProfileKey()
+        if (target == currentProfileKey) {
+            _perAppProfileActive.value = target != currentDeviceKey
+            return
+        }
+        switchToProfileNow(target, "app: ${_activePackageName.value ?: "unknown"}", rebuild)
+    }
+
+    /**
+     * Persist the current settings under the OLD profile key, then load (or
+     * fork) the profile for [newKey] and apply it live.
+     *
+     * Forking matters for per-app profiles: a brand-new one should start from
+     * the device profile the user has already tuned, not from blank defaults
+     * and not from the pre-per-device legacy keys that plain load() falls back
+     * to (that fallback is right for a new output device, wrong here — see
+     * SessionPreferences.hasProfile).
+     *
      * Reuses rebuildDspTopology() — already proven to correctly re-attach the
      * DSP with every settings category (EQ gains, hiRes/dbfb/hdr/analogBass/
      * tubeWarmth topology, surround tilt, PEQ).
      */
-    private fun switchToDeviceProfile(newKey: String, newLabel: String) {
-        saveDebounceJob?.cancel()
-        val oldKey = currentDeviceKey
-        val stateToSave = buildSessionState()
-        serviceScope.launch(Dispatchers.IO) {
-            sessionPreferences.save(stateToSave, oldKey)
-            val newState = sessionPreferences.load(newKey) ?: SessionState()
-            kotlinx.coroutines.withContext(Dispatchers.Main) {
-                currentDeviceKey = newKey
-                _currentOutputDevice.value = newLabel
+    private fun switchToProfile(newKey: String, reason: String) {
+        serviceScope.launch { switchToProfileNow(newKey, reason, rebuild = true) }
+    }
+
+    /**
+     * Serialized by [profileSwitchMutex]. Two switches used to be able to
+     * interleave — a route change and an app change arriving together each
+     * launched their own coroutine, and the read-modify-write of "snapshot the
+     * current settings, save them under the OLD key, load the NEW key, apply
+     * it" is not atomic. The observed damage was one profile's settings being
+     * written into another profile's key: switch A applied its state, switch B
+     * (already in flight, holding a stale oldKey) then snapshotted A's
+     * freshly-applied values and saved them over B's old profile. That is the
+     * per-app profile corruption.
+     *
+     * Everything that reads or writes currentProfileKey now happens inside the
+     * lock, and the state snapshot is taken inside it too, so a queued switch
+     * always sees the settled result of the one before it.
+     */
+    private suspend fun switchToProfileNow(newKey: String, reason: String, rebuild: Boolean) {
+        profileSwitchMutex.withLock {
+            // Re-checked INSIDE the lock: while this call was queued, the
+            // switch ahead of it may already have landed on the same key.
+            if (newKey == currentProfileKey) return@withLock
+            saveDebounceJob?.cancel()
+            val oldKey = currentProfileKey
+            val deviceKey = currentDeviceKey
+            // Null only during the startup window before restoreSession() has
+            // run — see sessionRestored. Writing here then would overwrite a
+            // real profile with untouched defaults.
+            val stateToSave = if (sessionRestored) buildSessionState() else null
+            val newState = withContext(Dispatchers.IO) {
+                stateToSave?.let { sessionPreferences.save(it, oldKey) }
+                if (sessionPreferences.hasProfile(newKey)) {
+                    sessionPreferences.load(newKey) ?: SessionState()
+                } else {
+                    // First time this profile is used — fork the device profile
+                    // so the user starts from their existing tuning, then
+                    // persist it immediately so the fork is a real profile from
+                    // here on.
+                    val forked = sessionPreferences.load(deviceKey) ?: SessionState()
+                    sessionPreferences.save(forked, newKey)
+                    forked
+                }
+            }
+            withContext(Dispatchers.Main.immediate) {
+                currentProfileKey = newKey
+                _perAppProfileActive.value = newKey != deviceKey
 
                 applyState(newState)
-                if (_masterEnabled.value) {
+                if (rebuild && _masterEnabled.value) {
                     rebuildDspTopology()
                 }
-                Log.d(TAG, "Switched to output device profile: $newLabel ($newKey)")
+                Log.d(TAG, "Switched profile to $newKey ($reason, rebuild=$rebuild)")
             }
+        }
+    }
+
+    // ── Per-app profile controls ──────────────────────────────────────────
+
+    /**
+     * Opt [packageName] in or out of having its own profile. Turning it ON
+     * forks the current device profile (see switchToProfile); turning it OFF
+     * leaves the stored per-app values in place but stops consulting them, so
+     * re-enabling later restores rather than resets.
+     */
+    fun setPerAppProfileEnabled(packageName: String, enabled: Boolean) {
+        serviceScope.launch(Dispatchers.IO) {
+            sessionPreferences.setPerAppProfileEnabled(packageName, enabled)
+            // The collector registered in onCreate picks the change up and
+            // calls syncProfileForActiveApp(), which does the actual switch.
         }
     }
 
     private fun restoreSession() {
         serviceScope.launch(Dispatchers.IO) {
-            val state = sessionPreferences.load(currentDeviceKey) ?: return@launch
+            val state = sessionPreferences.load(currentProfileKey)
             // Restore on main thread so flows update correctly
             kotlinx.coroutines.withContext(Dispatchers.Main) {
-                applyState(state)
+                if (state != null) {
+                    applyState(state)
 
-                // applyState already sets _surroundMode.value and _masterEnabled is NOT
-                // set by applyState (it's set here). setMasterPower → resolveAndAttachSession
-                // → attach() reads all current flow values including _surroundMode, so the
-                // surround mode is already included in the topology — no need to call
-                // setSurroundMode again (that would race with the async attach coroutine).
-                if (state.masterEnabled) setMasterPower(true)
+                    // applyState already sets _surroundMode.value and _masterEnabled is NOT
+                    // set by applyState (it's set here). setMasterPower → resolveAndAttachSession
+                    // → attach() reads all current flow values including _surroundMode, so the
+                    // surround mode is already included in the topology — no need to call
+                    // setSurroundMode again (that would race with the async attach coroutine).
+                    if (state.masterEnabled) setMasterPower(true)
+                }
+                // Set even when there was nothing to restore (fresh install):
+                // "no saved state" is still a settled starting point, and
+                // leaving this false would permanently block profile switches
+                // from persisting anything — see sessionRestored.
+                sessionRestored = true
             }
         }
     }
@@ -501,9 +1187,36 @@ class JadooDspService : Service() {
         val restoredDeviceType = DeviceType.entries.firstOrNull { it.name == state.deviceType } ?: DeviceType.General
         _deviceType.value = if (currentDeviceKey == "speaker") DeviceType.General else restoredDeviceType
         _deviceQualityTier.value = state.deviceQualityTier
-        // Restore Crossfeed
-        _crossfeedEnabled.value = state.crossfeedEnabled
+        // Enforced here too, not just in the setter and hasActiveDspFeatures —
+        // an imported backup or a profile saved while a different DeviceType
+        // was selected can carry crossfeedEnabled=true for a route/DeviceType
+        // combination that no longer makes sense. See isHeadphoneRoute.
+        _crossfeedEnabled.value = state.crossfeedEnabled && isHeadphoneRoute()
         _crossfeedStrength.value = state.crossfeedStrength
+
+        // Restore Loudness Contour. The compensation array is recomputed from
+        // the restored reference/amount plus the CURRENT system volume rather
+        // than persisted — a stored curve would be stale the moment the user
+        // changed volume while the service was dead.
+        _preciseGainStaging.value = state.preciseGainStaging
+        _selectedPresetName.value = state.selectedPresetName
+        _loudnessEnabled.value = state.loudnessEnabled
+        _loudnessAmount.value = state.loudnessAmount.coerceIn(0f, 1f)
+        _loudnessReferencePhon.value = state.loudnessReferencePhon
+            .coerceIn(LoudnessContour.MIN_PHON, LoudnessContour.MAX_PHON)
+        loudnessCompensation = if (state.loudnessEnabled) {
+            val phon = computeCurrentPhon()
+            _loudnessCurrentPhon.value = phon
+            LoudnessContour.compensationDb(
+                _loudnessReferencePhon.value, phon, _loudnessAmount.value,
+                loudnessDriverExtension()
+            )
+        } else FloatArray(EqBands.count)
+        // Job lifecycle only — no DSP work, so this does not violate the
+        // "applyState triggers no rebuilds" contract above. A profile that
+        // turns Loudness on or off has to start or stop the volume poll, or
+        // the correction stops tracking after any profile switch.
+        updateLoudnessTracking()
     }
 
     /** Snapshot every current setting into a [SessionState] for persistence. */
@@ -542,14 +1255,24 @@ class JadooDspService : Service() {
         deviceQualityTier = _deviceQualityTier.value,
         // Crossfeed
         crossfeedEnabled = _crossfeedEnabled.value,
-        crossfeedStrength = _crossfeedStrength.value
+        crossfeedStrength = _crossfeedStrength.value,
+        // Loudness Contour
+        loudnessEnabled = _loudnessEnabled.value,
+        loudnessAmount = _loudnessAmount.value,
+        loudnessReferencePhon = _loudnessReferencePhon.value,
+        preciseGainStaging = _preciseGainStaging.value,
+        selectedPresetName = _selectedPresetName.value
     )
 
     private fun saveSession() {
         saveDebounceJob?.cancel()
         saveDebounceJob = serviceScope.launch(Dispatchers.IO) {
             delay(800)
-            sessionPreferences.save(buildSessionState(), currentDeviceKey)
+            // currentProfileKey, not currentDeviceKey: when a per-app profile
+            // is active every edit must land in that profile, otherwise
+            // tweaking settings while YouTube plays would silently overwrite
+            // the shared device profile instead.
+            sessionPreferences.save(buildSessionState(), currentProfileKey)
         }
     }
 
@@ -576,7 +1299,7 @@ class JadooDspService : Service() {
             updateNotification()
         }
         serviceScope.launch(Dispatchers.IO) {
-            sessionPreferences.save(buildSessionState(), currentDeviceKey)
+            sessionPreferences.save(buildSessionState(), currentProfileKey)
         }
     }
 
@@ -665,6 +1388,7 @@ class JadooDspService : Service() {
                     val pkg = intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME)
                     _activePackageName.value = pkg
                     _activeAppLabel.value = resolveAppLabel(pkg)
+                    syncProfileForActiveApp()
                     // New player session = new audio stream on the global mix.
                     // Force re-attach to global session 0 so the DynamicsProcessing
                     // effect is fresh and bound to the current mix (not a stale one).
@@ -675,6 +1399,7 @@ class JadooDspService : Service() {
                     if (_activePackageName.value == closingPkg) {
                         _activePackageName.value = null
                         _activeAppLabel.value = null
+                        syncProfileForActiveApp()
                         // Re-attach to global session so the effect is refreshed
                         // for whoever plays next.
                         if (_masterEnabled.value) resolveAndAttachSession(null)
@@ -696,6 +1421,11 @@ class JadooDspService : Service() {
             (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(it)
         }
         audioDeviceCallback = null
+        volumeObserver?.let {
+            try { contentResolver.unregisterContentObserver(it) }
+            catch (e: Exception) { Log.w(TAG, "Volume observer unregister failed: ${e.message}") }
+        }
+        volumeObserver = null
         audioDeviceHandlerThread?.quitSafely()
         audioDeviceHandlerThread = null
         audioDeviceHandler = null
@@ -739,12 +1469,18 @@ class JadooDspService : Service() {
         val pkg = activeController?.packageName
         _activePackageName.value = pkg
         _activeAppLabel.value = resolveAppLabel(pkg)
+        // Playback moved to a different app — if either the old or the new one
+        // has a per-app profile, swap profiles before touching the topology,
+        // so the attach below is built from the right settings rather than
+        // being immediately rebuilt with different ones.
+        syncProfileForActiveApp()
 
         if (_masterEnabled.value && activeController != null) {
             resolveAndAttachSession(pkg)
         } else if (activeController == null) {
             _activePackageName.value = null
             _activeAppLabel.value = null
+            syncProfileForActiveApp()
         }
     }
 
@@ -764,6 +1500,23 @@ class JadooDspService : Service() {
         if (_tubeWarmthEnabled.value) return true
         if (_mobileBassEnabled.value) return true
         if (_harmonicExciterEnabled.value) return true
+        // Loudness Contour only counts as active once it's actually producing
+        // a non-zero tilt — enabled at full system volume is genuinely a
+        // no-op (currentPhon == referencePhon), and claiming otherwise would
+        // hold the DynamicsProcessing effect open for nothing.
+        if (_loudnessEnabled.value && loudnessCompensation.any { it != 0f }) return true
+        // Crossfeed writes a PreEQ tonal curve via writeCombinedBand (see
+        // crossfeedShape), which needs the DP attached — if this returns
+        // false, attachSession() releases the engine and the curve is never
+        // written at all. Omitting it here meant Crossfeed silently did
+        // nothing whenever it was the only feature on.
+        if (_crossfeedEnabled.value && isHeadphoneRoute()) return true
+        // SBC Enhancement writes a PreEQ pre-emphasis curve (up to +7dB at
+        // 16kHz) via writeCombinedBand, which needs the DP attached. Same
+        // failure as Crossfeed: enabled alone, it was inert. Gated on the
+        // route for the same reason writeCombinedBand is — the curve is only
+        // applied on Bluetooth, so off-BT it genuinely changes nothing.
+        if (_sbcModeEnabled.value && currentDeviceKey.startsWith("bt")) return true
         if (digitalFilterEngine.hasActiveBand()) return true
         if (_preGainDb.value != 0f) return true
         if (_postGainDb.value != 0f) return true
@@ -782,6 +1535,11 @@ class JadooDspService : Service() {
             if (sessionInfo?.packageName != null) {
                 _activePackageName.value = sessionInfo.packageName
                 _activeAppLabel.value = resolveAppLabel(sessionInfo.packageName)
+                // AWAITED, and with rebuild=false: the attachSession call below
+                // is the rebuild. Previously this was fire-and-forget, so the
+                // attach ran against the outgoing app's profile and the correct
+                // one only arrived later on its own rebuild.
+                syncProfileForActiveAppNow(rebuild = false)
             }
             // Force re-attach: when a new media session is active, the global mix
             // session under the hood has changed even though sessionId stays 0.
@@ -838,16 +1596,21 @@ class JadooDspService : Service() {
                 mobileBassIntensity = _mobileBassIntensity.value,
                 harmonicExciterEnabled = _harmonicExciterEnabled.value,
                 harmonicExciterIntensity = _harmonicExciterIntensity.value,
-                crossfeedEnabled = _crossfeedEnabled.value,
-                crossfeedStrength = _crossfeedStrength.value,
                 bassExtension = bassExtension(),
                 trebleExtension = trebleExtension(),
-                mobileBassExtension = mobileBassExtension()
+                mobileBassExtension = mobileBassExtension(),
+                preEqBassPeakDb = preEqBassPeakDb(),
+                preEqTreblePeakDb = preEqTreblePeakDb(),
+                preciseGainStaging = _preciseGainStaging.value,
+                hdrRestorationThreshold = remoteTuning.hdrRestorationThreshold,
+                hdrRestorationKnee = remoteTuning.hdrRestorationKnee,
+                hdrRestorationExpanderRatio = remoteTuning.hdrRestorationExpanderRatio
             )
             if (attached) {
                 _audioSessionId.value = sessionId
                 _activePackageName.value = packageName
                 updateNotification()
+                publishGainStagingReadout()
                 applyDigitalFilterToPreEq()
             } else {
                 // attach() failed for the NEW session (e.g. a malformed band
@@ -866,6 +1629,15 @@ class JadooDspService : Service() {
                     _audioSessionId.value = sessionId
                     _activePackageName.value = packageName
                     updateNotification()
+                    // The fallback attach writes ONLY the raw manual EQ gains.
+                    // Everything else that lives in the PreEQ sum — parametric
+                    // EQ, HDR's air shelf, Tube Warmth's tonal shape, SBC
+                    // pre-emphasis, Loudness Contour, Surround's tilt — is
+                    // applied by applyAllBands, which was never called here.
+                    // Without it the fallback silently dropped most of the
+                    // signal chain until some unrelated setting changed.
+                    applyDigitalFilterToPreEq()
+                    applyAllBands(manualBandGains.copyOf())
                 } else {
                     _dspBypassed.value = true
                 }
@@ -901,11 +1673,24 @@ class JadooDspService : Service() {
     fun setMasterPower(enabled: Boolean) {
         _masterEnabled.value = enabled
         if (enabled) {
+            // Re-derive the loudness curve from the CURRENT system volume
+            // before attaching: the user may have changed volume while the
+            // engine was off, and the stored curve would be stale. Done first
+            // so hasActiveDspFeatures() and the attach both see the real one.
+            if (_loudnessEnabled.value) {
+                val phon = computeCurrentPhon()
+                _loudnessCurrentPhon.value = phon
+                loudnessCompensation = LoudnessContour.compensationDb(
+                    _loudnessReferencePhon.value, phon, _loudnessAmount.value,
+                    loudnessDriverExtension()
+                )
+            }
             resolveAndAttachSession()
         } else {
             updateBandGains(manualBandGains.copyOf())
             detachSession()
         }
+        updateLoudnessTracking()
         updateNotification()
         saveSession()
     }
@@ -1039,23 +1824,7 @@ class JadooDspService : Service() {
         // limiter's gain budget — keep it in sync live so e.g. Ultra Wide
         // stacked with Mobile Bass/DBFB/Analog Bass doesn't push past what
         // the limiter was set up to expect (see calculateHeadroomOffset).
-        if (_masterEnabled.value) {
-            dspEngine.updateHeadroom(
-                hiResEnabled = _hiResUpscalerEnabled.value,
-                dbfbMode = _dbfbMode.value,
-                analogBassEnabled = _analogBassEnabled.value,
-                tubeWarmthEnabled = _tubeWarmthEnabled.value,
-                tubeWarmthIntensity = _tubeWarmthIntensity.value,
-                mobileBassEnabled = _mobileBassEnabled.value,
-                mobileBassIntensity = _mobileBassIntensity.value,
-                surroundMode = mode,
-                harmonicExciterEnabled = _harmonicExciterEnabled.value,
-                harmonicExciterIntensity = _harmonicExciterIntensity.value,
-                bassExtension = bassExtension(),
-                trebleExtension = trebleExtension(),
-                mobileBassExtension = mobileBassExtension()
-            )
-        }
+        if (_masterEnabled.value) refreshHeadroom()
         saveSession()
     }
 
@@ -1150,21 +1919,7 @@ class JadooDspService : Service() {
             dspEngine.updateTubeWarmthIntensity(clamped)
             // Tube Warmth's broadband contribution to the gain budget changes
             // with intensity — keep the limiter's headroom in sync live.
-            dspEngine.updateHeadroom(
-                hiResEnabled = _hiResUpscalerEnabled.value,
-                dbfbMode = _dbfbMode.value,
-                analogBassEnabled = _analogBassEnabled.value,
-                tubeWarmthEnabled = true,
-                tubeWarmthIntensity = clamped,
-                mobileBassEnabled = _mobileBassEnabled.value,
-                mobileBassIntensity = _mobileBassIntensity.value,
-                surroundMode = _surroundMode.value,
-                harmonicExciterEnabled = _harmonicExciterEnabled.value,
-                harmonicExciterIntensity = _harmonicExciterIntensity.value,
-                bassExtension = bassExtension(),
-                trebleExtension = trebleExtension(),
-                mobileBassExtension = mobileBassExtension()
-            )
+            refreshHeadroom()
             applyAllBands(manualBandGains.copyOf())
         }
         saveSession()
@@ -1173,7 +1928,11 @@ class JadooDspService : Service() {
     // ── Mobile Bass Controls ──────────────────────────────────────────
 
     fun setMobileBassEnabled(enabled: Boolean) {
-        _mobileBassEnabled.value = enabled
+        // Speaker-only, enforced here rather than only in the UI — so every
+        // entry point (restore, profile switch, backup import, external
+        // caller) converges on the same rule, matching how Analog Bass vs
+        // Surround Front Stage is handled in setAnalogBassEnabled.
+        _mobileBassEnabled.value = enabled && currentDeviceKey == "speaker"
         if (_masterEnabled.value) rebuildDspTopology()
         saveSession()
     }
@@ -1182,22 +1941,8 @@ class JadooDspService : Service() {
         val clamped = value.coerceIn(0f, 1f)
         _mobileBassIntensity.value = clamped
         if (_mobileBassEnabled.value && _masterEnabled.value) {
-            dspEngine.updateMobileBassIntensity(clamped, _analogBassEnabled.value, _dbfbMode.value, mobileBassExtension())
-            dspEngine.updateHeadroom(
-                hiResEnabled = _hiResUpscalerEnabled.value,
-                dbfbMode = _dbfbMode.value,
-                analogBassEnabled = _analogBassEnabled.value,
-                tubeWarmthEnabled = _tubeWarmthEnabled.value,
-                tubeWarmthIntensity = _tubeWarmthIntensity.value,
-                mobileBassEnabled = true,
-                mobileBassIntensity = clamped,
-                surroundMode = _surroundMode.value,
-                harmonicExciterEnabled = _harmonicExciterEnabled.value,
-                harmonicExciterIntensity = _harmonicExciterIntensity.value,
-                bassExtension = bassExtension(),
-                trebleExtension = trebleExtension(),
-                mobileBassExtension = mobileBassExtension()
-            )
+            dspEngine.updateMobileBassIntensity(clamped, _analogBassEnabled.value, _dbfbMode.value)
+            refreshHeadroom()
         }
         saveSession()
     }
@@ -1222,20 +1967,7 @@ class JadooDspService : Service() {
                 _hdrDynamicsEnabled.value,
                 trebleExtension()
             )
-            dspEngine.updateHeadroom(
-                hiResEnabled = _hiResUpscalerEnabled.value,
-                dbfbMode = _dbfbMode.value,
-                analogBassEnabled = _analogBassEnabled.value,
-                tubeWarmthEnabled = _tubeWarmthEnabled.value,
-                tubeWarmthIntensity = _tubeWarmthIntensity.value,
-                mobileBassEnabled = _mobileBassEnabled.value,
-                mobileBassIntensity = _mobileBassIntensity.value,
-                surroundMode = _surroundMode.value,
-                harmonicExciterEnabled = true,
-                harmonicExciterIntensity = clamped,
-                bassExtension = bassExtension(),
-                trebleExtension = trebleExtension()
-            )
+            refreshHeadroom()
         }
         saveSession()
     }
@@ -1267,9 +1999,49 @@ class JadooDspService : Service() {
 
     // ── Crossfeed Controls ───────────────────────────────────────────────
 
+    /**
+     * True only when the output is genuinely a pair of headphones/IEMs near
+     * the ears — the one situation Crossfeed's tonal curve (see
+     * crossfeedShape) is meaningful for. It exists to soften the "hard L/R
+     * panning, everything inside your head" feeling, which is only a problem
+     * when each ear hears exactly one channel with zero natural crosstalk.
+     * Any speaker already delivers both channels to both ears acoustically,
+     * so applying the curve there isn't "less effective" — it's warming up
+     * and rolling off the treble of a signal that doesn't have the problem
+     * this curve is meant to solve.
+     *
+     * TWO things gate this, not one:
+     *  - route: the phone's own built-in speaker is never headphone-like.
+     *  - [DeviceType]: a Bluetooth or wired CONNECTION can still be an
+     *    external SPEAKER (CompactSpeaker/HomeSpeaker) rather than
+     *    headphones. Route alone can't distinguish a BT speaker from BT
+     *    headphones — only the user's DeviceType choice can. The dashboard
+     *    already hides the Crossfeed card for those two types; this makes
+     *    the engine agree, so a state left over from before a DeviceType
+     *    change (or an imported backup) can't leave the curve quietly
+     *    applied somewhere it never should be.
+     */
+    private fun isHeadphoneRoute(): Boolean {
+        if (currentDeviceKey == "speaker") return false
+        return when (_deviceType.value) {
+            DeviceType.CompactSpeaker, DeviceType.HomeSpeaker -> false
+            else -> true
+        }
+    }
+
     fun setCrossfeedEnabled(enabled: Boolean) {
         _crossfeedEnabled.value = enabled
-        if (_masterEnabled.value) rebuildDspTopology()
+        if (_masterEnabled.value) {
+            // Just another PreEQ contributor now (see crossfeedShape) — the
+            // same cheap path every other toggle already uses. No dedicated
+            // effect to create/tear down, so no dropout risk either; this
+            // used to reconfigure a Virtualizer in place specifically to
+            // avoid a topology-rebuild dropout, which is moot now that
+            // there's no separate effect at all.
+            attachGlobalSession()
+            applyAllBands(manualBandGains.copyOf())
+            refreshHeadroom()
+        }
         saveSession()
     }
 
@@ -1277,7 +2049,8 @@ class JadooDspService : Service() {
         val clamped = value.coerceIn(0f, 1f)
         _crossfeedStrength.value = clamped
         if (_crossfeedEnabled.value && _masterEnabled.value) {
-            dspEngine.updateCrossfeedStrength(clamped)
+            applyAllBands(manualBandGains.copyOf())
+            refreshHeadroom()
         }
         saveSession()
     }
@@ -1299,13 +2072,20 @@ class JadooDspService : Service() {
             }
             if (_analogBassEnabled.value) {
                 dspEngine.updateAnalogBassMbc(_analogBassDrive.value, _analogBassWarmth.value, _analogBassDrift.value, bass)
-                dspEngine.updateAnalogBassPostEq(
-                    _analogBassPultecBoost.value, _analogBassPultecCut.value,
-                    _analogBassPultecFreqIndex.value, _analogBassWarmth.value, bass
-                )
+                // Mobile Bass owns the PostEQ layout when both are on — same
+                // guard every Analog Bass slider setter already uses. Without
+                // it this path wrote Pultec cutoffs onto Mobile Bass's slots
+                // and then overwrote them again two lines later, once per
+                // frame of a quality-tier drag.
+                if (!_mobileBassEnabled.value) {
+                    dspEngine.updateAnalogBassPostEq(
+                        _analogBassPultecBoost.value, _analogBassPultecCut.value,
+                        _analogBassPultecFreqIndex.value, _analogBassWarmth.value, bass
+                    )
+                }
             }
             if (_mobileBassEnabled.value) {
-                dspEngine.updateMobileBassIntensity(_mobileBassIntensity.value, _analogBassEnabled.value, _dbfbMode.value, mobileBassExtension())
+                dspEngine.updateMobileBassIntensity(_mobileBassIntensity.value, _analogBassEnabled.value, _dbfbMode.value)
             }
             if (_harmonicExciterEnabled.value) {
                 dspEngine.updateHarmonicExciterIntensity(
@@ -1319,21 +2099,7 @@ class JadooDspService : Service() {
                     _hdrDynamicsEnabled.value, _harmonicExciterEnabled.value
                 )
             }
-            dspEngine.updateHeadroom(
-                hiResEnabled = _hiResUpscalerEnabled.value,
-                dbfbMode = _dbfbMode.value,
-                analogBassEnabled = _analogBassEnabled.value,
-                tubeWarmthEnabled = _tubeWarmthEnabled.value,
-                tubeWarmthIntensity = _tubeWarmthIntensity.value,
-                mobileBassEnabled = _mobileBassEnabled.value,
-                mobileBassIntensity = _mobileBassIntensity.value,
-                surroundMode = _surroundMode.value,
-                harmonicExciterEnabled = _harmonicExciterEnabled.value,
-                harmonicExciterIntensity = _harmonicExciterIntensity.value,
-                bassExtension = bass,
-                trebleExtension = treble,
-                mobileBassExtension = mobileBassExtension()
-            )
+            refreshHeadroom()
         }
         saveSession()
     }
@@ -1430,7 +2196,16 @@ class JadooDspService : Service() {
 
     fun setSbcModeEnabled(enabled: Boolean) {
         _sbcModeEnabled.value = enabled
-        if (_masterEnabled.value) applyAllBands(manualBandGains.copyOf())
+        if (_masterEnabled.value) {
+            // applyAllBands alone is not enough when SBC is the FIRST active
+            // feature: the engine is still released for true bypass at that
+            // point, so applyAllBands early-returns on a null
+            // DynamicsProcessing and the pre-emphasis is silently dropped.
+            // attachGlobalSession() builds the topology if needed (or tears it
+            // down again when SBC was the last thing on), then the bands land.
+            attachGlobalSession()
+            applyAllBands(manualBandGains.copyOf())
+        }
         saveSession()
     }
 
@@ -1527,11 +2302,14 @@ class JadooDspService : Service() {
             mobileBassIntensity = _mobileBassIntensity.value,
             harmonicExciterEnabled = _harmonicExciterEnabled.value,
             harmonicExciterIntensity = _harmonicExciterIntensity.value,
-            crossfeedEnabled = _crossfeedEnabled.value,
-            crossfeedStrength = _crossfeedStrength.value,
             bassExtension = bassExtension(),
             trebleExtension = trebleExtension(),
-            mobileBassExtension = mobileBassExtension()
+            mobileBassExtension = mobileBassExtension(),
+            preEqBassPeakDb = preEqBassPeakDb(),
+            preEqTreblePeakDb = preEqTreblePeakDb(),
+            hdrRestorationThreshold = remoteTuning.hdrRestorationThreshold,
+            hdrRestorationKnee = remoteTuning.hdrRestorationKnee,
+            hdrRestorationExpanderRatio = remoteTuning.hdrRestorationExpanderRatio
         )
         if (attached) {
             applyAllBands(currentGains)
@@ -1726,7 +2504,13 @@ class JadooDspService : Service() {
      * touching exactly one band).
      */
     private fun writeCombinedBand(index: Int, graphicGain: Float, mode: SurroundMode) {
-        val peqGain = digitalFilterEngine.evaluateMagnitudeResponseDb(EqBands.frequencies[index])
+        // Peak across this PreEQ band's real cutoff span, not sampled at one
+        // point — see DigitalFilterEngine.evaluateBandPeakDb for why a
+        // single-point sample silently swallowed narrow (high-Q) PEQ filters
+        // that didn't happen to land on one of the 15 fixed centres.
+        val peqLoHz = if (index == 0) 20f else EqBands.cutoffFrequencies[index - 1]
+        val peqHiHz = EqBands.cutoffFrequencies[index]
+        val peqGain = digitalFilterEngine.evaluateBandPeakDb(peqLoHz, peqHiHz)
         val hdrAirBoost = when {
             !_hdrDynamicsEnabled.value -> 0f
             _hdrMode.value != HdrMode.Restoration -> 0f
@@ -1762,8 +2546,14 @@ class JadooDspService : Service() {
         // the sound. A gentle sub-bass lift (63-100Hz) restores the low-end "body" that
         // SBC's wide subbands tend to spread and thin out. The result sounds like a better
         // codec, not like an EQ was applied.
+        //
+        // The curve can be replaced over the content channel (see RemoteTuning)
+        // without shipping an APK — it's exactly the kind of by-ear tuning that
+        // gets revised between releases. The remote array is already clamped to
+        // ±10dB by RemoteContent.parseTuning; absent or malformed, the built-in
+        // curve below is used unchanged.
         val sbcPreEmphasis = if (_sbcModeEnabled.value && currentDeviceKey.startsWith("bt")) {
-            when (index) {
+            remoteTuning.sbcPreEmphasis?.getOrNull(index) ?: when (index) {
                 2  ->  1.2f  // 63Hz: restore sub-bass body SBC spreads across too-wide a band
                 3  ->  0.8f  // 100Hz: gentle warmth floor
                 9  -> -0.5f  // 1.6kHz: soften SBC's dense midrange quantisation noise
@@ -1775,7 +2565,19 @@ class JadooDspService : Service() {
                 else -> 0f
             }
         } else 0f
-        val baseGain = graphicGain + peqGain + hdrAirBoost + tubeWarmthShape + sbcPreEmphasis
+        // Loudness Contour (ISO 226): re-tilts the balance to match how the
+        // ear actually behaves at the current listening level. Summed in here
+        // like every other tonal shape rather than applied as its own stage,
+        // so it shares the same single PreEQ write per band and the same
+        // ±15dB clamp below. Exactly 0dB at 1kHz by construction, and
+        // all-zero whenever the feature is off — see LoudnessContour.
+        val loudnessShape = loudnessCompensation.getOrElse(index) { 0f }
+        // Crossfeed's tonal-EQ curve — see crossfeedShape() for why Crossfeed
+        // is a PreEQ contributor now instead of a Virtualizer effect.
+        val crossfeedTonalShape = crossfeedShape(index)
+
+        val baseGain = graphicGain + peqGain + hdrAirBoost + tubeWarmthShape +
+            sbcPreEmphasis + loudnessShape + crossfeedTonalShape
 
         val centered = baseGain + surroundBandProfile(mode, index)
         val diff = surroundChannelDifferential(mode, index)

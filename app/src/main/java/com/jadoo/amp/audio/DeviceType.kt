@@ -69,3 +69,31 @@ private fun ClosedFloatingPointRange<Float>.lerp(t: Float): Float =
 /** Where a specific unit of [this] type sits, given a 0=budget..1=flagship quality tier. */
 fun DeviceType.bassExtension(qualityTier: Float): Float = bassRange.lerp(qualityTier)
 fun DeviceType.trebleExtension(qualityTier: Float): Float = trebleRange.lerp(qualityTier)
+
+/**
+ * How much of the user's Crossfeed strength slider to actually apply, by
+ * headphone type. Crossfeed only ever runs on Iem/OnEar/OverEar/General (see
+ * JadooDspService.isHeadphoneRoute) — CompactSpeaker/HomeSpeaker never reach
+ * this, they're gated out before it's read.
+ *
+ * The three real headphone types differ in how much of a problem Crossfeed is
+ * actually solving:
+ *  - **IEM**: a sealed ear-canal insert gives near-total isolation between
+ *    channels — the hardest-panned, most "inside your head" presentation of
+ *    any type, and the one Crossfeed helps most. Full strength.
+ *  - **On-ear**: light seal, some but not much natural leakage. Slightly
+ *    reduced, on the same reasoning as over-ear, just less of it.
+ *  - **Over-ear**: often a looser seal, and many flagship designs are
+ *    deliberately open-back, which lets a little of each channel reach the
+ *    opposite ear acoustically already. Applying full Crossfeed on top of
+ *    that natural leakage is what "flat/veiled" over-ear Crossfeed complaints
+ *    trace back to — the fix is asking for less, not turning it off.
+ *  - **General**: no device-specific information, so no scaling — exactly
+ *    what the slider says.
+ */
+fun DeviceType.crossfeedFactor(): Float = when (this) {
+    DeviceType.Iem -> 1.0f
+    DeviceType.OnEar -> 0.85f
+    DeviceType.OverEar -> 0.7f
+    else -> 1.0f
+}

@@ -1,14 +1,69 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    JadOO DSP — adaptive icon foreground.
+
+    Geometry is measured from `JadOO Base logo 1/2.png` (3375×3375) and
+    preserved exactly:
+
+        circle diameter   1743 px
+        centre distance   1014 px  =  0.582 · D
+        both circles      identical diameter (verified, not assumed)
+        overlap           41.8%
+        centres           share one horizontal axis
+
+    Reduced to this 108×108 viewport with r = 18.75:
+
+        centre distance   1.164 · r  =  21.83
+        left centre       (43.09, 54)
+        right centre      (64.92, 54)
+        total extent      64 units incl. stroke, centred — inside the 66×66
+                          guaranteed-visible area of an adaptive icon
+
+    ONE deliberate departure from the source: stroke weight. The brand mark's
+    ring is 4.2% of its diameter (73 px of 1743). At launcher size that is
+    0.8 dp and simply does not render. This uses D/8 instead — the standard
+    thickening every brand applies for an icon lockup. Nothing else is changed:
+    same two circles, same diameter, same 0.582 spacing, same axis.
+
+    The DSP variant earns its specificity from the bar alone, with no added
+    elements: the left circle keeps the flat diameter bar as a 0 dB datum, and
+    the right circle carries the same bar bent into a shallow symmetric EQ
+    boost. Before and after, in the mark's own vocabulary. It survives at 24 px
+    because it is still just two circles and a line.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="#FF22D3EE" android:pathData="M34,44 L34,64 L38,64 L38,44 Z"/>
-    <path android:fillColor="#FF22D3EE" android:pathData="M40,38 L40,70 L44,70 L44,38 Z"/>
-    <path android:fillColor="#FF22D3EE" android:pathData="M46,32 L46,76 L50,76 L50,32 Z"/>
-    <path android:fillColor="#FF22D3EE" android:pathData="M52,26 L52,82 L56,82 L56,26 Z"/>
-    <path android:fillColor="#FF22D3EE" android:pathData="M58,32 L58,76 L62,76 L62,32 Z"/>
-    <path android:fillColor="#FF22D3EE" android:pathData="M64,38 L64,70 L68,70 L68,38 Z"/>
-    <path android:fillColor="#FF22D3EE" android:pathData="M70,44 L70,64 L74,64 L74,44 Z"/>
+
+    <!-- Left circle: the reference channel. -->
+    <path
+        android:pathData="M 24.34,54 A 18.75,18.75 0 1 1 61.84,54 A 18.75,18.75 0 1 1 24.34,54 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.69"
+        android:strokeLineCap="round" />
+
+    <!-- The 0 dB datum: a flat diameter bar. -->
+    <path
+        android:pathData="M 30.0,54 L 56.2,54"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.69"
+        android:strokeLineCap="round" />
+
+    <!-- Right circle: the processed channel. Drawn second so it sits above the
+         left, matching the source mark's z-order. -->
+    <path
+        android:pathData="M 46.17,54 A 18.75,18.75 0 1 1 83.67,54 A 18.75,18.75 0 1 1 46.17,54 Z"
+        android:strokeColor="#E1A730"
+        android:strokeWidth="4.69"
+        android:strokeLineCap="round" />
+
+    <!-- The same bar, bent. A shallow symmetric boost — one path change from
+         the base mark, and the only thing that makes this the DSP app's icon. -->
+    <path
+        android:pathData="M 51.9,54 C 57.5,54 59.6,45.5 64.92,45.5 C 70.2,45.5 72.3,54 77.9,54"
+        android:strokeColor="#E1A730"
+        android:strokeWidth="4.69"
+        android:strokeLineCap="round" />
 </vector>

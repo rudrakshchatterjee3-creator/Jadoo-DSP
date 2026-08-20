@@ -1,14 +1,40 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Monochrome (themed-icon) variant. Identical geometry to
+    ic_jadoo_foreground; the launcher supplies the single tint, so every path
+    is white and the gold/white channel distinction is dropped.
+
+    The mark still reads, because the two channels are distinguished by their
+    BARS (flat vs bent) rather than by colour — which is exactly why the DSP
+    variant was built that way.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="#FF000000" android:pathData="M34,44 L34,64 L38,64 L38,44 Z"/>
-    <path android:fillColor="#FF000000" android:pathData="M40,38 L40,70 L44,70 L44,38 Z"/>
-    <path android:fillColor="#FF000000" android:pathData="M46,32 L46,76 L50,76 L50,32 Z"/>
-    <path android:fillColor="#FF000000" android:pathData="M52,26 L52,82 L56,82 L56,26 Z"/>
-    <path android:fillColor="#FF000000" android:pathData="M58,32 L58,76 L62,76 L62,32 Z"/>
-    <path android:fillColor="#FF000000" android:pathData="M64,38 L64,70 L68,70 L68,38 Z"/>
-    <path android:fillColor="#FF000000" android:pathData="M70,44 L70,64 L74,64 L74,44 Z"/>
+
+    <path
+        android:pathData="M 24.34,54 A 18.75,18.75 0 1 1 61.84,54 A 18.75,18.75 0 1 1 24.34,54 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.69"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M 30.0,54 L 56.2,54"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.69"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M 46.17,54 A 18.75,18.75 0 1 1 83.67,54 A 18.75,18.75 0 1 1 46.17,54 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.69"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M 51.9,54 C 57.5,54 59.6,45.5 64.92,45.5 C 70.2,45.5 72.3,54 77.9,54"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.69"
+        android:strokeLineCap="round" />
 </vector>

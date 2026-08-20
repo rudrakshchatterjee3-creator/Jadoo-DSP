@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cold-start window background for API 28-30.
+
+    Before this the app had no splash configured at all and `Theme.JadOOamp`
+    parented `@android:style/Theme.Material.Light.NoActionBar`, whose
+    windowBackground is white — so launching in dark mode flashed a full white
+    screen before Compose drew its first frame. That is the single most visible
+    defect in the app's startup.
+
+    API 31+ never uses this: values-v31 hands off to the platform splash screen
+    instead, which is both nicer and correctly animated into the app. No
+    `core-splashscreen` dependency is needed for either path.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/window_background_light" />
+    <item
+        android:drawable="@drawable/ic_jadoo_foreground"
+        android:gravity="center"
+        android:width="128dp"
+        android:height="128dp" />
+</layer-list>

@@ -1,28 +1,50 @@
+<!--
+    Notification small icon.
+
+    Was the 7-bar cyan EQ pyramid, which came from the old off-brand launcher
+    icon and no longer matches anything.
+
+    Notification icons are rendered as a SILHOUETTE — the system keeps only
+    the alpha channel and tints it. So this is the brand mark reduced to the
+    part that survives that treatment: two circles and the two bars. No colour
+    distinction is possible here, which is fine, because the flat-vs-bent bar
+    is what carries the meaning.
+
+    Geometry matches ic_jadoo_foreground, rescaled from its 108 viewport to 24
+    (factor 0.2222) and re-centred, with the stroke thickened again because
+    24dp in a status bar is the smallest this mark is ever asked to work at.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Symmetric 7-bar EQ pyramid, matching the app's launcher icon -->
+
+    <!-- Left circle, r = 5.0, centre (7.6, 12) -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M3.5,14 L5.5,14 L5.5,19 L3.5,19 Z"/>
+        android:pathData="M 2.6,12 A 5,5 0 1 1 12.6,12 A 5,5 0 1 1 2.6,12 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round" />
+
+    <!-- 0 dB datum -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M6,11 L8,11 L8,19 L6,19 Z"/>
+        android:pathData="M 4.2,12 L 11.0,12"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round" />
+
+    <!-- Right circle, r = 5.0, centre (16.4, 12) -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M8.5,8 L10.5,8 L10.5,19 L8.5,19 Z"/>
+        android:pathData="M 11.4,12 A 5,5 0 1 1 21.4,12 A 5,5 0 1 1 11.4,12 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round" />
+
+    <!-- The bent bar -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M11,5 L13,5 L13,19 L11,19 Z"/>
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M13.5,8 L15.5,8 L15.5,19 L13.5,19 Z"/>
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M16,11 L18,11 L18,19 L16,19 Z"/>
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M18.5,14 L20.5,14 L20.5,19 L18.5,19 Z"/>
+        android:pathData="M 13.0,12 C 14.5,12 15.1,9.7 16.4,9.7 C 17.7,9.7 18.3,12 19.8,12"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round" />
 </vector>

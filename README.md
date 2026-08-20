@@ -79,13 +79,15 @@ A vintage-console-style bass character module — built entirely from Android's 
 | **Pultec frequency** | 20 / 30 / 60 / 100 Hz — where the boost/cut pair is centered |
 
 ### 🌟 Hi-Res Upscaler
-Recovers treble detail that lossy compression throws away — without moving a single slider on your EQ graph. Three MBC bands spanning **5.2 kHz to 20 kHz** apply gentle makeup gain (+2.2 dB to +4.5 dB) to the air/presence region, paired with mild downward expansion (1.18:1 to 1.28:1) and fast attack times (0.6–1.5 ms) so cymbals, room ambience and "sparkle" come through without also dragging up hiss and noise floor. Transparent on already-bright material, noticeably airier on well-recorded tracks.
+Recovers treble detail that lossy compression throws away — without moving a single slider on your EQ graph. Three MBC bands spanning **5.2 kHz to 20 kHz** apply gentle makeup gain (+2.5 dB, +4.0 dB and +5.5 dB, scaled down on drivers that can't reproduce it) to the air/presence region, with fast attack times (0.6–1.5 ms) so cymbals, room ambience and "sparkle" come through without also dragging up hiss and noise floor. The bands are level-linear (1:1) — the lift is makeup gain, not expansion, which is what keeps it from also pulling up the noise floor. Transparent on already-bright material, noticeably airier on well-recorded tracks.
 
 ### 🎬 HDR Dynamics
 Two ways to push back against the "loudness war":
 
 - **Pure** — a near-transparent path. The MBC stage is fully linear (1:1, no compression or expansion) and the safety limiter relaxes to a gentle 2:1 ceiling at -0.1 dBFS — just enough to catch true-peak overs without coloring the sound.
-- **Restoration** — for heavily brickwalled masters. A gentle 1.15:1 downward expander widens the gap between quiet and loud passages (no peak compression at all), paired with a small air-shelf lift (+0.6 dB at 10 kHz, +1.0 dB at 16 kHz) to recover detail lost to hyper-compression.
+- **Restoration** — for heavily brickwalled masters. A gentle 1.12:1 downward expander below -38 dBFS widens the gap between quiet and loud passages (no peak compression at all), paired with a small air-shelf lift (+0.6 dB at 10 kHz, +1.0 dB at 16 kHz) to recover detail lost to hyper-compression. Both the expander ratio and its threshold are tunable over the content channel without an app update.
+
+> Note: Pure HDR takes priority over Tube Warmth's softer "glue" limiter. With both on you get Pure's near-transparent 2:1 ceiling, not the tube-style one — Pure's whole promise is transparency, so it wins.
 
 ### 🔊 Surround+
 Stereo widening with one non-negotiable rule: **vocals stay centered**.

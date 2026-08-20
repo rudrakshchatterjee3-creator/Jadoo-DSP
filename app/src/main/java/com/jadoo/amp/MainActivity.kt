@@ -38,15 +38,24 @@ import com.jadoo.amp.audio.JadooDspService
 import com.jadoo.amp.audio.SurroundMode
 import com.jadoo.amp.settings.BackupCodec
 import com.jadoo.amp.settings.EqPresetPreferences
+import com.jadoo.amp.settings.SavedEqPreset
 import com.jadoo.amp.settings.SessionState
 import com.jadoo.amp.settings.OnboardingPreferences
 import com.jadoo.amp.settings.ThemePreferences
 import com.jadoo.amp.settings.ThemeSettings
+import com.jadoo.amp.settings.toSpec
 import com.jadoo.amp.settings.UpdatePreferences
 import com.jadoo.amp.ui.DashboardScreen
 import com.jadoo.amp.ui.OnboardingScreen
 import com.jadoo.amp.ui.WhatsNewDialog
 import com.jadoo.amp.ui.theme.JadOOampTheme
+import com.jadoo.amp.ui.theme.buildColorScheme
+import com.jadoo.amp.ui.theme.rememberMotionEnabled
+import com.jadoo.amp.ui.components.ThemeTransitionHost
+import com.jadoo.amp.ui.components.rememberThemeTransitionState
+import com.jadoo.amp.ui.components.play
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.isSystemInDarkTheme
 import com.jadoo.amp.update.ReleaseInfo
 import com.jadoo.amp.update.UpdateChecker
 import kotlinx.coroutines.flow.first
@@ -88,10 +97,22 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        requestHighestRefreshRate()
         themePreferences = ThemePreferences(this)
         eqPresetPreferences = EqPresetPreferences(this)
         onboardingPreferences = OnboardingPreferences(this)
         updatePreferences = UpdatePreferences(this)
+        // One-time, read-once-before-Compose-starts check for whether this
+        // install already has a completed onboarding — see
+        // ThemePreferences.settings for why this decides the theme default
+        // for a user with no saved appearance choice at all. A single local
+        // DataStore read; blocking onCreate for it is negligible next to the
+        // rest of this method's own synchronous setup, and it must resolve
+        // before setContent so the very first frame already has the right
+        // default (no flash of the wrong theme to correct later).
+        val wasExistingUserAtLaunch = kotlinx.coroutines.runBlocking {
+            onboardingPreferences.hasCompletedOnboarding.first()
+        }
         refreshDumpPermission()
         handleExternalEqIntent(intent)
         handleIncomingBackupIntent(intent)
@@ -106,15 +127,63 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val themeSettings by themePreferences.settings.collectAsState(initial = ThemeSettings())
+            // initial = null, NOT ThemeSettings() — a non-null default here
+            // fires SYNCHRONOUSLY on first composition, before DataStore's
+            // real (async) read completes. The guard below used to be
+            // `if (appliedSettings == null) appliedSettings = themeSettings`,
+            // which fired immediately on that fake first value (Brand,
+            // ThemeSettings()'s own default), latched appliedSettings to it,
+            // and then silently ignored the REAL persisted value when it
+            // arrived a moment later — appliedSettings was already non-null,
+            // so the "first resolution" branch never ran again. The user's
+            // actual saved theme was read correctly; it just never reached
+            // the screen. Every relaunch looked like "always resets to
+            // Brand" because that's exactly what was happening — a race, not
+            // a persistence bug.
+            val persistedThemeSettings by themePreferences.settings(wasExistingUserAtLaunch).collectAsState(initial = null)
             // null = loading (DataStore not yet read), true/false = resolved
             val onboardingDone by onboardingPreferences.hasCompletedOnboarding
                 .collectAsState(initial = null)
 
-            JadOOampTheme(
-                useMaterialYou = themeSettings.useMaterialYou,
-                customPrimaryColor = Color(themeSettings.customPrimaryColor)
-            ) {
+            // ── Theme changes are deferred, not applied on the spot ───────
+            // `themeSettings` is the persisted truth. `appliedSettings` is
+            // what is on screen. An appearance change writes the former and
+            // then plays the eclipse, which commits the latter mid-animation
+            // — so the whole-subtree invalidation happens under an opaque
+            // curtain instead of in front of the user. See ThemeTransition.
+            val motionEnabled = rememberMotionEnabled()
+            val transition = rememberThemeTransitionState(motionEnabled)
+            var appliedSettings by remember { mutableStateOf<ThemeSettings?>(null) }
+            val themeSettings = persistedThemeSettings ?: ThemeSettings()
+            val effectiveSettings = appliedSettings ?: themeSettings
+
+            // First REAL resolution (persistedThemeSettings != null, i.e. an
+            // actual DataStore emission, not the loading placeholder), and
+            // any change that arrives while a transition is already running,
+            // applies without ceremony.
+            LaunchedEffect(persistedThemeSettings) {
+                if (appliedSettings == null && persistedThemeSettings != null) {
+                    appliedSettings = persistedThemeSettings
+                }
+            }
+
+            val themeSpec = remember(effectiveSettings) { effectiveSettings.toSpec() }
+            val systemDark = isSystemInDarkTheme()
+            val scope = rememberCoroutineScope()
+
+            /** Commit an appearance change behind the eclipse. */
+            val applyThemeAnimated: (Offset, ThemeSettings) -> Unit = { origin, next ->
+                scope.launch {
+                    val incoming = buildColorScheme(next.toSpec(), systemDark, this@MainActivity)
+                    transition.play(
+                        from = origin,
+                        incomingBackground = incoming.background
+                    ) { appliedSettings = next }
+                }
+            }
+
+            JadOOampTheme(spec = themeSpec) {
+                ThemeTransitionHost(state = transition) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -181,6 +250,8 @@ class MainActivity : ComponentActivity() {
 
                     if (hasPermissions) {
                         MainContent(
+                            onAppearanceChanged = applyThemeAnimated,
+                            currentAppearance = effectiveSettings,
                             themeSettings = themeSettings
                         )
                     } else {
@@ -230,6 +301,7 @@ class MainActivity : ComponentActivity() {
                                             } // end true -> branch
                     }   // end when(onboardingDone)
                 }
+                }   // end ThemeTransitionHost
             }
         }
     }
@@ -250,7 +322,16 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun MainContent(
-        themeSettings: ThemeSettings
+        themeSettings: ThemeSettings,
+        currentAppearance: ThemeSettings,
+        /**
+         * Appearance changes go through here rather than writing DataStore
+         * directly, so the eclipse can cover the recomposition. The [Offset]
+         * is where the user tapped — the curtain wipes out from that exact
+         * point, which is what makes the transition feel caused rather than
+         * merely triggered.
+         */
+        onAppearanceChanged: (Offset, ThemeSettings) -> Unit
     ) {
         // Forward an "External EQ" launch to the service once it's bound.
         LaunchedEffect(audioService, pendingExternalSession) {
@@ -266,43 +347,66 @@ class MainActivity : ComponentActivity() {
         val currentOutputDevice by audioService?.currentOutputDevice?.collectAsState(initial = "Phone Speaker") ?: remember { mutableStateOf("Phone Speaker") }
         val masterEnabled by audioService?.masterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val dspBypassed by audioService?.dspBypassed?.collectAsState(initial = true) ?: remember { mutableStateOf(true) }
-        val preGainDb by audioService?.preGainDb?.collectAsState(initial = 0f) ?: remember { mutableStateOf(0f) }
-        val postGainDb by audioService?.postGainDb?.collectAsState(initial = 0f) ?: remember { mutableStateOf(0f) }
+        val preGainDb by audioService?.preGainDb?.collectAsState(initial = 0f) ?: remember { mutableFloatStateOf(0f) }
+        val postGainDb by audioService?.postGainDb?.collectAsState(initial = 0f) ?: remember { mutableFloatStateOf(0f) }
         val hiResUpscalerEnabled by audioService?.hiResUpscalerEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val hdrDynamicsEnabled by audioService?.hdrDynamicsEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val hdrMode = audioService?.hdrMode?.collectAsState(initial = HdrMode.Restoration)?.value ?: HdrMode.Restoration
         val dbfbMode by audioService?.dbfbMode?.collectAsState(initial = DbfbMode.Off) ?: remember { mutableStateOf(DbfbMode.Off) }
         val surroundMode by audioService?.surroundMode?.collectAsState(initial = SurroundMode.Off) ?: remember { mutableStateOf(SurroundMode.Off) }
-        val bandGains by audioService?.bandGains?.collectAsState(initial = FloatArray(EqBands.count) { 0f }) ?: remember { mutableStateOf(FloatArray(EqBands.count) { 0f }) }
-        val savedPresets by eqPresetPreferences.presets.collectAsState(initial = emptyList())
+        val bandGains by audioService?.bandGains?.collectAsState(initial = FloatArray(EqBands.count)) ?: remember { mutableStateOf(FloatArray(EqBands.count)) }
+        val userPresets by eqPresetPreferences.presets.collectAsState(initial = emptyList())
         // Analog Bass
         val analogBassEnabled by audioService?.analogBassEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
-        val analogBassDrive by audioService?.analogBassDrive?.collectAsState(initial = 0.4f) ?: remember { mutableStateOf(0.4f) }
-        val analogBassWarmth by audioService?.analogBassWarmth?.collectAsState(initial = 0.7f) ?: remember { mutableStateOf(0.7f) }
-        val analogBassDrift by audioService?.analogBassDrift?.collectAsState(initial = 0.2f) ?: remember { mutableStateOf(0.2f) }
-        val analogBassPultecBoost by audioService?.analogBassPultecBoost?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
-        val analogBassPultecCut by audioService?.analogBassPultecCut?.collectAsState(initial = 0.3f) ?: remember { mutableStateOf(0.3f) }
-        val analogBassPultecFreqIndex by audioService?.analogBassPultecFreqIndex?.collectAsState(initial = 2) ?: remember { mutableStateOf(2) }
+        val analogBassDrive by audioService?.analogBassDrive?.collectAsState(initial = 0.4f) ?: remember { mutableFloatStateOf(0.4f) }
+        val analogBassWarmth by audioService?.analogBassWarmth?.collectAsState(initial = 0.7f) ?: remember { mutableFloatStateOf(0.7f) }
+        val analogBassDrift by audioService?.analogBassDrift?.collectAsState(initial = 0.2f) ?: remember { mutableFloatStateOf(0.2f) }
+        val analogBassPultecBoost by audioService?.analogBassPultecBoost?.collectAsState(initial = 0.5f) ?: remember { mutableFloatStateOf(0.5f) }
+        val analogBassPultecCut by audioService?.analogBassPultecCut?.collectAsState(initial = 0.3f) ?: remember { mutableFloatStateOf(0.3f) }
+        val analogBassPultecFreqIndex by audioService?.analogBassPultecFreqIndex?.collectAsState(initial = 2) ?: remember { mutableIntStateOf(2) }
 
         // Tube Warmth
         val tubeWarmthEnabled by audioService?.tubeWarmthEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
-        val tubeWarmthIntensity by audioService?.tubeWarmthIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+        val tubeWarmthIntensity by audioService?.tubeWarmthIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableFloatStateOf(0.5f) }
 
         // Mobile Bass
         val mobileBassEnabled by audioService?.mobileBassEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
-        val mobileBassIntensity by audioService?.mobileBassIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+        val mobileBassIntensity by audioService?.mobileBassIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableFloatStateOf(0.5f) }
 
         // Harmonic Exciter
         val harmonicExciterEnabled by audioService?.harmonicExciterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
-        val harmonicExciterIntensity by audioService?.harmonicExciterIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+        val harmonicExciterIntensity by audioService?.harmonicExciterIntensity?.collectAsState(initial = 0.5f) ?: remember { mutableFloatStateOf(0.5f) }
 
         // Device Type
         val deviceType by audioService?.deviceType?.collectAsState(initial = com.jadoo.amp.audio.DeviceType.General) ?: remember { mutableStateOf(com.jadoo.amp.audio.DeviceType.General) }
-        val deviceQualityTier by audioService?.deviceQualityTier?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+        val deviceQualityTier by audioService?.deviceQualityTier?.collectAsState(initial = 0.5f) ?: remember { mutableFloatStateOf(0.5f) }
 
         // Crossfeed (Beta)
         val crossfeedEnabled by audioService?.crossfeedEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
-        val crossfeedStrength by audioService?.crossfeedStrength?.collectAsState(initial = 0.5f) ?: remember { mutableStateOf(0.5f) }
+        val crossfeedStrength by audioService?.crossfeedStrength?.collectAsState(initial = 0.5f) ?: remember { mutableFloatStateOf(0.5f) }
+
+        // Loudness Contour (ISO 226)
+        val loudnessEnabled by audioService?.loudnessEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val loudnessAmount by audioService?.loudnessAmount?.collectAsState(initial = 0.7f) ?: remember { mutableFloatStateOf(0.7f) }
+        val loudnessReferencePhon by audioService?.loudnessReferencePhon?.collectAsState(initial = 80f) ?: remember { mutableFloatStateOf(80f) }
+        val loudnessCurrentPhon by audioService?.loudnessCurrentPhon?.collectAsState(initial = 80f) ?: remember { mutableFloatStateOf(80f) }
+
+        // Gain staging
+        val preciseGainStaging by audioService?.preciseGainStaging?.collectAsState(initial = true) ?: remember { mutableStateOf(true) }
+        val gainBudgetDb by audioService?.gainBudgetDb?.collectAsState(initial = 0f) ?: remember { mutableFloatStateOf(0f) }
+        val autoTrimDb by audioService?.autoTrimDb?.collectAsState(initial = 0f) ?: remember { mutableFloatStateOf(0f) }
+        val selectedPresetName by audioService?.selectedPresetName?.collectAsState(initial = "") ?: remember { mutableStateOf("") }
+
+        // Per-app profiles — activePackageName above is the human-readable
+        // label; the raw package is what keys a profile, so it's collected
+        // separately rather than reverse-resolved from the label.
+        val activeAppPackage by audioService?.activePackageName?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
+        val perAppProfileActive by audioService?.perAppProfileActive?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val perAppProfilePackages by audioService?.perAppProfilePackages?.collectAsState(initial = emptySet()) ?: remember { mutableStateOf(emptySet<String>()) }
+
+        // Remotely updatable content (Lane A)
+        val remoteContent by audioService?.remoteContent?.collectAsState(initial = com.jadoo.amp.update.RemoteContent.EMPTY) ?: remember { mutableStateOf(com.jadoo.amp.update.RemoteContent.EMPTY) }
+        val suggestedDeviceProfile by audioService?.suggestedDeviceProfile?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
 
         // Digital Filters
         val digitalFilterBandStates by audioService?.digitalFilterBandStates?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
@@ -311,6 +415,17 @@ class MainActivity : ComponentActivity() {
         // SBC Enhancement + custom profiles
         val sbcModeEnabled by audioService?.sbcModeEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val customProfileNames by (audioService?.customProfileNames?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList<String>()) })
+
+        // Preset packs delivered over the content channel (Lane A) appear
+        // alongside the user's own saved presets. A user preset with the same
+        // name always wins — someone who saved "Late Night" themselves must
+        // not have it silently replaced by a remote curve of the same name.
+        val savedPresets = remember(userPresets, remoteContent) {
+            val userNames = userPresets.map { it.name }.toSet()
+            userPresets + remoteContent.presets
+                .filter { it.name !in userNames }
+                .map { SavedEqPreset(it.name, it.gains) }
+        }
 
         // Import profile naming dialog
         val pendingImport = pendingImportData
@@ -425,12 +540,40 @@ class MainActivity : ComponentActivity() {
             deviceQualityTier = deviceQualityTier,
             crossfeedEnabled = crossfeedEnabled,
             crossfeedStrength = crossfeedStrength,
+            // Loudness Contour
+            loudnessEnabled = loudnessEnabled,
+            loudnessAmount = loudnessAmount,
+            loudnessReferencePhon = loudnessReferencePhon,
+            loudnessCurrentPhon = loudnessCurrentPhon,
+            // Gain staging
+            preciseGainStaging = preciseGainStaging,
+            gainBudgetDb = gainBudgetDb,
+            autoTrimDb = autoTrimDb,
+            selectedPresetName = selectedPresetName,
+            // Per-app profiles
+            activeAppPackage = activeAppPackage,
+            perAppProfileActive = perAppProfileActive,
+            perAppProfilePackages = perAppProfilePackages,
+            // Content channel
+            contentVersion = remoteContent.contentVersion,
+            suggestedDeviceProfileName = suggestedDeviceProfile?.name,
             // Digital Filters
             digitalFilterEnabled = digitalFilterEnabled,
             digitalFilterBandStates = digitalFilterBandStates,
             savedPresets = savedPresets,
-            useMaterialYou = themeSettings.useMaterialYou,
-            customPrimaryColor = Color(themeSettings.customPrimaryColor),
+            // currentAppearance, NOT themeSettings — themeSettings is the raw
+            // DataStore-collected value, which only catches up to a toggle
+            // once the async write's Flow re-emits. Reading it here made the
+            // Appearance switches (Pure Black in particular) render one beat
+            // behind the tap: a toggle's visual effect (via applyThemeAnimated)
+            // landed immediately, but the switch's own `checked` prop stayed on
+            // the stale value and snapped back on the next recomposition,
+            // reading as "didn't take" until a second toggle happened to land
+            // after the DataStore flow had caught up. currentAppearance is
+            // exactly what onThemeModeChanged/onAmoledChanged/etc already use
+            // as their write-side base below — using it here too makes reads
+            // and writes agree.
+            themeSettings = currentAppearance,
             dumpPermissionEnabled = dumpPermissionEnabled,
             onMasterPowerToggled = { enabled ->
                 audioService?.setMasterPower(enabled)
@@ -545,15 +688,24 @@ class MainActivity : ComponentActivity() {
             onDigitalFilterBandQChanged = { index, q ->
                 audioService?.setDigitalFilterBandQ(index, q)
             },
-            onUseMaterialYouChanged = { enabled ->
-                lifecycleScope.launch {
-                    themePreferences.setUseMaterialYou(enabled)
-                }
+            // Each of these persists the change AND plays the eclipse. The
+            // persist is fire-and-forget; what the user sees is driven by
+            // onAppearanceChanged committing the new settings mid-animation.
+            onThemeModeChanged = { origin, mode ->
+                lifecycleScope.launch { themePreferences.setMode(mode) }
+                onAppearanceChanged(origin, currentAppearance.copy(mode = mode))
             },
-            onCustomPrimaryColorChanged = { color ->
-                lifecycleScope.launch {
-                    themePreferences.setCustomPrimaryColor(color.toArgb())
-                }
+            onToneModeChanged = { origin, tone ->
+                lifecycleScope.launch { themePreferences.setTone(tone) }
+                onAppearanceChanged(origin, currentAppearance.copy(tone = tone))
+            },
+            onAmoledChanged = { origin, enabled ->
+                lifecycleScope.launch { themePreferences.setAmoled(enabled) }
+                onAppearanceChanged(origin, currentAppearance.copy(amoled = enabled))
+            },
+            onSeedColorChanged = { origin, color ->
+                lifecycleScope.launch { themePreferences.setSeedColor(color.toArgb()) }
+                onAppearanceChanged(origin, currentAppearance.copy(seedColor = color.toArgb()))
             },
             onResetDigitalFilterBands = {
                 audioService?.resetDigitalFilterBands()
@@ -572,6 +724,20 @@ class MainActivity : ComponentActivity() {
             savedProfileNames = customProfileNames,
             onLoadProfile = { name -> audioService?.loadCustomProfile(name) },
             onDeleteProfile = { name -> audioService?.deleteCustomProfile(name) },
+            // Loudness Contour
+            onLoudnessEnabledChanged = { audioService?.setLoudnessEnabled(it) },
+            onLoudnessAmountChanged = { audioService?.setLoudnessAmount(it) },
+            onLoudnessReferencePhonChanged = { audioService?.setLoudnessReferencePhon(it) },
+            // Gain staging
+            onPreciseGainStagingChanged = { audioService?.setPreciseGainStaging(it) },
+            onSelectedPresetNameChanged = { audioService?.setSelectedPresetName(it) },
+            // Per-app profiles
+            onPerAppProfileToggled = { pkg, enabled ->
+                audioService?.setPerAppProfileEnabled(pkg, enabled)
+            },
+            // Content channel
+            onRefreshContent = { audioService?.refreshRemoteContent() },
+            onApplySuggestedDeviceProfile = { audioService?.applySuggestedDeviceProfile() },
         )
     }
 
@@ -673,6 +839,52 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Re-check every time the user returns so DUMP status updates after ADB grant
         refreshDumpPermission()
+        // Battery saver / a display-mode change while backgrounded can drop
+        // the window off its preferred mode; cheap to re-assert on resume.
+        requestHighestRefreshRate()
+    }
+
+    /**
+     * Opts this window into the display's highest available refresh rate at
+     * the current resolution.
+     *
+     * Android caps a window to 60Hz by default unless it explicitly asks for
+     * more — on a 90/120Hz-capable phone, that alone makes every scroll and
+     * animation look less smooth than the hardware can actually do,
+     * regardless of how cheap the Compose work driving them is. This is a
+     * one-time window attribute, not a per-frame cost.
+     *
+     * `Display.getSupportedModes()` returns every resolution/refresh-rate
+     * combination the panel supports; filtering to modes matching the
+     * CURRENT resolution (rather than just the highest refresh rate overall)
+     * avoids requesting a mode that would also silently change resolution.
+     * `Context.getDisplay()` is the correct accessor from API 30 on;
+     * `windowManager.defaultDisplay` (deprecated, but still the only route)
+     * is needed below that — this app's minSdk is 28.
+     */
+    private fun requestHighestRefreshRate() {
+        try {
+            val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            } ?: return
+            val currentMode = display.mode ?: return
+            val bestMode = display.supportedModes
+                .filter {
+                    it.physicalWidth == currentMode.physicalWidth &&
+                        it.physicalHeight == currentMode.physicalHeight
+                }
+                .maxByOrNull { it.refreshRate }
+                ?: return
+            if (bestMode.refreshRate <= currentMode.refreshRate) return
+            window.attributes = window.attributes.apply {
+                preferredDisplayModeId = bestMode.modeId
+            }
+        } catch (_: Exception) {
+            // Best-effort — worst case the window stays at its current mode.
+        }
     }
 
     override fun onDestroy() {

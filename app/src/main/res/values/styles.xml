@@ -1,4 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.JadOOamp" parent="@android:style/Theme.Material.Light.NoActionBar" />
+    <!--
+        Light-mode app theme, API 28-30.
+
+        `windowBackground` is the fix for the cold-start flash — see
+        drawable/window_background.xml. Everything else stays on the raw
+        framework Material theme: the app is pure Compose, so re-parenting to
+        an AppCompat or MDC theme would pull in the entire Views widget set for
+        no benefit.
+    -->
+    <style name="Theme.JadOOamp" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/window_background</item>
+        <!-- Bars are drawn by Compose via enableEdgeToEdge; keep the platform
+             from painting an opaque scrim over them at startup. -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>

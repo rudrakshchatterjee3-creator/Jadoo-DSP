@@ -8,6 +8,14 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- In-app update (Lane B). Lets JadOO DSP hand a downloaded release APK
+         straight to PackageInstaller instead of sending the user to a browser
+         and a file manager. The APK's signing certificate is verified against
+         the installed app's before any install is attempted — see
+         ApkUpdater.verifyApk. Users still confirm the install in the system's
+         own dialog; this permission only removes the download/file-manager
+         detour, it does not grant silent installs. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- "development" permission: not granted at install time, but can be
          granted via `adb shell pm grant com.jadoo.amp android.permission.DUMP`
          because it's declared here. Used as a fallback to read the active
@@ -20,6 +28,7 @@
         android:roundIcon="@mipmap/ic_jadoo_dsp"
         android:label="JadOO DSP"
         android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
         tools:targetApi="36">
         <activity
             android:name=".MainActivity"
@@ -65,6 +74,13 @@
                 <action android:name="android.media.action.CLOSE_AUDIO_EFFECT_CONTROL_SESSION" />
             </intent-filter>
         </receiver>
+
+        <!-- PackageInstaller session callbacks for the in-app updater.
+             Not exported: the only sender is the system installer replying to
+             a PendingIntent this app created, which does not require the
+             receiver to be visible to other apps. -->
+        <receiver android:name=".update.InstallResultReceiver"
+            android:exported="false" />
 
         </application>
 

@@ -1,4 +1,18 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_jadoo_background">#FF0F172A</color>
+    <!--
+        Adaptive-icon background plate.
+
+        Was #0F172A (navy), which matched nothing: the brand mark is gold on
+        black, and the app's UI theme was green. Three identities, none of them
+        agreeing.
+
+        Not pure black on purpose — against a dark launcher wallpaper a
+        #000000 plate has no edge at all and the mark appears to float in a
+        void. A few points of lift keeps the silhouette without reading grey.
+    -->
+    <color name="ic_jadoo_background">#FF0B0B0B</color>
+
+    <color name="window_background_light">#FFFFF8EF</color>
+    <color name="window_background_dark">#FF16130E</color>
 </resources>

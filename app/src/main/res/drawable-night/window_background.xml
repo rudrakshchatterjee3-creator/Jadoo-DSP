@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark counterpart of drawable/window_background.xml — see that file. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/window_background_dark" />
+    <item
+        android:drawable="@drawable/ic_jadoo_foreground"
+        android:gravity="center"
+        android:width="128dp"
+        android:height="128dp" />
+</layer-list>

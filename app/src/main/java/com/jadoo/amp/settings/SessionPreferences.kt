@@ -23,7 +23,7 @@ data class SessionState(
     val hdrEnabled: Boolean = false,
     val hdrMode: String = "Restoration",
     val surroundMode: String = "Off",
-    val bandGains: FloatArray = FloatArray(15) { 0f },
+    val bandGains: FloatArray = FloatArray(15),
     // Analog Bass
     val analogBassEnabled: Boolean = false,
     val analogBassDrive: Float = 0.4f,
@@ -50,10 +50,30 @@ data class SessionState(
     // device profile. "General" = no device-aware scaling, matches pre-existing behavior.
     val deviceType: String = "General",
     val deviceQualityTier: Float = 0.5f,
-    // Crossfeed: headphone-only stereo virtualizer (BETA — vendor-implemented,
-    // quality varies by device; see DspEngine.configureCrossfeed)
+    // Crossfeed: headphone-only tonal-EQ curve (BETA — see
+    // JadooDspService.crossfeedShape)
     val crossfeedEnabled: Boolean = false,
-    val crossfeedStrength: Float = 0.5f
+    val crossfeedStrength: Float = 0.5f,
+    // Loudness Contour (ISO 226): level-tracking tonal compensation. The
+    // reference level is genuinely per-output-device — the SPL your IEMs hit
+    // at max volume is nothing like your phone speaker's — so it lives in the
+    // per-device profile alongside everything else rather than as a global.
+    val loudnessEnabled: Boolean = false,
+    val loudnessAmount: Float = 0.7f,
+    val loudnessReferencePhon: Float = 80f,
+    // Gain staging. ON pays the feature stack's gain budget across the limiter
+    // threshold AND a transparent input trim; OFF dumps the whole budget on
+    // the limiter threshold, which is what the app did before v1.6 and which
+    // could reach -19 dBFS on a 10:1 brickwall. See DspEngine.splitGainBudget.
+    val preciseGainStaging: Boolean = true,
+    // Name of the built-in or custom EQ preset last explicitly selected for
+    // this device profile, so the highlighted chip / "Overwrite" target
+    // survives a relaunch instead of resetting to none every cold start.
+    // "" means no preset is currently tracked as selected (matches peqBands'
+    // own empty-string-means-unset convention). The actual band GAINS this
+    // preset produced already persisted before this field existed — this
+    // only restores which NAME the UI should show as selected.
+    val selectedPresetName: String = ""
 )
 
 /**
@@ -99,6 +119,11 @@ class SessionPreferences(private val context: Context) {
         const val DEVICE_QUALITY_TIER = "device_quality_tier"
         const val CROSSFEED_ENABLED = "crossfeed_enabled"
         const val CROSSFEED_STRENGTH = "crossfeed_strength"
+        const val LOUDNESS_ENABLED = "loudness_enabled"
+        const val LOUDNESS_AMOUNT = "loudness_amount"
+        const val LOUDNESS_REFERENCE_PHON = "loudness_reference_phon"
+        const val PRECISE_GAIN_STAGING = "precise_gain_staging"
+        const val SELECTED_PRESET_NAME = "selected_preset_name"
     }
 
     // Legacy (pre-per-device) un-suffixed keys, kept only as a one-time
@@ -133,9 +158,24 @@ class SessionPreferences(private val context: Context) {
         val deviceQualityTier  = floatPreferencesKey(KeyNames.DEVICE_QUALITY_TIER)
         val crossfeedEnabled   = booleanPreferencesKey(KeyNames.CROSSFEED_ENABLED)
         val crossfeedStrength  = floatPreferencesKey(KeyNames.CROSSFEED_STRENGTH)
+        val loudnessEnabled       = booleanPreferencesKey(KeyNames.LOUDNESS_ENABLED)
+        val loudnessAmount        = floatPreferencesKey(KeyNames.LOUDNESS_AMOUNT)
+        val loudnessReferencePhon = floatPreferencesKey(KeyNames.LOUDNESS_REFERENCE_PHON)
+        val preciseGainStaging    = booleanPreferencesKey(KeyNames.PRECISE_GAIN_STAGING)
+        val selectedPresetName    = stringPreferencesKey(KeyNames.SELECTED_PRESET_NAME)
     }
 
     private val savedProfileNamesKey = stringPreferencesKey("saved_profile_names")
+
+    /**
+     * Packages the user has opted in to per-app profiles for. Stored globally
+     * rather than per output device: "YouTube should have its own settings" is
+     * a statement about the app, not about which headphones are plugged in.
+     * The profile itself is still keyed per device AND per app (see
+     * [perAppProfileKey]), so the same app can hold different tuning on
+     * different outputs.
+     */
+    private val perAppPackagesKey = stringPreferencesKey("per_app_profile_packages")
 
     private fun deviceKeyName(base: String, deviceKey: String) = "${base}_$deviceKey"
     private fun boolKey(base: String, deviceKey: String) = booleanPreferencesKey(deviceKeyName(base, deviceKey))
@@ -174,6 +214,11 @@ class SessionPreferences(private val context: Context) {
             p[floatKey(KeyNames.DEVICE_QUALITY_TIER, deviceKey)] = state.deviceQualityTier
             p[boolKey(KeyNames.CROSSFEED_ENABLED, deviceKey)] = state.crossfeedEnabled
             p[floatKey(KeyNames.CROSSFEED_STRENGTH, deviceKey)] = state.crossfeedStrength
+            p[boolKey(KeyNames.LOUDNESS_ENABLED, deviceKey)] = state.loudnessEnabled
+            p[floatKey(KeyNames.LOUDNESS_AMOUNT, deviceKey)] = state.loudnessAmount
+            p[floatKey(KeyNames.LOUDNESS_REFERENCE_PHON, deviceKey)] = state.loudnessReferencePhon
+            p[boolKey(KeyNames.PRECISE_GAIN_STAGING, deviceKey)] = state.preciseGainStaging
+            p[stringKey(KeyNames.SELECTED_PRESET_NAME, deviceKey)] = state.selectedPresetName
         }
     }
 
@@ -209,7 +254,7 @@ class SessionPreferences(private val context: Context) {
                 ?.mapNotNull { it.toFloatOrNull() }
                 ?.toFloatArray()
                 ?.takeIf { it.size == 15 }
-                ?: FloatArray(15) { 0f },
+                ?: FloatArray(15),
             analogBassEnabled     = bool(KeyNames.ANALOG_BASS_ENABLED, LegacyKeys.analogBassEnabled, false),
             analogBassDrive       = float(KeyNames.ANALOG_BASS_DRIVE, LegacyKeys.analogBassDrive, 0.4f),
             analogBassWarmth      = float(KeyNames.ANALOG_BASS_WARMTH, LegacyKeys.analogBassWarmth, 0.7f),
@@ -229,8 +274,64 @@ class SessionPreferences(private val context: Context) {
             deviceType = string(KeyNames.DEVICE_TYPE, LegacyKeys.deviceType, "General"),
             deviceQualityTier = float(KeyNames.DEVICE_QUALITY_TIER, LegacyKeys.deviceQualityTier, 0.5f),
             crossfeedEnabled = bool(KeyNames.CROSSFEED_ENABLED, LegacyKeys.crossfeedEnabled, false),
-            crossfeedStrength = float(KeyNames.CROSSFEED_STRENGTH, LegacyKeys.crossfeedStrength, 0.5f)
+            crossfeedStrength = float(KeyNames.CROSSFEED_STRENGTH, LegacyKeys.crossfeedStrength, 0.5f),
+            loudnessEnabled = bool(KeyNames.LOUDNESS_ENABLED, LegacyKeys.loudnessEnabled, false),
+            loudnessAmount = float(KeyNames.LOUDNESS_AMOUNT, LegacyKeys.loudnessAmount, 0.7f),
+            loudnessReferencePhon = float(
+                KeyNames.LOUDNESS_REFERENCE_PHON, LegacyKeys.loudnessReferencePhon, 80f
+            ),
+            // Defaults true for existing profiles as well as new ones. The old
+            // behaviour it replaces is the bug it was written to fix, so
+            // inheriting it would be the wrong kind of backwards compatibility.
+            preciseGainStaging = bool(
+                KeyNames.PRECISE_GAIN_STAGING, LegacyKeys.preciseGainStaging, true
+            ),
+            selectedPresetName = string(
+                KeyNames.SELECTED_PRESET_NAME, LegacyKeys.selectedPresetName, ""
+            )
         )
+    }
+
+    // ── Per-app profiles ──────────────────────────────────────────────────
+
+    /**
+     * Profile key for [packageName] on [deviceKey]. The "@" separator can't
+     * collide with anything: device keys are built from `[a-zA-Z0-9_-]` only
+     * (see JadooDspService.computeOutputDeviceKey) and Android package names
+     * can't contain "@" either.
+     */
+    fun perAppProfileKey(deviceKey: String, packageName: String) = "$deviceKey@$packageName"
+
+    /**
+     * True if a profile has ever been saved under [key]. Distinct from
+     * `load(key) != null`, which also succeeds via the legacy un-suffixed
+     * bootstrap path — that fallback is right for a brand-new OUTPUT DEVICE
+     * but wrong for a brand-new per-app profile, which should fork from the
+     * device profile the user already tuned rather than from pre-per-device
+     * legacy settings.
+     */
+    suspend fun hasProfile(key: String): Boolean {
+        val p = context.sessionDataStore.data.first()
+        return p[boolKey(KeyNames.MASTER_ENABLED, key)] != null
+    }
+
+    val perAppProfilePackages: Flow<Set<String>> = context.sessionDataStore.data.map { p ->
+        p[perAppPackagesKey]?.split("|")?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
+    }
+
+    suspend fun isPerAppProfileEnabled(packageName: String): Boolean {
+        val p = context.sessionDataStore.data.first()
+        val set = p[perAppPackagesKey]?.split("|")?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
+        return packageName in set
+    }
+
+    suspend fun setPerAppProfileEnabled(packageName: String, enabled: Boolean) {
+        context.sessionDataStore.edit { p ->
+            val current = p[perAppPackagesKey]?.split("|")
+                ?.filter { it.isNotBlank() }?.toMutableSet() ?: mutableSetOf()
+            if (enabled) current.add(packageName) else current.remove(packageName)
+            p[perAppPackagesKey] = current.joinToString("|")
+        }
     }
 
     // ── Custom (imported) profile management ──────────────────────────────

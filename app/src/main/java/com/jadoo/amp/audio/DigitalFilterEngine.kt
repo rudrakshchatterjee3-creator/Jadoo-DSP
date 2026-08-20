@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.sin
@@ -236,6 +238,54 @@ class DigitalFilterEngine {
             }
         }
         return totalDb.toFloat()
+    }
+
+    /**
+     * Combined magnitude response for a PreEQ band spanning [loHz, hiHz]:
+     * the single most extreme (largest |dB|) sample found anywhere in that
+     * span, not the response at one fixed point.
+     *
+     * A DynamicsProcessing.Eq PreEQ band applies ONE flat gain across its
+     * whole cutoff span (see EqBands.cutoffFrequencies) — [evaluateMagnitudeResponseDb]
+     * sampled only at the band's centre frequency missed any narrow (high-Q)
+     * filter whose target frequency fell inside the band's span but away
+     * from that one sampled point: a Q=12 notch at 3200Hz (inside band 11's
+     * 3162-5020Hz span, whose centre is 4000Hz) measured as -0.48dB instead
+     * of the requested -12dB — effectively invisible.
+     *
+     * An arithmetic dB average across the span was tried first and rejected:
+     * it fixed the off-centre case (-0.48 to -2.25dB) but broke the far more
+     * common on-centre one — a Q=12 notch placed exactly ON 4000Hz dropped
+     * from -12.00dB (the old single-point sample, correct there by luck) to
+     * -2.85dB, gutting the PEQ's main real use case, surgically pulling a
+     * known resonance.
+     *
+     * Taking the peak instead of the mean fixes the miss without the
+     * regression: sampling N log-spaced points across the span and keeping
+     * the one with the largest |dB| finds a narrow filter wherever it falls
+     * in the span (off-centre case: -10.80dB, essentially full depth) while
+     * an on-centre filter's own peak IS one of the sample points, so its
+     * depth is preserved exactly as before (-11.84 to -11.98dB vs the true
+     * -12dB, both cases). Broad filters (Q<=2) are already close to flat
+     * across the span, so peak and single-point agree there too — verified
+     * by hand, no regression for shelves/bells. Does not fix the bandwidth
+     * mismatch itself (a flat-gain band can't reproduce a narrow notch's
+     * shape) — that needs raw PCM access this app doesn't have.
+     */
+    fun evaluateBandPeakDb(loHz: Float, hiHz: Float, samples: Int = 13): Float {
+        if (!enabled) return 0f
+        val lo = loHz.coerceAtLeast(1f)
+        val hi = hiHz.coerceAtLeast(lo + 1f)
+        val logLo = ln(lo.toDouble())
+        val logHi = ln(hi.toDouble())
+        var best = 0f
+        for (s in 0 until samples) {
+            val t = if (samples <= 1) 0.5 else s.toDouble() / (samples - 1)
+            val f = exp(logLo + (logHi - logLo) * t).toFloat()
+            val v = evaluateMagnitudeResponseDb(f)
+            if (kotlin.math.abs(v) > kotlin.math.abs(best)) best = v
+        }
+        return best
     }
 
     /** Update only the filter type */

@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.JadOOamp" parent="@android:style/Theme.Material.NoActionBar" />
+    <!-- Dark counterpart — see values/styles.xml. -->
+    <style name="Theme.JadOOamp" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@drawable/window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>

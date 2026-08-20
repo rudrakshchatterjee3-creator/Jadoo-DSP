@@ -1,5 +1,7 @@
 package com.jadoo.amp.ui
 
+import java.util.Locale
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -11,7 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
@@ -34,21 +36,48 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jadoo.amp.audio.DigitalFilterEngine
+import com.jadoo.amp.ui.theme.lchToColor
+import com.jadoo.amp.ui.theme.toLch
+import androidx.compose.ui.graphics.luminance
 import kotlin.math.*
 
-private val BandColors = listOf(
-    Color(0xFFFFFFFF), // White (selected default)
-    Color(0xFF00E5FF), // Electric Cyan
-    Color(0xFFFF0055), // Neon Pink
-    Color(0xFF00FF66), // Neon Green
-    Color(0xFFFFD500), // Cyber Yellow
-    Color(0xFF8C00FF), // Neon Purple
-    Color(0xFFFF5500), // Neon Orange
-    Color(0xFF00BFFF), // Deep Sky Blue
-    Color(0xFF00FFCC), // Aquamarine
-    Color(0xFFFF00E5), // Magenta
-    Color(0xFF39FF14), // Neon Lime
-)
+/**
+ * The eight parametric band colours, derived from the active scheme rather
+ * than hardcoded.
+ *
+ * These used to be eleven fixed neons (electric cyan, neon pink, cyber yellow,
+ * magenta…) that belonged to no theme and clashed with all of them. They are
+ * now a ramp rotating 45° of hue per step from the scheme's primary, so band 1
+ * genuinely IS the brand gold in Brand mode and the whole set moves with a
+ * custom seed.
+ *
+ * Lightness alternates by ±7 rather than being held constant. A constant-L*
+ * ramp is more "correct" and noticeably harder to tell apart — eight colours
+ * of identical lightness separated only by hue read as one smear in
+ * peripheral vision, which is exactly how you look at a band selector while
+ * dragging a different control. The alternation costs a little tonal purity
+ * and buys back the thing the colours exist for.
+ *
+ * Chroma is floored so a near-grey seed still yields eight distinguishable
+ * bands rather than eight greys.
+ */
+@Composable
+private fun rememberBandColors(): List<Color> {
+    val primary = MaterialTheme.colorScheme.primary
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    return remember(primary, isDark) {
+        val (_, chroma, hue) = primary.toLch()
+        val baseL = if (isDark) 72f else 48f
+        val c = chroma.coerceAtLeast(38f)
+        List(8) { i ->
+            lchToColor(
+                lightness = baseL + if (i % 2 == 0) 7f else -7f,
+                chroma = c,
+                hue = (hue + i * 45f) % 360f
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,9 +94,10 @@ fun ParametricEqScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val bandColors = rememberBandColors()
     var showResetConfirm by remember { mutableStateOf(false) }
-    var selectedBandIndex by remember { mutableStateOf(0) }
-    var selectedTab by remember { mutableStateOf(0) } // 0=Parametric, 1=Graphic, 2=Table
+    var selectedBandIndex by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(0) } // 0=Parametric, 1=Graphic, 2=Table
 
     val selectedBand = bandStates.getOrNull(selectedBandIndex)
         ?: DigitalFilterEngine.BiquadBandState(
@@ -88,7 +118,7 @@ fun ParametricEqScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onNavigateBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
             Text(
                 text = "Parametric EQ",
@@ -173,7 +203,7 @@ fun ParametricEqScreen(
             )
 
             // ── Active band info card ──
-            val bandColor = BandColors[(selectedBandIndex % (BandColors.size - 1)) + 1]
+            val bandColor = bandColors[selectedBandIndex % bandColors.size]
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
@@ -222,7 +252,7 @@ fun ParametricEqScreen(
                     if (selectedBand.isEnabled) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "${formatFrequency(selectedBand.frequency)} Hz · ${String.format("%+.1f", selectedBand.gain)} dB · Q ${String.format("%.2f", selectedBand.q)}",
+                            text = "${formatFrequency(selectedBand.frequency)} Hz · ${String.format(Locale.US, "%+.1f", selectedBand.gain)} dB · Q ${String.format(Locale.US, "%.2f", selectedBand.q)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -317,7 +347,7 @@ fun ParametricEqScreen(
                             value = selectedBand.gain,
                             valueRange = -15f..15f,
                             logarithmic = false,
-                            displayFormatter = { String.format("%+.1f dB", it) },
+                            displayFormatter = { String.format(Locale.US, "%+.1f dB", it) },
                             onValueChange = { onBandGainChanged(selectedBandIndex, it) },
                             activeColor = bandColor
                         )
@@ -326,7 +356,7 @@ fun ParametricEqScreen(
                             value = selectedBand.q,
                             valueRange = 0.1f..18f,
                             logarithmic = false,
-                            displayFormatter = { String.format("%.2f", it) },
+                            displayFormatter = { String.format(Locale.US, "%.2f", it) },
                             onValueChange = { onBandQChanged(selectedBandIndex, it) },
                             activeColor = bandColor
                         )
@@ -396,6 +426,7 @@ private fun EqGraph(
     onBandFreqGainChanged: (Int, Float, Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val bandColors = rememberBandColors()
     val responsePoints = remember(bandStates) {
         calculateFrequencyResponse(bandStates)
     }
@@ -460,7 +491,7 @@ private fun EqGraph(
                     val selectedBand = bandStates.getOrNull(selectedBandIndex)
                     if (selectedBand != null && selectedBand.isEnabled) {
                         Text(
-                            text = "Band ${selectedBandIndex + 1}: ${selectedBand.frequency.roundToInt()} Hz (${String.format("%.1f", selectedBand.gain)} dB) | ${selectedBand.type.name.uppercase()}",
+                            text = "Band ${selectedBandIndex + 1}: ${selectedBand.frequency.roundToInt()} Hz (${String.format(Locale.US, "%.1f", selectedBand.gain)} dB) | ${selectedBand.type.name.uppercase()}",
                             color = textColor,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Medium
@@ -569,7 +600,7 @@ private fun EqGraph(
                         if (!band.isEnabled) continue
                         val px = freqToX(band.frequency, w)
                         val py = dbToY(band.gain, h)
-                        val color = BandColors[(i % (BandColors.size - 1)) + 1]
+                        val color = bandColors[i % bandColors.size]
                         val isSelected = i == selectedBandIndex
 
                         if (isSelected) {
@@ -646,6 +677,7 @@ private fun GraphicView(
     bandStates: List<DigitalFilterEngine.BiquadBandState>,
     modifier: Modifier = Modifier
 ) {
+    val bandColors = rememberBandColors()
     val responsePoints = remember(bandStates) { calculateFrequencyResponse(bandStates) }
     val graphBackground = MaterialTheme.colorScheme.surfaceContainerLow
     val gridColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
@@ -743,12 +775,12 @@ private fun GraphicView(
             )
             SummaryCard(
                 label = "Peak Gain",
-                value = if (enabledBands.isEmpty()) "Flat" else String.format("%+.1f dB", peakGain),
+                value = if (enabledBands.isEmpty()) "Flat" else String.format(Locale.US, "%+.1f dB", peakGain),
                 modifier = Modifier.weight(1f)
             )
             SummaryCard(
                 label = "Peak Freq",
-                value = if (enabledBands.isEmpty()) "-" else if (peakFreq >= 1000f) String.format("%.1f kHz", peakFreq / 1000f) else "${peakFreq.roundToInt()} Hz",
+                value = if (enabledBands.isEmpty()) "-" else if (peakFreq >= 1000f) String.format(Locale.US, "%.1f kHz", peakFreq / 1000f) else "${peakFreq.roundToInt()} Hz",
                 modifier = Modifier.weight(1f)
             )
         }
@@ -764,7 +796,7 @@ private fun GraphicView(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 enabledBands.forEach { band ->
                     val bandIdx = bandStates.indexOf(band)
-                    val bandColor = BandColors[(bandIdx % (BandColors.size - 1)) + 1]
+                    val bandColor = bandColors[bandIdx % bandColors.size]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -787,10 +819,10 @@ private fun GraphicView(
                         Text(
                             text = run {
                                 val freqLabel = if (band.frequency >= 1000f)
-                                    String.format("%.1f kHz", band.frequency / 1000f)
+                                    String.format(Locale.US, "%.1f kHz", band.frequency / 1000f)
                                 else
                                     "${band.frequency.roundToInt()} Hz"
-                                "$freqLabel  ${String.format("%+.1f", band.gain)} dB  Q${String.format("%.2f", band.q)}"
+                                "$freqLabel  ${String.format(Locale.US, "%+.1f", band.gain)} dB  Q${String.format(Locale.US, "%.2f", band.q)}"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -832,6 +864,7 @@ private fun TableView(
     onBandEnabledChanged: (Int, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val bandColors = rememberBandColors()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Preamp row
         Surface(
@@ -845,7 +878,7 @@ private fun TableView(
             ) {
                 Text("Preamp", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    String.format("%+.1f dB", preampDb),
+                    String.format(Locale.US, "%+.1f dB", preampDb),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -874,7 +907,7 @@ private fun TableView(
         // Band rows
         bandStates.forEachIndexed { index, band ->
             val isSelected = index == selectedBandIndex
-            val bandColor = BandColors[(index % (BandColors.size - 1)) + 1]
+            val bandColor = bandColors[index % bandColors.size]
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
@@ -901,14 +934,14 @@ private fun TableView(
                     )
                     // Frequency
                     Text(
-                        text = if (band.isEnabled) (if (band.frequency >= 1000f) String.format("%.1fk", band.frequency / 1000f) else "${band.frequency.roundToInt()}") else "-",
+                        text = if (band.isEnabled) (if (band.frequency >= 1000f) String.format(Locale.US, "%.1fk", band.frequency / 1000f) else "${band.frequency.roundToInt()}") else "-",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f)
                     )
                     // Gain
                     Text(
-                        text = if (band.isEnabled) String.format("%+.1f", band.gain) else "-",
+                        text = if (band.isEnabled) String.format(Locale.US, "%+.1f", band.gain) else "-",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = if (band.isEnabled && band.gain != 0f) FontWeight.Bold else FontWeight.Normal,
                         color = when {
@@ -922,7 +955,7 @@ private fun TableView(
                     )
                     // Q
                     Text(
-                        text = if (band.isEnabled) String.format("%.2f", band.q) else "-",
+                        text = if (band.isEnabled) String.format(Locale.US, "%.2f", band.q) else "-",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
@@ -957,6 +990,7 @@ private fun BandSelector(
     onAddBand: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val bandColors = rememberBandColors()
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -964,7 +998,7 @@ private fun BandSelector(
         bandStates.forEachIndexed { index, band ->
             val selected = index == selectedIndex
             val enabled = band.isEnabled
-            val color = BandColors[(index % (BandColors.size - 1)) + 1]
+            val color = bandColors[index % bandColors.size]
 
             Box(
                 modifier = Modifier
@@ -1189,7 +1223,7 @@ private fun PreampSlider(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = String.format("%.1f", value),
+                text = String.format(Locale.US, "%.1f", value),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold
             )
@@ -1214,7 +1248,7 @@ private fun FilterCurveIcon(
         when (type) {
             DigitalFilterEngine.FilterType.Peak -> {
                 path.moveTo(0f, h * 0.7f)
-                path.quadraticBezierTo(w * 0.5f, h * 0.1f, w, h * 0.7f)
+                path.quadraticTo(w * 0.5f, h * 0.1f, w, h * 0.7f)
             }
             DigitalFilterEngine.FilterType.LowShelf -> {
                 path.moveTo(0f, h * 0.85f)
@@ -1231,11 +1265,11 @@ private fun FilterCurveIcon(
             DigitalFilterEngine.FilterType.LowPass -> {
                 path.moveTo(0f, h * 0.2f)
                 path.lineTo(w * 0.5f, h * 0.2f)
-                path.quadraticBezierTo(w * 0.8f, h * 0.2f, w, h * 0.9f)
+                path.quadraticTo(w * 0.8f, h * 0.2f, w, h * 0.9f)
             }
             DigitalFilterEngine.FilterType.HighPass -> {
                 path.moveTo(0f, h * 0.9f)
-                path.quadraticBezierTo(w * 0.2f, h * 0.2f, w * 0.5f, h * 0.2f)
+                path.quadraticTo(w * 0.2f, h * 0.2f, w * 0.5f, h * 0.2f)
                 path.lineTo(w, h * 0.2f)
             }
             else -> {
@@ -1254,7 +1288,7 @@ private fun FilterCurveIcon(
 private fun formatFrequency(freq: Float): String {
     return when {
         freq < 1000f -> "${freq.roundToInt()}"
-        else -> String.format("%.1f", freq / 1000f)
+        else -> String.format(Locale.US, "%.1f", freq / 1000f)
     }
 }
 

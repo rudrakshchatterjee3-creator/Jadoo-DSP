@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        API 31+ uses the platform splash screen rather than a windowBackground
+        bitmap. It animates into the app properly, sizes the icon to the
+        platform's own spec, and needs no `core-splashscreen` dependency at
+        this API level.
+
+        `windowSplashScreenBackground` is the brand plate; the icon is the same
+        mark as the launcher. The icon background is deliberately not set —
+        a masked circular plate behind a mark that is itself two circles reads
+        as a third circle.
+    -->
+    <style name="Theme.JadOOamp" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@color/ic_jadoo_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_jadoo_foreground</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

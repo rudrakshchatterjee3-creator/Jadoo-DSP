@@ -48,6 +48,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import com.jadoo.amp.ui.theme.BrandPalette
+import com.jadoo.amp.ui.theme.BrandScheme
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -74,40 +76,53 @@ private enum class OnboardingVisual {
     Waveform, Headphones, EqBars, Surround, Constellation
 }
 
+// ── Why this screen is NOT theme-following ───────────────────────────────────
+// Onboarding runs before the user has any theme preference — there is nothing
+// to follow yet. It is also art-directed: the copy, the glow and the visuals
+// are composed against a dark ground, and rendering them on a light scheme
+// would not merely recolour the screen, it would break it.
+//
+// So rather than leave it accidentally dark via hardcoded literals, it is
+// PINNED to the brand's dark expression. Same outcome on screen, but now it is
+// a decision with a reason instead of five arbitrary colours.
+//
+// The five page accents used to be an unrelated green/cyan/amber/violet set.
+// They are now a ramp anchored on the brand gold, warm through cool and back,
+// so the sequence has a direction and every page still belongs to JadOO.
 private val onboardingPages = listOf(
     OnboardingPage(
         tag = "JADOO DSP",
         headline = "Your music deserves better.",
         body = "Professional-grade audio processing built from first principles, running entirely on your phone, in real time.",
-        accentColor = Color(0xFF9AD48F),
+        accentColor = BrandPalette.Gold,
         visual = OnboardingVisual.Waveform
     ),
     OnboardingPage(
         tag = "THE MOMENT",
         headline = "You've heard it.\nThat feeling.",
         body = "Great headphones. Your best track. And something still feels off.\n\nThe bass is muddy. The vocals drift. The mix sounds lifeless, compressed, flat.",
-        accentColor = Color(0xFF80DEEA),
+        accentColor = Color(0xFFE8C67A),   // gold, lifted and softened
         visual = OnboardingVisual.Headphones
     ),
     OnboardingPage(
         tag = "GRAPHIC EQ",
         headline = "Precision that listens.",
         body = "A full 15-band graphic EQ at ISO standard frequencies, plus an 8-band parametric EQ for surgical control - shape your sound exactly the way you want it.",
-        accentColor = Color(0xFFFFCC80),
+        accentColor = Color(0xFFD8C3A0),   // warm sand — the brand secondary
         visual = OnboardingVisual.EqBars
     ),
     OnboardingPage(
         tag = "ANALOG BASS · SURROUND+",
         headline = "Warmth. Width. Life.",
         body = "The Analog Bass Engine models vintage tube and transformer circuits - saturation, drift, Pultec EQ curves - to make bass feel three-dimensional.\n\nSurround+ stretches your stereo field without ever moving the vocals.",
-        accentColor = Color(0xFFCE93D8),
+        accentColor = Color(0xFFA6CFC4),   // the one cool counterweight, as in the scheme
         visual = OnboardingVisual.Surround
     ),
     OnboardingPage(
         tag = "READY",
         headline = "Your ears deserve this.",
         body = "Everything runs locally. No cloud. No subscriptions. No compromises.\n\nGrant permissions when asked - the DSP engine needs them to reach your music.",
-        accentColor = Color(0xFF9AD48F),
+        accentColor = BrandPalette.Gold,   // returns home
         visual = OnboardingVisual.Constellation
     )
 )
@@ -124,7 +139,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF080D08))
+            .background(BrandScheme.Dark.background)
     ) {
         // Ambient radial glow behind content
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -190,7 +205,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                     shape = RoundedCornerShape(27.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = accent,
-                        contentColor = Color(0xFF071007)
+                        contentColor = BrandScheme.Dark.onPrimary
                     )
                 ) {
                     Text(

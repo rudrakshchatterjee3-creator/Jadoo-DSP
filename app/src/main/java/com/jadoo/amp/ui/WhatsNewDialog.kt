@@ -32,16 +32,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.jadoo.amp.update.ApkUpdater
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,10 +67,12 @@ import com.jadoo.amp.update.ReleaseInfo
 import com.jadoo.amp.update.UpdateChecker
 import kotlinx.coroutines.delay
 
-private val NavyBackground = Color(0xFF0F172A)
-private val BrandCyan = Color(0xFF22D3EE)
-private val BlobViolet = Color(0xFF7C3AED)
-private val BlobTeal = Color(0xFF0EA5A4)
+// These were five hardcoded colours — a navy background and a cyan accent from
+// the old off-brand launcher icon. The dialog therefore stayed dark navy in
+// light mode regardless of the user's theme, which was the most visible
+// theming defect in the app. They are now theme roles, resolved at use.
+//
+// This is a mechanical substitution and nothing about the layout changed.
 
 /**
  * Full-screen "What's New" announcement shown once per newly detected
@@ -84,7 +92,7 @@ fun WhatsNewDialog(
     // installed it," so it should snooze rather than vanish forever AND
     // rather than reappear instantly on the very next recomposition.
     Dialog(onDismissRequest = onRemindLater, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(modifier = Modifier.fillMaxSize(), color = NavyBackground) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Box(modifier = Modifier.fillMaxSize()) {
                 AuroraBackground()
 
@@ -114,11 +122,11 @@ fun WhatsNewDialog(
                     Spacer(Modifier.height(6.dp))
                     Surface(
                         shape = RoundedCornerShape(50.dp),
-                        color = BrandCyan.copy(alpha = 0.18f)
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
                     ) {
                         Text(
                             release.tagName,
-                            color = BrandCyan,
+                            color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)
@@ -151,22 +159,111 @@ fun WhatsNewDialog(
                     }
 
                     Spacer(Modifier.height(36.dp))
-                    Button(
-                        onClick = {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl)))
-                            onDownload()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandCyan, contentColor = NavyBackground),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Download Update", fontWeight = FontWeight.SemiBold)
+
+                    // ── Lane B: in-app update ─────────────────────────────
+                    // Still a package install — Android has no way to swap an
+                    // app's code without one — but the browser/Downloads/file
+                    // manager detour is gone, and the same signing key means
+                    // it updates in place with every setting preserved.
+                    // Falls back to the release page whenever the release has
+                    // no APK asset attached.
+                    val scope = rememberCoroutineScope()
+                    var state by remember { mutableStateOf<ApkUpdater.State>(ApkUpdater.State.Idle) }
+
+                    when (val s = state) {
+                        is ApkUpdater.State.Downloading -> {
+                            Text("Downloading… ${(s.progress * 100).toInt()}%",
+                                 color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                            Spacer(Modifier.height(8.dp))
+                            LinearProgressIndicator(
+                                progress = { s.progress },
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        ApkUpdater.State.Verifying -> {
+                            Text("Verifying signature…",
+                                 color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                        }
+                        ApkUpdater.State.Installing -> {
+                            Text("Opening installer…",
+                                 color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                        }
+                        is ApkUpdater.State.Failed -> {
+                            Text(s.reason,
+                                 color = MaterialTheme.colorScheme.error, fontSize = 13.sp,
+                                 textAlign = TextAlign.Center)
+                            Spacer(Modifier.height(10.dp))
+                            TextButton(onClick = {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl)))
+                                onDownload()
+                            }) {
+                                Text("Open release page instead", color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        ApkUpdater.State.Idle -> Unit
                     }
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = onRemindLater,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Remind Me Later")
+
+                    if (state is ApkUpdater.State.Idle || state is ApkUpdater.State.Failed) {
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                if (release.apkAssetUrl == null) {
+                                    // No APK attached to this release — the
+                                    // browser is the only route.
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl))
+                                    )
+                                    onDownload()
+                                    return@Button
+                                }
+                                if (!ApkUpdater.canInstall(context)) {
+                                    ApkUpdater.requestInstallPermission(context)
+                                    state = ApkUpdater.State.Failed(
+                                        "Allow JadOO DSP to install apps, then tap Install Update again."
+                                    )
+                                    return@Button
+                                }
+                                scope.launch {
+                                    state = ApkUpdater.State.Downloading(0f)
+                                    val file = ApkUpdater.download(context, release) { p ->
+                                        state = ApkUpdater.State.Downloading(p)
+                                    }
+                                    if (file == null) {
+                                        state = ApkUpdater.State.Failed("Download failed. Check your connection.")
+                                        return@launch
+                                    }
+                                    // Signature check before ANY install is
+                                    // attempted — see ApkUpdater.verifyApk.
+                                    state = ApkUpdater.State.Verifying
+                                    val problem = ApkUpdater.verifyApk(context, file)
+                                    if (problem != null) {
+                                        file.delete()
+                                        state = ApkUpdater.State.Failed(problem)
+                                        return@launch
+                                    }
+                                    state = ApkUpdater.State.Installing
+                                    val installError = ApkUpdater.install(context, file)
+                                    if (installError != null) {
+                                        state = ApkUpdater.State.Failed(installError)
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                if (release.apkAssetUrl != null) "Install Update" else "Download Update",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = onRemindLater,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Remind Me Later")
+                        }
                     }
                     Spacer(Modifier.height(18.dp))
                     Text(
@@ -192,7 +289,7 @@ private fun ChangelogLine(text: String) {
                 .padding(top = 7.dp)
                 .size(6.dp)
                 .clip(CircleShape)
-                .background(BrandCyan)
+                .background(MaterialTheme.colorScheme.primary)
         )
         Text(
             text,
@@ -206,6 +303,11 @@ private fun ChangelogLine(text: String) {
 /** Three soft, slow-drifting radial-gradient blobs — an abstract "aurora" backdrop. */
 @Composable
 private fun AuroraBackground() {
+    // The three blob colours now come from the scheme, so the backdrop follows
+    // the theme instead of always being cyan/violet/teal.
+    val blobA = MaterialTheme.colorScheme.primary
+    val blobB = MaterialTheme.colorScheme.tertiary
+    val blobC = MaterialTheme.colorScheme.secondary
     val transition = rememberInfiniteTransition(label = "aurora")
     val phase1 by transition.animateFloat(
         initialValue = 0f, targetValue = 360f,
@@ -243,8 +345,8 @@ private fun AuroraBackground() {
             )
         }
 
-        blob(phase1, 0.55f, BrandCyan, w * 0.25f, h * 0.25f, w * 0.18f)
-        blob(phase2, 0.5f, BlobViolet, w * 0.8f, h * 0.35f, w * 0.15f)
-        blob(phase3, 0.6f, BlobTeal, w * 0.5f, h * 0.85f, w * 0.2f)
+        blob(phase1, 0.55f, blobA, w * 0.25f, h * 0.25f, w * 0.18f)
+        blob(phase2, 0.5f, blobB, w * 0.8f, h * 0.35f, w * 0.15f)
+        blob(phase3, 0.6f, blobC, w * 0.5f, h * 0.85f, w * 0.2f)
     }
 }
