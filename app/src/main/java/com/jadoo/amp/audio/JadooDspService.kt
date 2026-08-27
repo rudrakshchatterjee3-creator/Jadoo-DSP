@@ -1053,18 +1053,22 @@ class JadooDspService : Service() {
      */
     fun applySuggestedDeviceProfile() {
         val suggestion = _suggestedDeviceProfile.value ?: return
-        val type = DeviceType.entries.firstOrNull { it.name == suggestion.deviceType }
-        if (type != null) setDeviceType(type)
-        setDeviceQualityTier(suggestion.qualityTier)
         // Remember WHICH profile is active rather than copying its curve into
         // the user's own band gains. Copying would silently overwrite an EQ
         // they had dialled in, and would also freeze the correction at the
         // version that happened to be live when they tapped Apply — a later
         // content update improving the curve would never reach them.
+        //
+        // Set before setDeviceType for the same reason as selectDeviceProfile:
+        // the rebuild it triggers decides whether the engine stays attached.
         _activeDeviceProfileName.value = suggestion.name
         applyDeviceProfileCurve()
+        val type = DeviceType.entries.firstOrNull { it.name == suggestion.deviceType }
+        if (type != null) setDeviceType(type)
+        setDeviceQualityTier(suggestion.qualityTier)
         _suggestedDeviceProfile.value = null
         if (_masterEnabled.value) {
+            attachGlobalSession()
             applyAllBands(manualBandGains.copyOf())
             refreshHeadroom()
         }
@@ -1083,12 +1087,20 @@ class JadooDspService : Service() {
      */
     fun selectDeviceProfile(name: String) {
         val profile = _remoteContent.value.headphoneProfiles.firstOrNull { it.name == name } ?: return
-        DeviceType.entries.firstOrNull { it.name == profile.deviceType }?.let { setDeviceType(it) }
-        setDeviceQualityTier(profile.qualityTier)
+        // Resolve the curve FIRST. setDeviceType below triggers a topology
+        // rebuild, which asks hasActiveDspFeatures() whether to keep the
+        // engine attached — and with the curve not yet live, a profile
+        // selected as the only active feature would answer "no", release the
+        // engine, and never write the correction.
         _activeDeviceProfileName.value = profile.name
         applyDeviceProfileCurve()
+        DeviceType.entries.firstOrNull { it.name == profile.deviceType }?.let { setDeviceType(it) }
+        setDeviceQualityTier(profile.qualityTier)
         _suggestedDeviceProfile.value = null
         if (_masterEnabled.value) {
+            // Re-attach in case the engine was sitting in transparent bypass
+            // with nothing else enabled; applyAllBands is a no-op without it.
+            attachGlobalSession()
             applyAllBands(manualBandGains.copyOf())
             refreshHeadroom()
         }
@@ -1100,8 +1112,12 @@ class JadooDspService : Service() {
         _activeDeviceProfileName.value = ""
         deviceProfileCurve = null
         if (_masterEnabled.value) {
+            // Write the bands back without the correction FIRST, then let
+            // attachGlobalSession re-evaluate — if this was the only thing
+            // active, the engine can now legitimately drop to bypass.
             applyAllBands(manualBandGains.copyOf())
             refreshHeadroom()
+            attachGlobalSession()
         }
         saveSession()
     }
@@ -1664,6 +1680,14 @@ class JadooDspService : Service() {
         // route for the same reason writeCombinedBand is — the curve is only
         // applied on Bluetooth, so off-BT it genuinely changes nothing.
         if (_sbcModeEnabled.value && currentDeviceKey.startsWith("bt")) return true
+        // Device tuning — both the content-channel model curve and the
+        // DeviceType class curve are PreEQ contributors written by
+        // writeCombinedBand (see deviceCorrectionShape), so they need the DP
+        // attached for exactly the same reason Crossfeed and SBC above do.
+        // Missing here, selecting a device tuning with no other feature
+        // enabled released the engine and the correction was never written —
+        // audibly identical to not selecting one at all.
+        if ((0 until EqBands.count).any { deviceCorrectionShape(it) != 0f }) return true
         if (digitalFilterEngine.hasActiveBand()) return true
         if (_preGainDb.value != 0f) return true
         if (_postGainDb.value != 0f) return true
