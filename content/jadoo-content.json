@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contentVersion": 4,
+  "contentVersion": 5,
   "presets": [
     {
       "name": "Late Night",
@@ -64,42 +64,6 @@
     }
   ],
   "headphoneProfiles": [
-    {
-      "name": "Sony WH-1000XM4",
-      "match": "WH-1000XM4",
-      "deviceType": "OverEar",
-      "qualityTier": 0.85
-    },
-    {
-      "name": "Sony WH-1000XM5",
-      "match": "WH-1000XM5",
-      "deviceType": "OverEar",
-      "qualityTier": 0.9
-    },
-    {
-      "name": "AirPods Pro",
-      "match": "AirPods Pro",
-      "deviceType": "Iem",
-      "qualityTier": 0.8
-    },
-    {
-      "name": "Galaxy Buds",
-      "match": "Galaxy Buds",
-      "deviceType": "Iem",
-      "qualityTier": 0.7
-    },
-    {
-      "name": "JBL Flip",
-      "match": "JBL Flip",
-      "deviceType": "CompactSpeaker",
-      "qualityTier": 0.6
-    },
-    {
-      "name": "boAt Rockerz",
-      "match": "Rockerz",
-      "deviceType": "OnEar",
-      "qualityTier": 0.4
-    },
     {
       "name": "Inspire 5300 (Test)",
       "match": "Inspire 5300",
