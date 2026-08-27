@@ -112,11 +112,31 @@ object UpdateChecker {
         return false
     }
 
+    /**
+     * "v1.6.1" -> [1, 6, 1]; "v1.6.0-r2" -> [1, 6, 0, 2].
+     *
+     * The revision suffix used to be discarded entirely — each dot-segment
+     * was truncated at its first non-digit, so "1.6.0-r1" and "1.6.0" both
+     * parsed to [1, 6, 0] and compared EQUAL. A hotfix tagged that way was
+     * therefore never offered to anyone running the release it fixed, which
+     * is the one thing a hotfix has to do. Appending the revision as a
+     * trailing component makes "-r1" sort after the plain release, while an
+     * absent suffix pads to 0 in [isNewer] and keeps every existing
+     * comparison identical.
+     *
+     * Note this cannot rescue builds already in the field: the update check
+     * runs against the INSTALLED app's copy of this parser, so anything
+     * shipped before this fix still compares the old way.
+     */
     private fun parseVersion(raw: String): List<Int>? {
         val cleaned = raw.trim().removePrefix("v").removePrefix("V")
-        val parts = cleaned.split(".").map { it.takeWhile { c -> c.isDigit() } }
-        if (parts.any { it.isEmpty() }) return null
-        return parts.map { it.toInt() }
+        val revision = Regex("-r(\\d+)$", RegexOption.IGNORE_CASE)
+            .find(cleaned)?.groupValues?.get(1)?.toIntOrNull()
+        val core = cleaned.substringBefore("-")
+        val parts = core.split(".").map { it.takeWhile { c -> c.isDigit() } }
+        if (parts.isEmpty() || parts.any { it.isEmpty() }) return null
+        val numbers = parts.map { it.toInt() }
+        return if (revision != null) numbers + revision else numbers
     }
 
     /**

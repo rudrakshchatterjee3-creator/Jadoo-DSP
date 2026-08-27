@@ -326,6 +326,10 @@ fun DashboardScreen(
     // Content channel (Lane A)
     contentVersion: Int,
     suggestedDeviceProfileName: String?,
+    // Manually selectable content-channel device tunings — see the picker in
+    // SettingsScreen for why auto-matching alone is not enough.
+    deviceProfileNames: List<String>,
+    activeDeviceProfileName: String,
     onMasterPowerToggled: (Boolean) -> Unit,
     onPreGainChanged: (Float) -> Unit,
     onPostGainChanged: (Float) -> Unit,
@@ -392,6 +396,8 @@ fun DashboardScreen(
     // Content channel callbacks
     onRefreshContent: () -> Unit,
     onApplySuggestedDeviceProfile: () -> Unit,
+    onSelectDeviceProfile: (String) -> Unit,
+    onClearDeviceProfile: () -> Unit,
 ) {
     var showExpandedEq by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -623,6 +629,10 @@ fun DashboardScreen(
             onPerAppProfileToggled = onPerAppProfileToggled,
             contentVersion = contentVersion,
             onRefreshContent = onRefreshContent,
+            deviceProfileNames = deviceProfileNames,
+            activeDeviceProfileName = activeDeviceProfileName,
+            onSelectDeviceProfile = onSelectDeviceProfile,
+            onClearDeviceProfile = onClearDeviceProfile,
             preciseGainStaging = preciseGainStaging,
             gainBudgetDb = gainBudgetDb,
             autoTrimDb = autoTrimDb,
@@ -2662,6 +2672,10 @@ private fun SettingsScreen(
     onPerAppProfileToggled: (String, Boolean) -> Unit,
     contentVersion: Int,
     onRefreshContent: () -> Unit,
+    deviceProfileNames: List<String>,
+    activeDeviceProfileName: String,
+    onSelectDeviceProfile: (String) -> Unit,
+    onClearDeviceProfile: () -> Unit,
     preciseGainStaging: Boolean,
     gainBudgetDb: Float,
     autoTrimDb: Float,
@@ -2721,9 +2735,9 @@ private fun SettingsScreen(
                     ToggleRow(
                         title = "Precise gain staging",
                         subtitle = if (preciseGainStaging)
-                            "Trims volume slightly so your boosts keep their shape"
+                            "Limiter stays a peak catcher, boosts keep their level"
                         else
-                            "Legacy: lets the safety limiter absorb the boost instead",
+                            "Legacy: limiter ceiling drops by the full boost amount",
                         checked = preciseGainStaging,
                         onCheckedChange = onPreciseGainStagingChanged,
                         onHelpClick = { onHelpRequested(HelpContent.GainStaging) }
@@ -2731,9 +2745,11 @@ private fun SettingsScreen(
                     if (gainBudgetDb > 0.05f) {
                         Text(
                             text = if (preciseGainStaging)
-                                "Active boost: ${"%.1f".format(gainBudgetDb)} dB, mostly paid by volume trim"
+                                "Active boost ${"%.1f".format(gainBudgetDb)} dB · limiter ceiling " +
+                                    "${"%.1f".format(-minOf(gainBudgetDb, 2f))} dB"
                             else
-                                "Active boost: ${"%.1f".format(gainBudgetDb)} dB, paid by the limiter",
+                                "Active boost ${"%.1f".format(gainBudgetDb)} dB · limiter ceiling " +
+                                    "${"%.1f".format(-gainBudgetDb)} dB",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp
                         )
@@ -2846,6 +2862,64 @@ private fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Check for new tuning")
+                    }
+
+                    // ── Manual device tuning picker ───────────────────────
+                    // Auto-matching only works where the phone can actually
+                    // see the transducer — headphones report their own name,
+                    // but anything reached through an intermediary (a PC over
+                    // Bluetooth, a receiver, a DAC feeding passive speakers)
+                    // reports the intermediary instead. For those, no match
+                    // string can ever be right, so the tuning has to be
+                    // selectable by hand or it is unreachable.
+                    if (deviceProfileNames.isNotEmpty()) {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        )
+                        Text(
+                            text = "Device tuning",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (activeDeviceProfileName.isBlank())
+                                "None applied. Pick your output device if it's listed."
+                            else
+                                "Applied: $activeDeviceProfileName",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            deviceProfileNames.forEach { profileName ->
+                                val selected = profileName == activeDeviceProfileName
+                                OutlinedButton(
+                                    onClick = {
+                                        if (selected) onClearDeviceProfile()
+                                        else onSelectDeviceProfile(profileName)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = if (selected) {
+                                        ButtonDefaults.outlinedButtonColors(
+                                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    } else ButtonDefaults.outlinedButtonColors()
+                                ) {
+                                    Text(
+                                        text = profileName,
+                                        modifier = Modifier.weight(1f),
+                                        textAlign = TextAlign.Start
+                                    )
+                                    if (selected) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Remove $profileName",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

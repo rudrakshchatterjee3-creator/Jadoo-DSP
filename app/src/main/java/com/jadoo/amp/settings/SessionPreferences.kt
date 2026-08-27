@@ -73,7 +73,13 @@ data class SessionState(
     // own empty-string-means-unset convention). The actual band GAINS this
     // preset produced already persisted before this field existed — this
     // only restores which NAME the UI should show as selected.
-    val selectedPresetName: String = ""
+    val selectedPresetName: String = "",
+    // Name of the content-channel device profile applied for this output, or
+    // "" for none. Only the NAME is stored — the correction curve itself is
+    // resolved from live content on load, so a later content update that
+    // improves a curve reaches devices already using it. See
+    // JadooDspService.applyDeviceProfileCurve.
+    val deviceProfileName: String = ""
 )
 
 /**
@@ -124,6 +130,7 @@ class SessionPreferences(private val context: Context) {
         const val LOUDNESS_REFERENCE_PHON = "loudness_reference_phon"
         const val PRECISE_GAIN_STAGING = "precise_gain_staging"
         const val SELECTED_PRESET_NAME = "selected_preset_name"
+        const val DEVICE_PROFILE_NAME = "device_profile_name"
     }
 
     // Legacy (pre-per-device) un-suffixed keys, kept only as a one-time
@@ -163,6 +170,7 @@ class SessionPreferences(private val context: Context) {
         val loudnessReferencePhon = floatPreferencesKey(KeyNames.LOUDNESS_REFERENCE_PHON)
         val preciseGainStaging    = booleanPreferencesKey(KeyNames.PRECISE_GAIN_STAGING)
         val selectedPresetName    = stringPreferencesKey(KeyNames.SELECTED_PRESET_NAME)
+        val deviceProfileName     = stringPreferencesKey(KeyNames.DEVICE_PROFILE_NAME)
     }
 
     private val savedProfileNamesKey = stringPreferencesKey("saved_profile_names")
@@ -219,6 +227,7 @@ class SessionPreferences(private val context: Context) {
             p[floatKey(KeyNames.LOUDNESS_REFERENCE_PHON, deviceKey)] = state.loudnessReferencePhon
             p[boolKey(KeyNames.PRECISE_GAIN_STAGING, deviceKey)] = state.preciseGainStaging
             p[stringKey(KeyNames.SELECTED_PRESET_NAME, deviceKey)] = state.selectedPresetName
+            p[stringKey(KeyNames.DEVICE_PROFILE_NAME, deviceKey)] = state.deviceProfileName
         }
     }
 
@@ -285,6 +294,9 @@ class SessionPreferences(private val context: Context) {
             // inheriting it would be the wrong kind of backwards compatibility.
             preciseGainStaging = bool(
                 KeyNames.PRECISE_GAIN_STAGING, LegacyKeys.preciseGainStaging, true
+            ),
+            deviceProfileName = string(
+                KeyNames.DEVICE_PROFILE_NAME, LegacyKeys.deviceProfileName, ""
             ),
             selectedPresetName = string(
                 KeyNames.SELECTED_PRESET_NAME, LegacyKeys.selectedPresetName, ""

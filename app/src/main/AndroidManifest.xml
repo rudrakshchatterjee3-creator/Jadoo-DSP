@@ -23,6 +23,7 @@
     <uses-permission android:name="android.permission.DUMP"
         tools:ignore="ProtectedPermissions" />
     <application
+        android:name=".JadooApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_jadoo_dsp"
         android:roundIcon="@mipmap/ic_jadoo_dsp"

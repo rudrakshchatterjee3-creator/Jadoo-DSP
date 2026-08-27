@@ -209,6 +209,15 @@ class MainActivity : ComponentActivity() {
                         mutableStateOf(shouldRequestBatteryOptimizationExemption())
                     }
                     var newRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
+                    // Non-null exactly once, right after a launch that follows a
+                    // crash — see CrashHandler. Most people who hit an OEM-specific
+                    // startup crash have no idea what logcat is; this turns "please
+                    // send me a crash log" into a single Share tap.
+                    var crashReportText by remember {
+                        mutableStateOf(
+                            CrashHandler.reportFile(this@MainActivity).takeIf { it.exists() }?.readText()
+                        )
+                    }
 
                     // Runs on every launch, as requested — silently fails offline.
                     // Keeps showing on every launch until the update is actually
@@ -279,6 +288,34 @@ class MainActivity : ComponentActivity() {
                                 TextButton(onClick = { showBatteryDialog = false }) {
                                     Text("Later")
                                 }
+                            }
+                        )
+                    }
+
+                    crashReportText?.let { report ->
+                        AlertDialog(
+                            onDismissRequest = {
+                                CrashHandler.reportFile(this@MainActivity).delete()
+                                crashReportText = null
+                            },
+                            title = { Text("JadOO DSP crashed last time") },
+                            text = { Text("Sharing this report helps get it fixed — it's just device info and a stack trace, no personal data.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, report)
+                                    }
+                                    startActivity(Intent.createChooser(sendIntent, "Share crash report"))
+                                    CrashHandler.reportFile(this@MainActivity).delete()
+                                    crashReportText = null
+                                }) { Text("Share crash report") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = {
+                                    CrashHandler.reportFile(this@MainActivity).delete()
+                                    crashReportText = null
+                                }) { Text("Dismiss") }
                             }
                         )
                     }
@@ -407,6 +444,7 @@ class MainActivity : ComponentActivity() {
         // Remotely updatable content (Lane A)
         val remoteContent by audioService?.remoteContent?.collectAsState(initial = com.jadoo.amp.update.RemoteContent.EMPTY) ?: remember { mutableStateOf(com.jadoo.amp.update.RemoteContent.EMPTY) }
         val suggestedDeviceProfile by audioService?.suggestedDeviceProfile?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
+        val activeDeviceProfileName by audioService?.activeDeviceProfileName?.collectAsState(initial = "") ?: remember { mutableStateOf("") }
 
         // Digital Filters
         val digitalFilterBandStates by audioService?.digitalFilterBandStates?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
@@ -557,6 +595,8 @@ class MainActivity : ComponentActivity() {
             // Content channel
             contentVersion = remoteContent.contentVersion,
             suggestedDeviceProfileName = suggestedDeviceProfile?.name,
+            deviceProfileNames = remoteContent.headphoneProfiles.map { it.name },
+            activeDeviceProfileName = activeDeviceProfileName,
             // Digital Filters
             digitalFilterEnabled = digitalFilterEnabled,
             digitalFilterBandStates = digitalFilterBandStates,
@@ -738,6 +778,8 @@ class MainActivity : ComponentActivity() {
             // Content channel
             onRefreshContent = { audioService?.refreshRemoteContent() },
             onApplySuggestedDeviceProfile = { audioService?.applySuggestedDeviceProfile() },
+            onSelectDeviceProfile = { name -> audioService?.selectDeviceProfile(name) },
+            onClearDeviceProfile = { audioService?.clearDeviceProfile() },
         )
     }
 

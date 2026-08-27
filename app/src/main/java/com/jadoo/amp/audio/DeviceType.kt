@@ -97,3 +97,70 @@ fun DeviceType.crossfeedFactor(): Float = when (this) {
     DeviceType.OverEar -> 0.7f
     else -> 1.0f
 }
+
+/**
+ * Average tonal correction for a device class, in dB per [EqBands] band.
+ *
+ * Until now DeviceType had no sound of its own: it only scaled OTHER
+ * features' boosts down (see bassExtension/trebleExtension), so with no bass
+ * or treble feature enabled, choosing your actual device changed nothing at
+ * all — and when it did do something, it only ever made things quieter than
+ * leaving it on General. That is a restraint mechanism, not a device profile.
+ *
+ * These curves are the missing half: a correction toward neutral for what the
+ * AVERAGE device of each class measurably does wrong. Summed into the PreEQ
+ * alongside every other tonal shape, so it applies on its own, independent of
+ * which features are on.
+ *
+ * What each curve corrects, and why:
+ *
+ *  - **IEM** — the canal seal already delivers low bass, so it needs no sub
+ *    lift beyond a touch of extension; what budget single-dynamic units share
+ *    is a mid-bass bloat around 160-250 Hz, the canal resonance near 2.5-4 kHz,
+ *    a glare peak around 6.3 kHz, and an early top-octave rolloff.
+ *  - **On-Ear** — the weakest seal of any type, so bass leaks out; the
+ *    classic complaint is thin lows plus a 2.5 kHz honk from the small pad.
+ *  - **Over-Ear** — closest to neutral already. Open-back designs give up
+ *    sub-bass for their soundstage, which is the main thing worth restoring.
+ *  - **Compact Speaker** — no sub-bass to ask for at all (see bassRange), a
+ *    boxy 250-400 Hz cabinet signature, and it benefits from a little
+ *    presence for intelligibility at low level.
+ *  - **Home Speaker** — real cabinet plus room boundary reinforcement piles
+ *    up around 63-160 Hz (Toole ch. 13); trimming that is what actually
+ *    cleans up a room-placed speaker.
+ *  - **General** — flat, by definition. The escape hatch for anyone who
+ *    wants no device-aware behaviour of any kind stays exactly that.
+ *
+ * Deliberately modest — nothing here exceeds ±1.8 dB. This is a correction
+ * for a class average, not a measured profile of one specific model (that is
+ * what the headphone tuning in the content channel is for), and the spread
+ * inside every class is wide enough that a bolder curve would be wrong more
+ * often than right.
+ *
+ * [qualityTier] tapers the correction: a flagship unit is closer to neutral
+ * out of the box AND more likely to be deliberately voiced, so it gets 60% of
+ * the budget unit's correction rather than the full amount.
+ */
+fun DeviceType.correctionDb(bandIndex: Int, qualityTier: Float): Float {
+    val curve = when (this) {
+        DeviceType.General -> return 0f
+        //                 25    40    63   100   160   250   400   630    1k  1.6k  2.5k    4k  6.3k   10k   16k
+        DeviceType.Iem -> floatArrayOf(
+            1.0f, 0.8f, 0.3f, 0.0f, -0.5f, -0.5f, -0.3f, 0.0f, 0.0f, 0.0f, -0.5f, -0.8f, -1.0f, 0.5f, 1.0f
+        )
+        DeviceType.OnEar -> floatArrayOf(
+            1.5f, 1.8f, 1.5f, 1.0f, 0.5f, 0.0f, -0.5f, -0.5f, 0.0f, -0.5f, -1.0f, -0.5f, 0.0f, 0.5f, 1.0f
+        )
+        DeviceType.OverEar -> floatArrayOf(
+            1.2f, 1.0f, 0.6f, 0.2f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -0.5f, -0.5f, -0.3f, 0.3f, 0.8f
+        )
+        DeviceType.CompactSpeaker -> floatArrayOf(
+            0.0f, 0.0f, 0.5f, 1.0f, 0.5f, -1.0f, -1.5f, -0.5f, 0.0f, 0.5f, 0.5f, 0.0f, -0.5f, 0.0f, 0.0f
+        )
+        DeviceType.HomeSpeaker -> floatArrayOf(
+            0.0f, -0.3f, -0.8f, -1.0f, -0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.3f, 0.5f
+        )
+    }
+    val raw = curve.getOrElse(bandIndex) { 0f }
+    return raw * (1f - 0.4f * qualityTier.coerceIn(0f, 1f))
+}

@@ -27,6 +27,12 @@ class DspEngine {
     private var baseLimiterThreshold = -0.3f
 
     /**
+     * Makeup gain (0 or positive dB) that gives back the level the gain-budget
+     * headroom offset takes off the limiter's ceiling. See [headroomMakeupDb].
+     */
+    private var limiterMakeupDb = 0f
+
+    /**
      * The automatic input attenuation the gain-staging model is currently
      * asking for (0 or negative dB). Summed with the user's pre-gain in
      * applyInputGain(). See splitGainBudget for why this exists.
@@ -114,6 +120,16 @@ class DspEngine {
          * narrowband boost with broadband level, which is the same error as
          * above wearing a different hat. If the user wants the whole mix
          * quieter they have a pre-gain slider and a volume rocker.
+         *
+         * This was briefly raised to 10, on the theory that budget past
+         * MAX_HEADROOM_DB was "unpaid" and would distort. That theory was
+         * wrong on its own terms: DynamicsProcessing is float internally, so
+         * an over-budget boost does not clip on the way to the limiter — the
+         * limiter catches it, which is its entire job. What the change
+         * actually did was silently drop broadband level by up to 10 dB the
+         * instant any feature was enabled (DBFB High alone: -1.9 dB;
+         * Surround Wide: -3.5 dB), on every route. Reported, accurately, as
+         * the app being quieter and less open than doing nothing at all.
          *
          * Kept as a named constant rather than deleted because the mechanism
          * in splitGainBudget is sound and worth having if a future feature
@@ -320,16 +336,30 @@ class DspEngine {
             // When multiple features boost signal (HiRes, DBFB, HDR), the limiter
             // threshold must drop to prevent inter-modulation distortion.
             val budgetDb = calculateGainBudget(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity, mobileBassEnabled, mobileBassIntensity, surroundMode, harmonicExciterEnabled, harmonicExciterIntensity, bassExtension, trebleExtension, mobileBassExtension, preEqBassPeakDb, preEqTreblePeakDb)
-            // Tube Warmth's LoudnessEnhancer compander is voiced against an
-            // untrimmed input — pulling the input stage down to pay the gain
-            // budget (the precise-staging path) quietly changes what level
-            // hits its compander, turning its glue character into pumping.
-            // Always give it the legacy split (full budget on the limiter,
-            // zero input trim) regardless of the toggle.
-            val (headroomDb, trimDb) = splitGainBudget(budgetDb, preciseGainStaging && !tubeWarmthEnabled)
+            // Tube Warmth used to be forced onto the legacy split here, on the
+            // stated grounds that precise staging's input trim would change
+            // what level reached its compander. That was wrong: MAX_AUTO_TRIM_DB
+            // is 0, so NEITHER path trims the input — the only difference
+            // between them is how far the limiter threshold drops.
+            //
+            // Forcing legacy had a real and much worse effect. Legacy drops the
+            // threshold by the ENTIRE uncapped budget, so Tube Warmth's glue
+            // character was a function of the gain budget — and v1.6 began
+            // crediting graphic EQ (up to 15 dB) to that budget, which v1.5.2
+            // did not. Dial in some EQ and the same feature swung from a -4 dBFS
+            // threshold to -14 dBFS: from gentle rounding to heavy compression,
+            // and far quieter with it. A voiced character must not depend on an
+            // unrelated clip-safety number.
+            //
+            // So Tube Warmth now takes the same precise split as everything
+            // else, and its glue comes from its own limiter threshold below,
+            // where it is fixed and predictable.
+            val usePreciseStaging = preciseGainStaging
+            val (headroomDb, trimDb) = splitGainBudget(budgetDb, usePreciseStaging)
             autoTrimDb = trimDb
             gainBudgetDb = budgetDb
             autoTrimReadoutDb = trimDb
+            limiterMakeupDb = headroomMakeupDb(headroomDb, usePreciseStaging)
 
             // Real safety limiter for all modes: a 10:1 ratio engaging only within
             // 0.3 dB of full scale. At normal program levels this never engages —
@@ -364,26 +394,38 @@ class DspEngine {
             // so it rides bass transients instead of snapping at them — it's
             // still a real safety net against clipping, just one that no
             // longer fights Mobile Bass's own (already gentle) dynamics.
+            val effectivePostGain = effectivePostGainDb()
             val limiter = when {
                 hdrDynamicsEnabled && hdrMode == HdrMode.Pure -> {
                     baseLimiterThreshold = -0.1f
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        20f, 40f, 2f, baseLimiterThreshold + headroomDb, postGainDb
+                        20f, 40f, 2f, baseLimiterThreshold + headroomDb, effectivePostGain
                     )
                 }
                 tubeWarmthEnabled -> {
-                    baseLimiterThreshold = -1.0f
+                    // -4.0, not the -1.0 this used to be. The glue that makes
+                    // this branch sound like a tube output stage nearing its
+                    // rails needs the limiter actually working on program
+                    // material, not just clipping the odd peak. It used to get
+                    // that depth accidentally, from the legacy split dragging
+                    // the threshold down by the whole gain budget (typically
+                    // 3-5 dB in v1.5.2, where this was last voiced). Now that
+                    // Tube Warmth is on the same capped split as every other
+                    // feature, that depth has to be stated here — where it is
+                    // a fixed part of the feature's character and no longer
+                    // moves when an unrelated EQ band does.
+                    baseLimiterThreshold = -4.0f
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        5f, 100f, 5f, baseLimiterThreshold + headroomDb, postGainDb
+                        5f, 100f, 5f, baseLimiterThreshold + headroomDb, effectivePostGain
                     )
                 }
                 else -> {
                     baseLimiterThreshold = -0.3f
                     DynamicsProcessing.Limiter(
                         true, true, 0,
-                        12f, 90f, 10f, baseLimiterThreshold + headroomDb, postGainDb
+                        12f, 90f, 10f, baseLimiterThreshold + headroomDb, effectivePostGain
                     )
                 }
             }
@@ -657,11 +699,19 @@ class DspEngine {
         val limiter = currentLimiter ?: return@synchronized
         try {
             val budgetDb = calculateGainBudget(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity, mobileBassEnabled, mobileBassIntensity, surroundMode, harmonicExciterEnabled, harmonicExciterIntensity, bassExtension, trebleExtension, mobileBassExtension, preEqBassPeakDb, preEqTreblePeakDb)
-            // See the matching comment in attach() — Tube Warmth always gets
-            // the legacy split so its compander's input level never drifts.
-            val (headroomDb, trimDb) = splitGainBudget(budgetDb, preciseGainStaging && !tubeWarmthEnabled)
+            // Must match attach()'s split exactly — Tube Warmth included, see
+            // the long note there on why it is no longer excluded. If these two
+            // disagree, a live refresh silently re-voices the feature.
+            val usePreciseStaging = preciseGainStaging
+            val (headroomDb, trimDb) = splitGainBudget(budgetDb, usePreciseStaging)
             gainBudgetDb = budgetDb
             limiter.threshold = baseLimiterThreshold + headroomDb
+            // The ceiling moved, so the makeup that cancels it has to move in
+            // the same write — otherwise a live refresh (every Device Quality
+            // Tier tick, every EQ band move) leaves the threshold lowered and
+            // the makeup stale, and the level sags by exactly the difference.
+            limiterMakeupDb = headroomMakeupDb(headroomDb, usePreciseStaging)
+            limiter.postGain = effectivePostGainDb()
             dp.setLimiterAllChannelsTo(limiter)
             // Only re-write the input stage when the trim actually moved —
             // setInputGainAllChannelsTo on every headroom refresh (which
@@ -1566,6 +1616,7 @@ class DspEngine {
     fun release() = synchronized(this) {
         autoTrimDb = 0f
         autoTrimReadoutDb = 0f
+        limiterMakeupDb = 0f
         gainBudgetDb = 0f
         allChannelGlideJobs.forEachIndexed { i, job -> job?.cancel(); allChannelGlideJobs[i] = null }
         perChannelGlideJobs.forEach { channelJobs ->
@@ -1697,6 +1748,44 @@ class DspEngine {
         }
     }
 
+    /**
+     * How much level to give back after the limiter, for a given headroom
+     * offset.
+     *
+     * Dropping the limiter's ceiling by N dB drops the OUTPUT by N dB, so
+     * without this, turning a feature on made the app quieter than leaving it
+     * off — the exact "quieter, less clear" failure MAX_HEADROOM_DB's own
+     * comment says it exists to avoid. Adding the same N dB back AFTER the
+     * limiter makes that comment's stated intent true in practice: peaks get
+     * more limiting ACTION (caught at a lower ceiling, then brought back up)
+     * while everything below the threshold keeps its original level.
+     *
+     * Two guards, both learned the hard way:
+     *
+     *  - **Precise path only.** Tube Warmth is pinned to the LEGACY split
+     *    (see splitGainBudget), whose headroom is the *entire* budget and is
+     *    uncapped. A first attempt applied makeup unconditionally and handed
+     *    Tube Warmth 5-13 dB of postGain, turning its gentle glue limiter
+     *    into a loudness maximiser — heavy gain reduction into a large boost,
+     *    with its voiced character gone. Legacy means legacy: no makeup, byte
+     *    -identical to pre-1.6.
+     *  - **Capped at [MAX_HEADROOM_DB] regardless.** The precise path already
+     *    caps headroom there, so this is a no-op today — it exists so that
+     *    changing splitGainBudget later cannot silently reintroduce an
+     *    unbounded makeup.
+     */
+    private fun headroomMakeupDb(headroomDb: Float, usePreciseStaging: Boolean): Float =
+        if (usePreciseStaging) (-headroomDb).coerceIn(0f, MAX_HEADROOM_DB) else 0f
+
+    /**
+     * What actually goes into the limiter's postGain: the user's post-gain
+     * plus the headroom makeup. Single source of truth so the three places
+     * that write postGain — attach, updateHeadroom and setPostGain — cannot
+     * disagree and silently drop or double it.
+     */
+    private fun effectivePostGainDb(): Float =
+        (postGainDb + limiterMakeupDb).coerceIn(-12f, 12f)
+
     fun setPreGain(gainDb: Float) = synchronized(this) {
         preGainDb = gainDb.coerceIn(-12f, 12f)
         applyInputGain()
@@ -1732,9 +1821,9 @@ class DspEngine {
                 // Avoids the fragile getLimiterByChannelIndex read-modify-write which
                 // can return stale inUse/enabled state on some Android versions,
                 // causing the postGain update to silently have no effect.
-                limiter.postGain = postGainDb
+                limiter.postGain = effectivePostGainDb()
                 dp.setLimiterAllChannelsTo(limiter)
-                Log.d("DspEngine", "Post gain set to ${postGainDb}dB")
+                Log.d("DspEngine", "Post gain set to ${postGainDb}dB (+${limiterMakeupDb}dB headroom makeup)")
             } catch (e: Exception) {
                 Log.e("DspEngine", "Error setting post gain", e)
             }

@@ -29,6 +29,7 @@ import com.jadoo.amp.update.ContentRepository
 import com.jadoo.amp.update.RemoteContent
 import com.jadoo.amp.update.RemoteHeadphoneProfile
 import com.jadoo.amp.update.RemoteTuning
+import kotlin.math.log10
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -329,13 +330,31 @@ class JadooDspService : Service() {
      * landing on the same band credit correctly instead of double-counting
      * different bands' separate peaks.
      */
+    /**
+     * The device-class tonal correction for one band — see
+     * [DeviceType.correctionDb]. Gated on the phone speaker, which is locked
+     * to General in the UI and has Mobile Bass doing its own thing.
+     *
+     * A model-specific curve from the content channel, when one is active,
+     * REPLACES the class average rather than stacking on it: both describe the
+     * same correction, so summing them would double-correct whatever the two
+     * agree about. The specific measurement always wins over the class guess.
+     */
+    private fun deviceCorrectionShape(index: Int): Float {
+        if (currentDeviceKey == "speaker") return 0f
+        deviceProfileCurve?.let { return it.getOrElse(index) { 0f } }
+        return _deviceType.value.correctionDb(index, _deviceQualityTier.value)
+    }
+
     private fun preEqBassPeakDb(): Float =
-        LoudnessContour.BASS_BANDS.maxOf { manualBandGains[it] + loudnessCompensation[it] + crossfeedShape(it) }
-            .coerceAtLeast(0f)
+        LoudnessContour.BASS_BANDS.maxOf {
+            manualBandGains[it] + loudnessCompensation[it] + crossfeedShape(it) + deviceCorrectionShape(it)
+        }.coerceAtLeast(0f)
 
     private fun preEqTreblePeakDb(): Float =
-        LoudnessContour.TREBLE_BANDS.maxOf { manualBandGains[it] + loudnessCompensation[it] + crossfeedShape(it) }
-            .coerceAtLeast(0f)
+        LoudnessContour.TREBLE_BANDS.maxOf {
+            manualBandGains[it] + loudnessCompensation[it] + crossfeedShape(it) + deviceCorrectionShape(it)
+        }.coerceAtLeast(0f)
 
     private var volumeObserver: ContentObserver? = null
     private var loudnessDebounceJob: Job? = null
@@ -452,6 +471,18 @@ class JadooDspService : Service() {
     val suggestedDeviceProfile: StateFlow<RemoteHeadphoneProfile?> = _suggestedDeviceProfile.asStateFlow()
 
     /**
+     * Name of the content-channel device profile currently applied, or "" for
+     * none. Persisted per output device; the CURVE itself is resolved from
+     * live content (see applyDeviceProfileCurve) rather than stored, so a
+     * later content update improving a curve reaches everyone already on it.
+     */
+    private val _activeDeviceProfileName = MutableStateFlow("")
+    val activeDeviceProfileName: StateFlow<String> = _activeDeviceProfileName.asStateFlow()
+
+    /** Live resolved curve for [_activeDeviceProfileName]; null when none. */
+    @Volatile private var deviceProfileCurve: FloatArray? = null
+
+    /**
      * Profile key for the current (device, app) pair: the per-app key when the
      * active package is opted in, otherwise the plain device key.
      */
@@ -497,6 +528,17 @@ class JadooDspService : Service() {
                 remoteTuning = content.tuning
                 _remoteContent.value = content
                 refreshSuggestedDeviceProfile()
+                // Re-resolve any applied device correction against the new
+                // content, so an improved curve reaches devices already using
+                // that profile without them having to re-apply it.
+                val previousCurve = deviceProfileCurve
+                applyDeviceProfileCurve()
+                val curveChanged = !(previousCurve?.contentEquals(deviceProfileCurve ?: FloatArray(0))
+                    ?: (deviceProfileCurve == null))
+                if (curveChanged && _masterEnabled.value && dspEngine.dynamicsProcessing != null) {
+                    applyAllBands(manualBandGains.copyOf())
+                    refreshHeadroom()
+                }
                 if (tuningChanged && _masterEnabled.value && dspEngine.dynamicsProcessing != null) {
                     rebuildDspTopology()
                 }
@@ -643,6 +685,28 @@ class JadooDspService : Service() {
                     (Build.VERSION.SDK_INT >= 33 && it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST)
             }
             currentOutputDeviceApiType = btDevice?.type ?: AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+
+            // Re-initialise the biquad engines at this route's rate, exactly as
+            // the USB and speaker branches already do. Bluetooth was the one
+            // route that never did, so switching from the 48kHz speaker to a
+            // 44.1kHz A2DP sink left every coefficient still solved for 48kHz.
+            // Both engines are bilinear-transform designs, whose frequency
+            // warping is a function of the sample rate — so the Parametric EQ
+            // magnitude response folded into the PreEQ, and Analog Bass's
+            // shaping, both land slightly off their intended frequencies, with
+            // the error growing towards Nyquist where it is most audible.
+            val btRates = btDevice?.sampleRates ?: IntArray(0)
+            val btHalRate = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toFloatOrNull() ?: 48000f
+            val btRate = if (btRates.isNotEmpty()) {
+                val halRateInt = btHalRate.toInt()
+                if (halRateInt in btRates) btHalRate else btRates.max().toFloat()
+            } else btHalRate
+            if (btRate != digitalFilterEngine.sampleRateHz) {
+                analogBassEngine.initialize(btRate)
+                digitalFilterEngine.initialize(btRate)
+                Log.d(TAG, "Bluetooth route — filters re-initialized at ${btRate}Hz")
+            }
+
             val rawName = try { btDevice?.productName?.toString()?.trim() } catch (_: Exception) { null }
             return if (!rawName.isNullOrBlank()) {
                 val safeName = rawName.filter { it.isLetterOrDigit() || it == ' ' || it == '-' }.trim().take(40)
@@ -720,7 +784,29 @@ class JadooDspService : Service() {
             // pinning to the model's floor is both correct and keeps the
             // arithmetic finite.
             if (!currentDb.isFinite() || !maxDb.isFinite()) return LoudnessContour.MIN_PHON
-            val attenuation = (maxDb - currentDb).coerceAtLeast(0f)
+            var attenuation = (maxDb - currentDb).coerceAtLeast(0f)
+            // ── Bluetooth absolute-volume fallback ───────────────────────
+            // On an A2DP route with absolute volume (the default on modern
+            // Android), the phone does not attenuate the stream at all — it
+            // forwards the level to the sink, which does its own scaling.
+            // getStreamVolumeDb then reports the SAME dB at every index, so
+            // the measurement above yields 0 dB of attenuation no matter
+            // where the slider sits, the contour concludes it is already at
+            // the reference level, and the whole feature silently does
+            // nothing on Bluetooth. That is the reported behaviour.
+            //
+            // When the reading is degenerate (no attenuation reported even
+            // though the user is demonstrably below maximum), fall back to
+            // estimating from the index ratio as a plain amplitude ratio.
+            // Deliberately conservative: Android's real curve is steeper at
+            // the bottom than -20*log10(ratio), so this under-corrects
+            // rather than over-corrects on a route where the true curve is
+            // unknowable. Only engages in the degenerate case, so it cannot
+            // disturb routes where the measurement works.
+            if (attenuation <= 0.01f && index < maxIndex) {
+                val ratio = (index.toFloat() / maxIndex.toFloat()).coerceIn(0.0001f, 1f)
+                attenuation = (-20f * log10(ratio)).coerceAtLeast(0f)
+            }
             (reference - attenuation).coerceIn(LoudnessContour.MIN_PHON, LoudnessContour.MAX_PHON)
         } catch (e: Exception) {
             Log.w(TAG, "getStreamVolumeDb unavailable: ${e.message}")
@@ -970,7 +1056,65 @@ class JadooDspService : Service() {
         val type = DeviceType.entries.firstOrNull { it.name == suggestion.deviceType }
         if (type != null) setDeviceType(type)
         setDeviceQualityTier(suggestion.qualityTier)
+        // Remember WHICH profile is active rather than copying its curve into
+        // the user's own band gains. Copying would silently overwrite an EQ
+        // they had dialled in, and would also freeze the correction at the
+        // version that happened to be live when they tapped Apply — a later
+        // content update improving the curve would never reach them.
+        _activeDeviceProfileName.value = suggestion.name
+        applyDeviceProfileCurve()
         _suggestedDeviceProfile.value = null
+        if (_masterEnabled.value) {
+            applyAllBands(manualBandGains.copyOf())
+            refreshHeadroom()
+        }
+        saveSession()
+    }
+
+    /**
+     * Applies a content-channel device tuning chosen by name.
+     *
+     * The manual counterpart to [applySuggestedDeviceProfile]. Auto-matching
+     * only works where the phone can see the transducer itself; anything
+     * behind an intermediary (a PC over Bluetooth, an AV receiver, a DAC
+     * driving passive speakers) reports the intermediary's name instead, so
+     * for those devices no match string is ever correct and hand-selection is
+     * the only route to the tuning.
+     */
+    fun selectDeviceProfile(name: String) {
+        val profile = _remoteContent.value.headphoneProfiles.firstOrNull { it.name == name } ?: return
+        DeviceType.entries.firstOrNull { it.name == profile.deviceType }?.let { setDeviceType(it) }
+        setDeviceQualityTier(profile.qualityTier)
+        _activeDeviceProfileName.value = profile.name
+        applyDeviceProfileCurve()
+        _suggestedDeviceProfile.value = null
+        if (_masterEnabled.value) {
+            applyAllBands(manualBandGains.copyOf())
+            refreshHeadroom()
+        }
+        saveSession()
+    }
+
+    /** Clears any active content-channel device correction. */
+    fun clearDeviceProfile() {
+        _activeDeviceProfileName.value = ""
+        deviceProfileCurve = null
+        if (_masterEnabled.value) {
+            applyAllBands(manualBandGains.copyOf())
+            refreshHeadroom()
+        }
+        saveSession()
+    }
+
+    /**
+     * Resolves [_activeDeviceProfileName] against the current content into a
+     * live curve. Re-run whenever content refreshes or the name is restored, so
+     * an improved curve shipped later reaches devices already using it.
+     */
+    private fun applyDeviceProfileCurve() {
+        val name = _activeDeviceProfileName.value
+        deviceProfileCurve = if (name.isBlank()) null
+        else _remoteContent.value.headphoneProfiles.firstOrNull { it.name == name }?.curve
     }
 
     /** Manual "check for new content now" — used by the settings UI. */
@@ -1200,6 +1344,8 @@ class JadooDspService : Service() {
         // changed volume while the service was dead.
         _preciseGainStaging.value = state.preciseGainStaging
         _selectedPresetName.value = state.selectedPresetName
+        _activeDeviceProfileName.value = state.deviceProfileName
+        applyDeviceProfileCurve()
         _loudnessEnabled.value = state.loudnessEnabled
         _loudnessAmount.value = state.loudnessAmount.coerceIn(0f, 1f)
         _loudnessReferencePhon.value = state.loudnessReferencePhon
@@ -1261,7 +1407,8 @@ class JadooDspService : Service() {
         loudnessAmount = _loudnessAmount.value,
         loudnessReferencePhon = _loudnessReferencePhon.value,
         preciseGainStaging = _preciseGainStaging.value,
-        selectedPresetName = _selectedPresetName.value
+        selectedPresetName = _selectedPresetName.value,
+        deviceProfileName = _activeDeviceProfileName.value
     )
 
     private fun saveSession() {
@@ -1713,6 +1860,11 @@ class JadooDspService : Service() {
             if (wasAttached) {
                 applySingleBand(bandIndex, clamped)
             }
+            // Graphic EQ boosts are credited in the gain budget (see
+            // preEqBassPeakDb/preEqTreblePeakDb) — without this the limiter
+            // threshold and the Settings readout both stayed stale at
+            // whatever they were before this band moved.
+            refreshHeadroom()
         }
         saveSession()
     }
@@ -1731,6 +1883,7 @@ class JadooDspService : Service() {
         if (_masterEnabled.value) {
             attachGlobalSession()
             applyAllBands(manualBandGains)
+            refreshHeadroom()
         }
         saveSession()
     }
@@ -2575,9 +2728,14 @@ class JadooDspService : Service() {
         // Crossfeed's tonal-EQ curve — see crossfeedShape() for why Crossfeed
         // is a PreEQ contributor now instead of a Virtualizer effect.
         val crossfeedTonalShape = crossfeedShape(index)
+        // Device-class tonal correction — see DeviceType.correctionDb. Applies
+        // whenever a DeviceType other than General is selected, independent of
+        // which features are on, which is what finally gives the Device Type
+        // selector a sound of its own rather than only scaling other features.
+        val deviceCorrection = deviceCorrectionShape(index)
 
         val baseGain = graphicGain + peqGain + hdrAirBoost + tubeWarmthShape +
-            sbcPreEmphasis + loudnessShape + crossfeedTonalShape
+            sbcPreEmphasis + loudnessShape + crossfeedTonalShape + deviceCorrection
 
         val centered = baseGain + surroundBandProfile(mode, index)
         val diff = surroundChannelDifferential(mode, index)

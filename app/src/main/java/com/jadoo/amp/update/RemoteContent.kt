@@ -116,13 +116,31 @@ data class RemoteContent(
                 val name = obj.optString("name").trim()
                 val match = obj.optString("match").trim()
                 if (name.isEmpty() || match.isEmpty()) continue
+                // Optional per-device correction curve. Absent (or the wrong
+                // length) leaves it null, which reproduces the DeviceType-only
+                // behaviour every existing profile relies on — so adding this
+                // field cannot change how any already-shipped profile behaves.
+                val curve = obj.optJSONArray("curve")?.let { arr ->
+                    if (arr.length() != EqBands.count) null
+                    else FloatArray(EqBands.count) { band ->
+                        arr.optDouble(band, 0.0).toFloat()
+                            .takeIf { it.isFinite() }
+                            // Tighter than MAX_BAND_GAIN on purpose: this is a
+                            // correction summed on top of the user's own EQ and
+                            // every other tonal shape, not a preset replacing
+                            // them. A device correction needing more than 6 dB
+                            // is describing a broken speaker, not a tuning.
+                            ?.coerceIn(-6f, 6f) ?: 0f
+                    }
+                }
                 out.add(
                     RemoteHeadphoneProfile(
                         name = name,
                         match = match,
                         deviceType = obj.optString("deviceType", "General").trim(),
                         qualityTier = obj.optDouble("qualityTier", 0.5).toFloat()
-                            .takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f
+                            .takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f,
+                        curve = curve
                     )
                 )
             }
@@ -184,21 +202,45 @@ data class RemoteEqPreset(val name: String, val gains: FloatArray) {
 }
 
 /**
- * A known headphone/DAC, matched against the output device's reported product
- * name (see JadooDspService.computeOutputDeviceKey). Deliberately only carries
- * a DeviceType + quality tier suggestion rather than a full EQ correction: the
- * app's device-aware scaling already consumes exactly those two values, so this
- * plugs into an existing mechanism instead of inventing a parallel one.
+ * A known output device, matched against the reported product name (see
+ * JadooDspService.computeOutputDeviceKey).
+ *
+ * Carries the DeviceType + quality tier that the app's device-aware scaling
+ * already consumes, and optionally [curve]: a 15-band correction for what THIS
+ * specific model measurably does wrong, which the class-average DeviceType
+ * curve cannot express. Null [curve] is the original behaviour and stays the
+ * common case — most devices are adequately served by their class.
  */
 data class RemoteHeadphoneProfile(
     val name: String,
     val match: String,
     val deviceType: String,
-    val qualityTier: Float
+    val qualityTier: Float,
+    val curve: FloatArray? = null
 ) {
     /** Case-insensitive substring match against a device label like "Bluetooth: WH-1000XM4". */
     fun matches(deviceLabel: String): Boolean =
         deviceLabel.contains(match, ignoreCase = true)
+
+    // FloatArray needs explicit equals/hashCode or the data class falls back to
+    // reference equality for `curve`, which would make two identically-parsed
+    // profiles compare unequal.
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is RemoteHeadphoneProfile) return false
+        return name == other.name && match == other.match &&
+            deviceType == other.deviceType && qualityTier == other.qualityTier &&
+            (curve?.contentEquals(other.curve ?: FloatArray(0)) ?: (other.curve == null))
+    }
+
+    override fun hashCode(): Int {
+        var result = name.hashCode()
+        result = 31 * result + match.hashCode()
+        result = 31 * result + deviceType.hashCode()
+        result = 31 * result + qualityTier.hashCode()
+        result = 31 * result + (curve?.contentHashCode() ?: 0)
+        return result
+    }
 }
 
 /**
