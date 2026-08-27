@@ -244,8 +244,27 @@ fun WhatsNewDialog(
                                     }
                                     state = ApkUpdater.State.Installing
                                     val installError = ApkUpdater.install(context, file)
-                                    if (installError != null) {
-                                        state = ApkUpdater.State.Failed(installError)
+                                    state = if (installError != null) {
+                                        ApkUpdater.State.Failed(installError)
+                                    } else {
+                                        // A null return means the session was
+                                        // COMMITTED, not that the install
+                                        // finished — the system installer takes
+                                        // over from here and reports its outcome
+                                        // to InstallResultReceiver, which has no
+                                        // way to reach this dialog.
+                                        //
+                                        // Staying on Installing therefore left
+                                        // "Opening installer…" on screen forever
+                                        // with both buttons hidden (they render
+                                        // only for Idle/Failed) whenever the user
+                                        // declined the system prompt — which is
+                                        // silent by design — or the confirmation
+                                        // activity failed to launch. Returning to
+                                        // Idle restores the buttons, so backing
+                                        // out of the system installer leaves a
+                                        // usable dialog to retry or dismiss.
+                                        ApkUpdater.State.Idle
                                     }
                                 }
                             },
