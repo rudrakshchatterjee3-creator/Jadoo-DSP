@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contentVersion": 5,
+  "contentVersion": 6,
   "presets": [
     {
       "name": "Late Night",
@@ -85,6 +85,29 @@
         -2.0,
         -1.5,
         -0.5
+      ]
+    },
+    {
+      "name": "TANGZU Wan'er S.G. 2 Red Lion",
+      "match": "Wan'er",
+      "deviceType": "Iem",
+      "qualityTier": 0.55,
+      "curve": [
+        0.0,
+        0.0,
+        -0.5,
+        -1.5,
+        -1.5,
+        -0.5,
+        0.8,
+        0.8,
+        0.0,
+        -0.5,
+        -2.0,
+        -1.0,
+        0.0,
+        1.0,
+        1.5
       ]
     }
   ],
