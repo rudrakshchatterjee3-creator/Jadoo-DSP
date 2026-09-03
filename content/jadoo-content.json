@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contentVersion": 9,
+  "contentVersion": 10,
   "presets": [
     {
       "name": "Late Night",
@@ -77,10 +77,10 @@
       "deviceType": "Iem",
       "qualityTier": 0.55,
       "curve": [
-        -3.3, -2.4, -2.1, -2.1, -2.8, -2.5, -0.7, 0.6,
-        0.1, -1.1, 0.5, 3.4, 5.9, 0.7, -4.8
+        -2.0, -1.4, -1.3, -1.3, -1.7, -1.5, -0.4, 0.4,
+        0.1, -0.7, 0.3, 2.0, 3.5, 0.4, -2.9
       ],
-      "source": "Digitized from a user-supplied screen recording of the TANGZU SG 2 Red Lion Edition IEC711/ITU-T P.57 Type 2 coupler measurement (site: RAA) vs. the Harman In-Ear 2019 target, both traces present on-screen. Extracted programmatically: video frame -> per-pixel curve-color detection (blue=measured, orange=target) -> axis calibrated from the chart's own gridline/label pixel positions (log-linear regression on frequency labels, R^2 residuals <2px; 74.5px/6dB on the level axis) -> correction = target - measured at each of this app's 15 bands. Approximate (chart line width, video compression) but a real measurement, not invented. Every value already sits within the +-6dB device-correction budget, no rescaling needed."
+      "source": "Digitized from a user-supplied screen recording of the TANGZU SG 2 Red Lion Edition IEC711/ITU-T P.57 Type 2 coupler measurement (site: RAA) vs. the Harman In-Ear 2019 target, both traces present on-screen. Extracted programmatically: video frame -> per-pixel curve-color detection (blue=measured, orange=target) -> axis calibrated from the chart's own gridline/label pixel positions (log-linear regression on frequency labels, R^2 residuals <2px; 74.5px/6dB on the level axis) -> correction = target - measured at each of this app's 15 bands. The full-strength correction (v9) read as tinny in listening: reduced bass + a +5.9dB 6.3kHz boost filling a dip that's narrow on the real graph but wide across this app's fixed band, so it over-boosted presence. This curve is that same real correction applied at 60% strength (same shape, tamed magnitude) rather than a different/invented curve."
     }
   ],
   "tuning": {
