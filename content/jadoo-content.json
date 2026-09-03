@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contentVersion": 6,
+  "contentVersion": 8,
   "presets": [
     {
       "name": "Late Night",
@@ -65,50 +65,18 @@
   ],
   "headphoneProfiles": [
     {
-      "name": "Inspire 5300 (Test)",
+      "name": "Creative Inspire 5300",
       "match": "Inspire 5300",
       "deviceType": "HomeSpeaker",
-      "qualityTier": 0.45,
-      "curve": [
-        -1.5,
-        -0.5,
-        -2.0,
-        -1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.0,
-        0.5,
-        0.0,
-        -0.5,
-        -1.0,
-        -2.0,
-        -1.5,
-        -0.5
-      ]
+      "qualityTier": 0.35,
+      "source": "Real product (Creative Inspire 5.1 5300, satellite+subwoofer PC speaker set, rated 47Hz-20kHz). No professional coupler/GRAS measurement of this specific unit is publicly available anywhere reachable (AutoEq, squig.link, Rtings all cover headphones/IEMs, not 2003-era budget PC speaker sets) — no curve is shipped rather than inventing one. Selecting this profile applies DeviceType.HomeSpeaker's documented, literature-cited class-average correction (see DeviceType.kt) at this unit's budget quality tier."
     },
     {
       "name": "TANGZU Wan'er S.G. 2 Red Lion",
       "match": "Wan'er",
       "deviceType": "Iem",
       "qualityTier": 0.55,
-      "curve": [
-        0.0,
-        0.0,
-        -0.5,
-        -1.5,
-        -1.5,
-        -0.5,
-        0.8,
-        0.8,
-        0.0,
-        -0.5,
-        -2.0,
-        -1.0,
-        0.0,
-        1.0,
-        1.5
-      ]
+      "source": "Real product, measured by Crinacle/others on squig.link (e.g. boizoff.squig.link, arn.squig.link, csi-zone.squig.link all list it) — but every raw-data endpoint checked returns HTTP 403 (Cloudflare) and AutoEq has no published result (see closed request github.com/jaakkopasanen/AutoEq/issues/735). No curve is shipped rather than inventing one. Selecting this profile applies DeviceType.Iem's documented class-average correction at this unit's mid quality tier. Replace with a real curve the moment squig.link data becomes fetchable, or paste the graph and it can be digitized by hand."
     }
   ],
   "tuning": {
