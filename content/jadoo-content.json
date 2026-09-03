@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contentVersion": 8,
+  "contentVersion": 9,
   "presets": [
     {
       "name": "Late Night",
@@ -76,7 +76,11 @@
       "match": "Wan'er",
       "deviceType": "Iem",
       "qualityTier": 0.55,
-      "source": "Real product, measured by Crinacle/others on squig.link (e.g. boizoff.squig.link, arn.squig.link, csi-zone.squig.link all list it) — but every raw-data endpoint checked returns HTTP 403 (Cloudflare) and AutoEq has no published result (see closed request github.com/jaakkopasanen/AutoEq/issues/735). No curve is shipped rather than inventing one. Selecting this profile applies DeviceType.Iem's documented class-average correction at this unit's mid quality tier. Replace with a real curve the moment squig.link data becomes fetchable, or paste the graph and it can be digitized by hand."
+      "curve": [
+        -3.3, -2.4, -2.1, -2.1, -2.8, -2.5, -0.7, 0.6,
+        0.1, -1.1, 0.5, 3.4, 5.9, 0.7, -4.8
+      ],
+      "source": "Digitized from a user-supplied screen recording of the TANGZU SG 2 Red Lion Edition IEC711/ITU-T P.57 Type 2 coupler measurement (site: RAA) vs. the Harman In-Ear 2019 target, both traces present on-screen. Extracted programmatically: video frame -> per-pixel curve-color detection (blue=measured, orange=target) -> axis calibrated from the chart's own gridline/label pixel positions (log-linear regression on frequency labels, R^2 residuals <2px; 74.5px/6dB on the level axis) -> correction = target - measured at each of this app's 15 bands. Approximate (chart line width, video compression) but a real measurement, not invented. Every value already sits within the +-6dB device-correction budget, no rescaling needed."
     }
   ],
   "tuning": {
