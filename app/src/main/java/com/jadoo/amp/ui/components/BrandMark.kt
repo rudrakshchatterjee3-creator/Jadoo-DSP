@@ -1,8 +1,5 @@
 package com.jadoo.amp.ui.components
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -24,10 +21,11 @@ import com.jadoo.amp.ui.theme.BrandPalette
  *     overlap           41.8%
  *     centres           share one horizontal axis
  *
- * One composable serves the app header, the About screen, onboarding, and the
- * theme-change transition. That is the reason it is a Canvas and not a
- * `VectorPainter` over the drawable: [progress] drives a stroke trim, which a
- * static vector cannot do, and the transition needs the mark to draw itself on.
+ * Drawn via [DrawScope] rather than a `@Composable` so the theme transition
+ * can call it from inside its own overlay's draw phase without a nested
+ * composable — and therefore without recomposing once per animation frame.
+ * That is also why it isn't a `VectorPainter` over a static drawable:
+ * [progress] drives a stroke trim, which a static vector cannot do.
  *
  * @param progress 0..1 stroke trim. At 0 nothing is drawn; at 1 the mark is
  *   complete. The elements strike on in reading order — left ring, datum,
@@ -35,31 +33,6 @@ import com.jadoo.amp.ui.theme.BrandPalette
  * @param datumCurve 0..1 blend of the right circle's bar from flat (0) to the
  *   EQ boost (1). Animating this is the cheapest possible way to say "the DSP
  *   is on" without adding an element.
- */
-@Composable
-fun BrandMark(
-    modifier: Modifier = Modifier,
-    progress: Float = 1f,
-    datumCurve: Float = 1f,
-    referenceColor: Color = BrandPalette.White,
-    processedColor: Color = BrandPalette.Gold,
-    strokeRatio: Float = 0.125f
-) {
-    Canvas(modifier) {
-        drawBrandMark(
-            progress = progress,
-            datumCurve = datumCurve,
-            referenceColor = referenceColor,
-            processedColor = processedColor,
-            strokeRatio = strokeRatio
-        )
-    }
-}
-
-/**
- * Canvas-level draw, exposed separately so the theme transition can call it
- * from inside its own overlay's draw phase without a nested composable — and
- * therefore without recomposing once per animation frame.
  */
 fun DrawScope.drawBrandMark(
     progress: Float,

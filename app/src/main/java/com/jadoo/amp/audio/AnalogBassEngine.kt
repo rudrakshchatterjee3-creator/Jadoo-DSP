@@ -55,9 +55,6 @@ class AnalogBassEngine {
         Log.d(TAG, "Initialized at ${sampleRateHz}Hz")
     }
 
-    /** Reset all state (call on track change or session switch) */
-    fun resetState() {}
-
     // Analog Bass processing is implemented via DynamicsProcessing MBC + PostEQ bands
     // configured in DspEngine. The raw PCM processSample/processBlock methods are not
     // called since JadOO intercepts audio at the OS session level.

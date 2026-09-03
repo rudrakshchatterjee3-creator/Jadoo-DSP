@@ -461,7 +461,9 @@ class DspEngine {
             true
         } catch (e: Exception) {
             Log.e("DspEngine", "Failed to attach DynamicsProcessing — old DP preserved if present", e)
-            newDynamicsProcessing?.release()
+            try { newDynamicsProcessing?.release() } catch (cleanupEx: Exception) {
+                Log.w("DspEngine", "Failed to release partially-constructed DP (OEM HAL issue?): ${cleanupEx.message}")
+            }
             currentLimiter = null
             false
         }

@@ -54,7 +54,12 @@ class JadooDspService : Service() {
     }
 
     private val binder = LocalBinder()
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val serviceScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate +
+        kotlinx.coroutines.CoroutineExceptionHandler { _, t ->
+            Log.e(TAG, "Uncaught exception in serviceScope coroutine", t)
+        }
+    )
     val dspEngine = DspEngine()
     private var mediaSessionManager: MediaSessionManager? = null
     private lateinit var sessionController: SessionController
@@ -667,7 +672,7 @@ class JadooDspService : Service() {
         // the audio output. getDevices() alone can include paired-but-idle BT
         // devices which aren't actually playing.
         @Suppress("DEPRECATION")
-        val btA2dpActive = am.isBluetoothA2dpOn
+        val btA2dpActive = try { am.isBluetoothA2dpOn } catch (_: Exception) { false }
         val bleActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             allOutputs.any {
                 it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
@@ -719,7 +724,7 @@ class JadooDspService : Service() {
         // isWiredHeadsetOn() is the active-route flag; TYPE_WIRED_* in
         // getDevices() is the connected flag. Use the flag to confirm routing.
         @Suppress("DEPRECATION")
-        val wiredActive = am.isWiredHeadsetOn
+        val wiredActive = try { am.isWiredHeadsetOn } catch (_: Exception) { false }
         if (wiredActive) {
             currentOutputDeviceApiType = allOutputs.firstOrNull {
                 it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
@@ -1014,18 +1019,19 @@ class JadooDspService : Service() {
      * device's saved DSP profile (or sensible defaults for a new device).
      */
     private fun handleOutputRouteChange() {
-        val (newKey, newLabel) = computeOutputDeviceKey()
-        _currentOutputDevice.value = newLabel
-        if (newKey == currentDeviceKey) {
-            // Same route, but the reported device type may have been refined
-            // (e.g. A2DP resolved to a named device) — the volume-to-SPL curve
-            // is per device type, so re-derive the loudness correction.
-            recomputeLoudness()
-            return
+        try {
+            val (newKey, newLabel) = computeOutputDeviceKey()
+            _currentOutputDevice.value = newLabel
+            if (newKey == currentDeviceKey) {
+                recomputeLoudness()
+                return
+            }
+            currentDeviceKey = newKey
+            refreshSuggestedDeviceProfile()
+            switchToProfile(resolveProfileKey(), "output device: $newLabel")
+        } catch (e: Exception) {
+            Log.e(TAG, "handleOutputRouteChange failed (OEM HAL issue?): ${e.message}", e)
         }
-        currentDeviceKey = newKey
-        refreshSuggestedDeviceProfile()
-        switchToProfile(resolveProfileKey(), "output device: $newLabel")
     }
 
     /**
@@ -2293,14 +2299,9 @@ class JadooDspService : Service() {
         saveSession()
     }
 
-    fun updateDigitalFilterBand(index: Int, type: DigitalFilterEngine.FilterType, frequency: Float, gain: Float, q: Float, isEnabled: Boolean) {
-        digitalFilterEngine.setBand(index, DigitalFilterEngine.FilterBand(
-            enabled = isEnabled,
-            type = type,
-            frequencyHz = frequency,
-            gainDb = gain,
-            q = q
-        ))
+    /** Applies a single PEQ band mutation, then re-attaches/re-writes/persists exactly like every other band setter. */
+    private inline fun applyDigitalFilterChange(mutate: () -> Unit) {
+        mutate()
         if (_masterEnabled.value) {
             attachGlobalSession()
             applyDigitalFilterToPreEq()
@@ -2308,50 +2309,20 @@ class JadooDspService : Service() {
         saveSession()
     }
 
-    fun setDigitalFilterBandType(index: Int, type: DigitalFilterEngine.FilterType) {
-        digitalFilterEngine.setBandType(index, type)
-        if (_masterEnabled.value) {
-            attachGlobalSession()
-            applyDigitalFilterToPreEq()
-        }
-        saveSession()
-    }
+    fun setDigitalFilterBandType(index: Int, type: DigitalFilterEngine.FilterType) =
+        applyDigitalFilterChange { digitalFilterEngine.setBandType(index, type) }
 
-    fun setDigitalFilterBandFrequency(index: Int, frequency: Float) {
-        digitalFilterEngine.setBandFrequency(index, frequency)
-        if (_masterEnabled.value) {
-            attachGlobalSession()
-            applyDigitalFilterToPreEq()
-        }
-        saveSession()
-    }
+    fun setDigitalFilterBandFrequency(index: Int, frequency: Float) =
+        applyDigitalFilterChange { digitalFilterEngine.setBandFrequency(index, frequency) }
 
-    fun setDigitalFilterBandGain(index: Int, gain: Float) {
-        digitalFilterEngine.setBandGain(index, gain)
-        if (_masterEnabled.value) {
-            attachGlobalSession()
-            applyDigitalFilterToPreEq()
-        }
-        saveSession()
-    }
+    fun setDigitalFilterBandGain(index: Int, gain: Float) =
+        applyDigitalFilterChange { digitalFilterEngine.setBandGain(index, gain) }
 
-    fun setDigitalFilterBandQ(index: Int, q: Float) {
-        digitalFilterEngine.setBandQ(index, q)
-        if (_masterEnabled.value) {
-            attachGlobalSession()
-            applyDigitalFilterToPreEq()
-        }
-        saveSession()
-    }
+    fun setDigitalFilterBandQ(index: Int, q: Float) =
+        applyDigitalFilterChange { digitalFilterEngine.setBandQ(index, q) }
 
-    fun setDigitalFilterBandEnabled(index: Int, enabled: Boolean) {
-        digitalFilterEngine.setBandEnabled(index, enabled)
-        if (_masterEnabled.value) {
-            attachGlobalSession()
-            applyDigitalFilterToPreEq()
-        }
-        saveSession()
-    }
+    fun setDigitalFilterBandEnabled(index: Int, enabled: Boolean) =
+        applyDigitalFilterChange { digitalFilterEngine.setBandEnabled(index, enabled) }
 
     /** Reset all 8 PEQ bands to defaults in a single batch — avoids 40 rapid DSP writes. */
     fun resetDigitalFilterBands() {

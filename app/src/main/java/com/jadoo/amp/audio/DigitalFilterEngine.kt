@@ -419,41 +419,4 @@ class DigitalFilterEngine {
         proc.a1 = a1 / a0
         proc.a2 = a2 / a0
     }
-
-    /**
-     * Compute the frequency response magnitude at a given frequency.
-     * Useful for displaying the filter curve in the UI.
-     * Returns gain in dB.
-     */
-    fun getResponseAtFrequency(freqHz: Float): Float {
-        if (!enabled) return 0f
-        var totalGainDb = 0f
-        synchronized(lock) {
-            for (i in 0 until MAX_BANDS) {
-                if (!bands[i].enabled) continue
-                val proc = processors[i]
-                val w = (2.0 * PI * freqHz / sampleRate)
-                val cosW = cos(w)
-                val cos2W = cos(2.0 * w)
-                val sinW = sin(w)
-                val sin2W = sin(2.0 * w)
-
-                // H(z) = (b0 + b1*z^-1 + b2*z^-2) / (1 + a1*z^-1 + a2*z^-2)
-                // Evaluate at z = e^(jw)
-                val numReal = proc.b0 + proc.b1 * cosW.toFloat() + proc.b2 * cos2W.toFloat()
-                val numImag = -(proc.b1 * sinW.toFloat() + proc.b2 * sin2W.toFloat())
-                val denReal = 1f + proc.a1 * cosW.toFloat() + proc.a2 * cos2W.toFloat()
-                val denImag = -(proc.a1 * sinW.toFloat() + proc.a2 * sin2W.toFloat())
-
-                val numMagSq = numReal * numReal + numImag * numImag
-                val denMagSq = denReal * denReal + denImag * denImag
-
-                if (denMagSq > 0f) {
-                    val magSq = numMagSq / denMagSq
-                    totalGainDb += (10f * kotlin.math.log10(magSq.coerceAtLeast(1e-10f)))
-                }
-            }
-        }
-        return totalGainDb
-    }
 }

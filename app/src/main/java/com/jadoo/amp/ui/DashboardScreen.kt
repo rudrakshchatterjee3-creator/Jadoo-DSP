@@ -68,7 +68,6 @@ import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -90,7 +89,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -324,7 +322,6 @@ fun DashboardScreen(
     perAppProfileActive: Boolean,
     perAppProfilePackages: Set<String>,
     // Content channel (Lane A)
-    contentVersion: Int,
     suggestedDeviceProfileName: String?,
     // Manually selectable content-channel device tunings — see the picker in
     // SettingsScreen for why auto-matching alone is not enough.
@@ -627,7 +624,6 @@ fun DashboardScreen(
             activeAppLabel = activePackageName,
             perAppProfilePackages = perAppProfilePackages,
             onPerAppProfileToggled = onPerAppProfileToggled,
-            contentVersion = contentVersion,
             onRefreshContent = onRefreshContent,
             deviceProfileNames = deviceProfileNames,
             activeDeviceProfileName = activeDeviceProfileName,
@@ -2670,7 +2666,6 @@ private fun SettingsScreen(
     activeAppLabel: String?,
     perAppProfilePackages: Set<String>,
     onPerAppProfileToggled: (String, Boolean) -> Unit,
-    contentVersion: Int,
     onRefreshContent: () -> Unit,
     deviceProfileNames: List<String>,
     activeDeviceProfileName: String,
@@ -2853,7 +2848,7 @@ private fun SettingsScreen(
                     }
                     Text(
                         text = "Preset packs, known-device tuning and DSP constants update on " +
-                            "their own, no app reinstall needed. Currently on revision $contentVersion.",
+                            "their own, no app reinstall needed.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )

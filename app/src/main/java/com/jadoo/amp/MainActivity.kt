@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -31,7 +30,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.jadoo.amp.audio.DbfbMode
-import com.jadoo.amp.audio.DigitalFilterEngine
 import com.jadoo.amp.audio.HdrMode
 import com.jadoo.amp.audio.EqBands
 import com.jadoo.amp.audio.JadooDspService
@@ -593,7 +591,6 @@ class MainActivity : ComponentActivity() {
             perAppProfileActive = perAppProfileActive,
             perAppProfilePackages = perAppProfilePackages,
             // Content channel
-            contentVersion = remoteContent.contentVersion,
             suggestedDeviceProfileName = suggestedDeviceProfile?.name,
             deviceProfileNames = remoteContent.headphoneProfiles.map { it.name },
             activeDeviceProfileName = activeDeviceProfileName,

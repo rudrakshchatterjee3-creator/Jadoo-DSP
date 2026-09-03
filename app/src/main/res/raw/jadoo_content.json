@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contentVersion": 3,
+  "contentVersion": 9,
   "presets": [
     {
       "name": "Late Night",
@@ -63,7 +63,26 @@
       ]
     }
   ],
-  "headphoneProfiles": [],
+  "headphoneProfiles": [
+    {
+      "name": "Creative Inspire 5300",
+      "match": "Inspire 5300",
+      "deviceType": "HomeSpeaker",
+      "qualityTier": 0.35,
+      "source": "Real product (Creative Inspire 5.1 5300, satellite+subwoofer PC speaker set, rated 47Hz-20kHz). No professional coupler/GRAS measurement of this specific unit is publicly available anywhere reachable (AutoEq, squig.link, Rtings all cover headphones/IEMs, not 2003-era budget PC speaker sets) — no curve is shipped rather than inventing one. Selecting this profile applies DeviceType.HomeSpeaker's documented, literature-cited class-average correction (see DeviceType.kt) at this unit's budget quality tier."
+    },
+    {
+      "name": "TANGZU Wan'er S.G. 2 Red Lion",
+      "match": "Wan'er",
+      "deviceType": "Iem",
+      "qualityTier": 0.55,
+      "curve": [
+        -3.3, -2.4, -2.1, -2.1, -2.8, -2.5, -0.7, 0.6,
+        0.1, -1.1, 0.5, 3.4, 5.9, 0.7, -4.8
+      ],
+      "source": "Digitized from a user-supplied screen recording of the TANGZU SG 2 Red Lion Edition IEC711/ITU-T P.57 Type 2 coupler measurement (site: RAA) vs. the Harman In-Ear 2019 target, both traces present on-screen. Extracted programmatically: video frame -> per-pixel curve-color detection (blue=measured, orange=target) -> axis calibrated from the chart's own gridline/label pixel positions (log-linear regression on frequency labels, R^2 residuals <2px; 74.5px/6dB on the level axis) -> correction = target - measured at each of this app's 15 bands. Approximate (chart line width, video compression) but a real measurement, not invented. Every value already sits within the +-6dB device-correction budget, no rescaling needed."
+    }
+  ],
   "tuning": {
     "hdrRestorationThreshold": -38.0,
     "hdrRestorationKnee": 14.0,
