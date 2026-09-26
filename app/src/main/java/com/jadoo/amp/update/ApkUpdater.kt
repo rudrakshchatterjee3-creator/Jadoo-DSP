@@ -63,12 +63,9 @@ object ApkUpdater {
      * opens the right settings page for it.
      */
     fun canInstall(context: Context): Boolean =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.packageManager.canRequestPackageInstalls()
-        } else true
+        context.packageManager.canRequestPackageInstalls()
 
     fun requestInstallPermission(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
             data = Uri.parse("package:${context.packageName}")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -101,43 +98,47 @@ object ApkUpdater {
             mkdirs()
         }
         val target = File(dir, release.apkAssetName ?: "update.apk")
+        var connection: HttpURLConnection? = null
         try {
             val url = URL(assetUrl)
             if (!url.protocol.equals("https", ignoreCase = true)) {
                 Log.w(TAG, "Refusing non-HTTPS APK URL")
                 return@withContext null
             }
-            var connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 15000
-            connection.readTimeout = 30000
+            var conn = url.openConnection() as HttpURLConnection
+            connection = conn
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
             // GitHub serves release assets via a redirect to its CDN. Follow it
             // manually so each hop can be re-checked for HTTPS rather than
             // letting the stack silently downgrade to plain HTTP.
             var redirects = 0
-            while (connection.responseCode in 300..399 && redirects < 5) {
-                val location = connection.getHeaderField("Location") ?: break
-                val next = URL(location)
+            while (conn.responseCode in 300..399 && redirects < 5) {
+                val location = conn.getHeaderField("Location") ?: break
+                // Resolved against the current URL: Location may be relative.
+                val next = URL(conn.url, location)
                 if (!next.protocol.equals("https", ignoreCase = true)) {
                     Log.w(TAG, "Refusing non-HTTPS redirect during APK download")
-                    connection.disconnect()
+                    conn.disconnect()
                     return@withContext null
                 }
-                connection.disconnect()
-                connection = (next.openConnection() as HttpURLConnection).apply {
+                conn.disconnect()
+                conn = (next.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15000
                     readTimeout = 30000
                 }
+                connection = conn
                 redirects++
             }
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                Log.w(TAG, "APK download failed: HTTP ${connection.responseCode}")
+            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                Log.w(TAG, "APK download failed: HTTP ${conn.responseCode}")
                 return@withContext null
             }
 
             val total = if (release.apkAssetSizeBytes > 0) release.apkAssetSizeBytes
-                        else connection.contentLength.toLong()
+                        else conn.contentLength.toLong()
             var written = 0L
-            connection.inputStream.use { input ->
+            conn.inputStream.use { input ->
                 target.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
                     while (true) {
@@ -149,12 +150,23 @@ object ApkUpdater {
                     }
                 }
             }
+            // A connection that drops mid-body can end the stream cleanly
+            // (read() returns -1) instead of throwing, which would otherwise
+            // hand a truncated file to verifyApk and surface as the
+            // misleading "not a valid APK" rather than a network failure.
+            if (total > 0 && written != total) {
+                Log.w(TAG, "APK download truncated: $written of $total bytes")
+                target.delete()
+                return@withContext null
+            }
             onProgress(1f)
             target
         } catch (e: Exception) {
             Log.w(TAG, "APK download failed: ${e.message}")
             target.delete()
             null
+        } finally {
+            connection?.disconnect()
         }
     }
 
@@ -167,11 +179,7 @@ object ApkUpdater {
      */
     fun verifyApk(context: Context, apk: File): String? {
         val pm = context.packageManager
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            PackageManager.GET_SIGNING_CERTIFICATES
-        } else {
-            @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES
-        }
+        val flags = PackageManager.GET_SIGNING_CERTIFICATES
 
         val downloaded = try {
             pm.getPackageArchiveInfo(apk.absolutePath, flags)
@@ -191,8 +199,12 @@ object ApkUpdater {
             null
         } ?: return "Could not read the installed app's signature to compare against."
 
-        val downloadedCerts = signatureDigests(downloaded.signatures())
-        val installedCerts = signatureDigests(installed.signatures())
+        val downloadedCerts = signatureDigests(
+            downloaded.signatures() ?: legacyArchiveSignatures(pm, apk)
+        )
+        val installedCerts = signatureDigests(
+            installed.signatures() ?: legacyInstalledSignatures(pm, context.packageName)
+        )
 
         if (downloadedCerts.isEmpty() || installedCerts.isEmpty()) {
             return "Could not extract a signing certificate to verify."
@@ -206,15 +218,30 @@ object ApkUpdater {
         return null
     }
 
-    @Suppress("DEPRECATION")
     private fun android.content.pm.PackageInfo.signatures(): Array<Signature>? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            signingInfo?.let {
-                if (it.hasMultipleSigners()) it.apkContentsSigners else it.signingCertificateHistory
-            }
-        } else {
-            @Suppress("DEPRECATION") this.signatures
+        signingInfo?.let {
+            if (it.hasMultipleSigners()) it.apkContentsSigners else it.signingCertificateHistory
         }
+
+    /**
+     * Fallbacks for when [android.content.pm.PackageInfo.signingInfo] comes
+     * back null. That happens on some OEM builds of API 28-32 for archive
+     * (not-yet-installed) APKs, and would otherwise reject a perfectly valid
+     * update with "Could not extract a signing certificate". GET_SIGNATURES is
+     * deprecated but still populated on every API level we support; it
+     * reports the current signer only, which is still a byte-exact check.
+     */
+    @Suppress("DEPRECATION")
+    private fun legacyArchiveSignatures(pm: PackageManager, apk: File): Array<Signature>? =
+        runCatching {
+            pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNATURES)?.signatures
+        }.getOrNull()
+
+    @Suppress("DEPRECATION")
+    private fun legacyInstalledSignatures(pm: PackageManager, packageName: String): Array<Signature>? =
+        runCatching {
+            pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures
+        }.getOrNull()
 
     /** SHA-256 of each signing certificate, for byte-exact comparison. */
     private fun signatureDigests(signatures: Array<Signature>?): Set<String> {
@@ -243,6 +270,9 @@ object ApkUpdater {
                 PackageInstaller.SessionParams.MODE_FULL_INSTALL
             ).apply {
                 setAppPackageName(context.packageName)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
+                }
             }
             val sessionId = installer.createSession(params)
             installer.openSession(sessionId).use { session ->
@@ -250,7 +280,12 @@ object ApkUpdater {
                     apk.inputStream().use { input -> input.copyTo(output) }
                     session.fsync(output)
                 }
-                val intent = Intent(INSTALL_ACTION).setPackage(context.packageName)
+                // This must be an explicit component intent. The receiver has
+                // no intent-filter (intentionally), so the old package-scoped
+                // implicit action never resolved and the installer callback —
+                // including STATUS_PENDING_USER_ACTION — was silently lost.
+                val intent = Intent(context, InstallResultReceiver::class.java)
+                    .setAction(INSTALL_ACTION)
                 val flags = PendingIntent.FLAG_UPDATE_CURRENT or
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
                 val pending = PendingIntent.getBroadcast(context, sessionId, intent, flags)

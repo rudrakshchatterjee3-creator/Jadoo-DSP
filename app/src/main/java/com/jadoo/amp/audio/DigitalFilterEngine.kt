@@ -40,23 +40,180 @@ class DigitalFilterEngine {
 
     companion object {
         private const val TAG = "DigitalFilterEngine"
-        const val MAX_BANDS = 8
+        const val MAX_BANDS = 16
+        const val MIN_FREQUENCY_HZ = 20f
+        const val MAX_FREQUENCY_HZ = 20_000f
+        const val MIN_GAIN_DB = -15f
+        const val MAX_GAIN_DB = 15f
+        const val MIN_Q = 0.1f
+        const val MAX_Q = 18f
+        const val DEFAULT_SAMPLE_RATE_HZ = 48_000f
+
+        /**
+         * Useful starting points spread logarithmically over the audible range.
+         * Existing 8-band profiles retain their first eight serialized bands;
+         * the additional bands migrate as disabled defaults at indices 9-16.
+         */
+        val DEFAULT_FREQUENCIES_HZ = floatArrayOf(
+            25f, 40f, 63f, 100f, 160f, 250f, 400f, 630f,
+            1_000f, 1_600f, 2_500f, 4_000f, 6_300f, 10_000f, 16_000f, 20_000f
+        )
+
+        fun defaultBand(index: Int): FilterBand = FilterBand(
+            enabled = false,
+            type = FilterType.Peak,
+            frequencyHz = DEFAULT_FREQUENCIES_HZ.getOrElse(index) { 1_000f },
+            gainDb = 0f,
+            q = 1f
+        )
+
+        /** Sanitizes imported and UI-provided values before they reach filter math. */
+        fun sanitizeBand(band: FilterBand, index: Int = 0): FilterBand = band.copy(
+            frequencyHz = band.frequencyHz.takeIf(Float::isFinite)
+                ?.coerceIn(MIN_FREQUENCY_HZ, MAX_FREQUENCY_HZ)
+                ?: DEFAULT_FREQUENCIES_HZ.getOrElse(index) { 1_000f },
+            gainDb = band.gainDb.takeIf(Float::isFinite)
+                ?.coerceIn(MIN_GAIN_DB, MAX_GAIN_DB) ?: 0f,
+            q = band.q.takeIf(Float::isFinite)?.coerceIn(MIN_Q, MAX_Q) ?: 1f
+        )
 
         fun evaluateMagnitudeResponseDb(
             b0: Float, b1: Float, b2: Float,
             a1: Float, a2: Float,
             frequencyHz: Float, sampleRateHz: Float
         ): Float {
-            if (sampleRateHz <= 0f) return 0f
-            val w = 2.0 * PI * frequencyHz / sampleRateHz
+            if (!sampleRateHz.isFinite() || sampleRateHz <= 0f || !frequencyHz.isFinite()) return 0f
+            val safeFrequency = frequencyHz.coerceIn(1f, sampleRateHz * 0.499f)
+            val w = 2.0 * PI * safeFrequency / sampleRateHz
             val cW = cos(w); val sW = sin(w)
             val c2W = cos(2.0 * w); val s2W = sin(2.0 * w)
             val nr = b0.toDouble() + b1 * cW + b2 * c2W
             val ni = b1 * sW + b2 * s2W
             val dr = 1.0 + a1 * cW + a2 * c2W
             val di = a1 * sW + a2 * s2W
-            val hPow2 = (nr * nr + ni * ni) / (dr * dr + di * di)
-            return if (hPow2 > 0.0) (10.0 * log10(hPow2)).toFloat() else 0f
+            val denominatorPower = dr * dr + di * di
+            val hPow2 = if (denominatorPower.isFinite() && denominatorPower > 1e-20) {
+                (nr * nr + ni * ni) / denominatorPower
+            } else Double.NaN
+            return if (hPow2.isFinite() && hPow2 >= 0.0) {
+                (10.0 * log10(hPow2.coerceAtLeast(1e-12))).toFloat()
+                    .takeIf(Float::isFinite) ?: 0f
+            } else 0f
+        }
+
+        /**
+         * Exact response used by both the engine and the UI graph. Keeping one
+         * implementation prevents the graph from promising a shape that the
+         * live PEQ mapper does not produce (previously Notch/BandPass/AllPass
+         * all drew as flat even though the engine evaluated them differently).
+         */
+        fun evaluateBandMagnitudeResponseDb(
+            band: BiquadBandState,
+            frequencyHz: Float,
+            sampleRateHz: Float = DEFAULT_SAMPLE_RATE_HZ
+        ): Float {
+            if (!band.isEnabled) return 0f
+            val sanitized = sanitizeBand(
+                FilterBand(true, band.type, band.frequency, band.gain, band.q),
+                band.index
+            )
+            val coefficients = coefficientsFor(sanitized, sanitizeSampleRate(sampleRateHz))
+            return evaluateMagnitudeResponseDb(
+                coefficients.b0, coefficients.b1, coefficients.b2,
+                coefficients.a1, coefficients.a2,
+                frequencyHz, sanitizeSampleRate(sampleRateHz)
+            )
+        }
+
+        fun evaluateCombinedMagnitudeResponseDb(
+            bands: List<BiquadBandState>,
+            frequencyHz: Float,
+            sampleRateHz: Float = DEFAULT_SAMPLE_RATE_HZ
+        ): Float = bands.sumOf {
+            evaluateBandMagnitudeResponseDb(it, frequencyHz, sampleRateHz).toDouble()
+        }.toFloat().takeIf(Float::isFinite) ?: 0f
+
+        private data class Coefficients(
+            val b0: Float,
+            val b1: Float,
+            val b2: Float,
+            val a1: Float,
+            val a2: Float
+        )
+
+        private fun sanitizeSampleRate(value: Float): Float =
+            value.takeIf { it.isFinite() && it in 8_000f..384_000f } ?: DEFAULT_SAMPLE_RATE_HZ
+
+        private fun coefficientsFor(rawBand: FilterBand, rawSampleRate: Float): Coefficients {
+            val sampleRate = sanitizeSampleRate(rawSampleRate)
+            val band = sanitizeBand(rawBand).let {
+                it.copy(frequencyHz = it.frequencyHz.coerceAtMost(sampleRate * 0.475f))
+            }
+            val w0 = (2.0 * PI * band.frequencyHz / sampleRate).toFloat()
+            val cosW0 = cos(w0.toDouble()).toFloat()
+            val sinW0 = sin(w0.toDouble()).toFloat()
+            val alpha = sinW0 / (2f * band.q)
+            val a = 10f.pow(band.gainDb / 40f)
+
+            val b0: Float
+            val b1: Float
+            val b2: Float
+            val a0: Float
+            val a1: Float
+            val a2: Float
+
+            when (band.type) {
+                FilterType.Peak -> {
+                    b0 = 1f + alpha * a; b1 = -2f * cosW0; b2 = 1f - alpha * a
+                    a0 = 1f + alpha / a; a1 = -2f * cosW0; a2 = 1f - alpha / a
+                }
+                FilterType.LowShelf -> {
+                    val sqrtA = sqrt(a); val twoSqrtAAlpha = 2f * sqrtA * alpha
+                    b0 = a * ((a + 1f) - (a - 1f) * cosW0 + twoSqrtAAlpha)
+                    b1 = 2f * a * ((a - 1f) - (a + 1f) * cosW0)
+                    b2 = a * ((a + 1f) - (a - 1f) * cosW0 - twoSqrtAAlpha)
+                    a0 = (a + 1f) + (a - 1f) * cosW0 + twoSqrtAAlpha
+                    a1 = -2f * ((a - 1f) + (a + 1f) * cosW0)
+                    a2 = (a + 1f) + (a - 1f) * cosW0 - twoSqrtAAlpha
+                }
+                FilterType.HighShelf -> {
+                    val sqrtA = sqrt(a); val twoSqrtAAlpha = 2f * sqrtA * alpha
+                    b0 = a * ((a + 1f) + (a - 1f) * cosW0 + twoSqrtAAlpha)
+                    b1 = -2f * a * ((a - 1f) + (a + 1f) * cosW0)
+                    b2 = a * ((a + 1f) + (a - 1f) * cosW0 - twoSqrtAAlpha)
+                    a0 = (a + 1f) - (a - 1f) * cosW0 + twoSqrtAAlpha
+                    a1 = 2f * ((a - 1f) - (a + 1f) * cosW0)
+                    a2 = (a + 1f) - (a - 1f) * cosW0 - twoSqrtAAlpha
+                }
+                FilterType.LowPass -> {
+                    b0 = (1f - cosW0) / 2f; b1 = 1f - cosW0; b2 = b0
+                    a0 = 1f + alpha; a1 = -2f * cosW0; a2 = 1f - alpha
+                }
+                FilterType.HighPass -> {
+                    b0 = (1f + cosW0) / 2f; b1 = -(1f + cosW0); b2 = b0
+                    a0 = 1f + alpha; a1 = -2f * cosW0; a2 = 1f - alpha
+                }
+                FilterType.BandPass -> {
+                    b0 = alpha; b1 = 0f; b2 = -alpha
+                    a0 = 1f + alpha; a1 = -2f * cosW0; a2 = 1f - alpha
+                }
+                FilterType.Notch -> {
+                    b0 = 1f; b1 = -2f * cosW0; b2 = 1f
+                    a0 = 1f + alpha; a1 = -2f * cosW0; a2 = 1f - alpha
+                }
+                FilterType.AllPass -> {
+                    b0 = 1f - alpha; b1 = -2f * cosW0; b2 = 1f + alpha
+                    a0 = 1f + alpha; a1 = -2f * cosW0; a2 = 1f - alpha
+                }
+            }
+
+            if (!a0.isFinite() || kotlin.math.abs(a0) < 1e-9f) {
+                return Coefficients(1f, 0f, 0f, 0f, 0f)
+            }
+            val result = Coefficients(b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0)
+            return if (listOf(result.b0, result.b1, result.b2, result.a1, result.a2).all(Float::isFinite)) {
+                result
+            } else Coefficients(1f, 0f, 0f, 0f, 0f)
         }
     }
 
@@ -106,22 +263,22 @@ class DigitalFilterEngine {
     // ── State ────────────────────────────────────────────────────────
 
     @Volatile var enabled = false
-    private var sampleRate = 48000f
+    private var sampleRate = DEFAULT_SAMPLE_RATE_HZ
     val sampleRateHz: Float get() = sampleRate
-    private val bands = Array(MAX_BANDS) { FilterBand() }
+    private val bands = Array(MAX_BANDS) { defaultBand(it) }
     private val processors = Array(MAX_BANDS) { BiquadProcessor() }
     private val lock = Any()
     
     // StateFlow for UI observation
     private val _bandStates = MutableStateFlow(List(MAX_BANDS) { index ->
-        BiquadBandState(index, FilterType.Peak, 1000f, 0f, 1.0f, false)
+        defaultBand(index).toState(index)
     })
     val bandStates: StateFlow<List<BiquadBandState>> = _bandStates.asStateFlow()
 
     // ── Public API ───────────────────────────────────────────────────
 
     fun initialize(sampleRateHz: Float = 48000f) {
-        sampleRate = sampleRateHz
+        sampleRate = sanitizeSampleRate(sampleRateHz)
         resetAllState()
         // Recalculate all enabled bands when sample rate changes
         synchronized(lock) {
@@ -129,7 +286,7 @@ class DigitalFilterEngine {
                 if (bands[i].enabled) calculateCoefficients(i)
             }
         }
-        Log.d(TAG, "Initialized at ${sampleRateHz}Hz with $MAX_BANDS bands")
+        Log.d(TAG, "Initialized at ${sampleRate}Hz with $MAX_BANDS bands")
     }
 
     fun resetAllState() {
@@ -147,19 +304,20 @@ class DigitalFilterEngine {
     fun setBand(index: Int, band: FilterBand) {
         if (index !in 0 until MAX_BANDS) return
         synchronized(lock) {
-            bands[index] = band.copy()
-            if (band.enabled) {
+            val safeBand = sanitizeBand(band, index)
+            bands[index] = safeBand
+            if (safeBand.enabled) {
                 calculateCoefficients(index)
             }
             // Update StateFlow
             val currentState = _bandStates.value.toMutableList()
             currentState[index] = BiquadBandState(
                 index = index,
-                type = band.type,
-                frequency = band.frequencyHz,
-                gain = band.gainDb,
-                q = band.q,
-                isEnabled = band.enabled
+                type = safeBand.type,
+                frequency = safeBand.frequencyHz,
+                gain = safeBand.gainDb,
+                q = safeBand.q,
+                isEnabled = safeBand.enabled
             )
             _bandStates.value = currentState
         }
@@ -175,7 +333,7 @@ class DigitalFilterEngine {
     fun setBandGain(index: Int, gainDb: Float) {
         if (index !in 0 until MAX_BANDS) return
         synchronized(lock) {
-            bands[index].gainDb = gainDb.coerceIn(-15f, 15f)
+            bands[index].gainDb = gainDb.takeIf(Float::isFinite)?.coerceIn(MIN_GAIN_DB, MAX_GAIN_DB) ?: 0f
             if (bands[index].enabled) calculateCoefficients(index)
             // Update StateFlow
             updateBandStateFlow(index)
@@ -186,7 +344,7 @@ class DigitalFilterEngine {
     fun setBandQ(index: Int, q: Float) {
         if (index !in 0 until MAX_BANDS) return
         synchronized(lock) {
-            bands[index].q = q.coerceIn(0.1f, 18f)
+            bands[index].q = q.takeIf(Float::isFinite)?.coerceIn(MIN_Q, MAX_Q) ?: 1f
             if (bands[index].enabled) calculateCoefficients(index)
             // Update StateFlow
             updateBandStateFlow(index)
@@ -197,7 +355,9 @@ class DigitalFilterEngine {
     fun setBandFrequency(index: Int, freqHz: Float) {
         if (index !in 0 until MAX_BANDS) return
         synchronized(lock) {
-            bands[index].frequencyHz = freqHz.coerceIn(20f, 20000f)
+            bands[index].frequencyHz = freqHz.takeIf(Float::isFinite)
+                ?.coerceIn(MIN_FREQUENCY_HZ, MAX_FREQUENCY_HZ)
+                ?: DEFAULT_FREQUENCIES_HZ[index]
             if (bands[index].enabled) calculateCoefficients(index)
             // Update StateFlow
             updateBandStateFlow(index)
@@ -226,15 +386,10 @@ class DigitalFilterEngine {
             for (i in 0 until MAX_BANDS) {
                 if (!bands[i].enabled) continue
                 val proc = processors[i]
-                val w  = 2.0 * PI * freqHz / sampleRate
-                val cW  = cos(w);  val sW  = sin(w)
-                val c2W = cos(2.0 * w); val s2W = sin(2.0 * w)
-                val nr = proc.b0.toDouble() + proc.b1 * cW + proc.b2 * c2W
-                val ni = proc.b1 * sW + proc.b2 * s2W
-                val dr = 1.0 + proc.a1 * cW + proc.a2 * c2W
-                val di = proc.a1 * sW + proc.a2 * s2W
-                val hPow2 = (nr * nr + ni * ni) / (dr * dr + di * di)
-                if (hPow2 > 0.0) totalDb += 10.0 * log10(hPow2)
+                totalDb += evaluateMagnitudeResponseDb(
+                    proc.b0, proc.b1, proc.b2, proc.a1, proc.a2,
+                    freqHz, sampleRate
+                )
             }
         }
         return totalDb.toFloat()
@@ -325,98 +480,26 @@ class DigitalFilterEngine {
         _bandStates.value = currentState
     }
 
+    private fun FilterBand.toState(index: Int) = BiquadBandState(
+        index = index,
+        type = type,
+        frequency = frequencyHz,
+        gain = gainDb,
+        q = q,
+        isEnabled = enabled
+    )
+
     // ══════════════════════════════════════════════════════════════════
     // COEFFICIENT CALCULATION (Audio EQ Cookbook)
     // ══════════════════════════════════════════════════════════════════
 
     private fun calculateCoefficients(index: Int) {
-        val band = bands[index]
         val proc = processors[index]
-        val w0 = (2.0 * PI * band.frequencyHz / sampleRate).toFloat()
-        val cosW0 = cos(w0.toDouble()).toFloat()
-        val sinW0 = sin(w0.toDouble()).toFloat()
-        val alpha = sinW0 / (2f * band.q)
-        val a = 10f.pow(band.gainDb / 40f)  // linear amplitude
-
-        var b0: Float; var b1: Float; var b2: Float
-        var a0: Float; var a1: Float; var a2: Float
-
-        when (band.type) {
-            FilterType.Peak -> {
-                b0 = 1f + alpha * a
-                b1 = -2f * cosW0
-                b2 = 1f - alpha * a
-                a0 = 1f + alpha / a
-                a1 = -2f * cosW0
-                a2 = 1f - alpha / a
-            }
-            FilterType.LowShelf -> {
-                val sqrtA = sqrt(a)
-                val twoSqrtAAlpha = 2f * sqrtA * alpha
-                b0 = a * ((a + 1f) - (a - 1f) * cosW0 + twoSqrtAAlpha)
-                b1 = 2f * a * ((a - 1f) - (a + 1f) * cosW0)
-                b2 = a * ((a + 1f) - (a - 1f) * cosW0 - twoSqrtAAlpha)
-                a0 = (a + 1f) + (a - 1f) * cosW0 + twoSqrtAAlpha
-                a1 = -2f * ((a - 1f) + (a + 1f) * cosW0)
-                a2 = (a + 1f) + (a - 1f) * cosW0 - twoSqrtAAlpha
-            }
-            FilterType.HighShelf -> {
-                val sqrtA = sqrt(a)
-                val twoSqrtAAlpha = 2f * sqrtA * alpha
-                b0 = a * ((a + 1f) + (a - 1f) * cosW0 + twoSqrtAAlpha)
-                b1 = -2f * a * ((a - 1f) + (a + 1f) * cosW0)
-                b2 = a * ((a + 1f) + (a - 1f) * cosW0 - twoSqrtAAlpha)
-                a0 = (a + 1f) - (a - 1f) * cosW0 + twoSqrtAAlpha
-                a1 = 2f * ((a - 1f) - (a + 1f) * cosW0)
-                a2 = (a + 1f) - (a - 1f) * cosW0 - twoSqrtAAlpha
-            }
-            FilterType.LowPass -> {
-                b0 = (1f - cosW0) / 2f
-                b1 = 1f - cosW0
-                b2 = (1f - cosW0) / 2f
-                a0 = 1f + alpha
-                a1 = -2f * cosW0
-                a2 = 1f - alpha
-            }
-            FilterType.HighPass -> {
-                b0 = (1f + cosW0) / 2f
-                b1 = -(1f + cosW0)
-                b2 = (1f + cosW0) / 2f
-                a0 = 1f + alpha
-                a1 = -2f * cosW0
-                a2 = 1f - alpha
-            }
-            FilterType.BandPass -> {
-                b0 = alpha
-                b1 = 0f
-                b2 = -alpha
-                a0 = 1f + alpha
-                a1 = -2f * cosW0
-                a2 = 1f - alpha
-            }
-            FilterType.Notch -> {
-                b0 = 1f
-                b1 = -2f * cosW0
-                b2 = 1f
-                a0 = 1f + alpha
-                a1 = -2f * cosW0
-                a2 = 1f - alpha
-            }
-            FilterType.AllPass -> {
-                b0 = 1f - alpha
-                b1 = -2f * cosW0
-                b2 = 1f + alpha
-                a0 = 1f + alpha
-                a1 = -2f * cosW0
-                a2 = 1f - alpha
-            }
-        }
-
-        // Normalize by a0
-        proc.b0 = b0 / a0
-        proc.b1 = b1 / a0
-        proc.b2 = b2 / a0
-        proc.a1 = a1 / a0
-        proc.a2 = a2 / a0
+        val coefficients = coefficientsFor(bands[index], sampleRate)
+        proc.b0 = coefficients.b0
+        proc.b1 = coefficients.b1
+        proc.b2 = coefficients.b2
+        proc.a1 = coefficients.a1
+        proc.a2 = coefficients.a2
     }
 }

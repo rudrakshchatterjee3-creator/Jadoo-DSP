@@ -147,6 +147,13 @@ data class RemoteContent(
             return out
         }
 
+        /**
+         * Content documents must declare at least this generation for their
+         * SBC curve to be used. Bumped whenever the meaning of the curve
+         * changes rather than just its values.
+         */
+        private const val SBC_CURVE_GENERATION = 2
+
         private fun parseTuning(root: JSONObject): RemoteTuning {
             val obj = root.optJSONObject("tuning") ?: return RemoteTuning()
             val defaults = RemoteTuning()
@@ -157,18 +164,39 @@ data class RemoteContent(
                 return if (v.isFinite()) v.coerceIn(min, max) else fallback
             }
 
-            val sbc = obj.optJSONArray("sbcPreEmphasis")?.let { arr ->
-                if (arr.length() != EqBands.count) null
-                else FloatArray(EqBands.count) { band ->
-                    arr.optDouble(band, 0.0).toFloat()
-                        .takeIf { it.isFinite() }
-                        // Tighter than the general EQ bound: this curve is
-                        // summed on TOP of the user's own EQ and the surround
-                        // smile, and it currently peaks at +7dB. ±10 leaves
-                        // room to retune without room to blow up the mix.
-                        ?.coerceIn(-10f, 10f) ?: 0f
+            // The SBC curve is only honoured from documents that explicitly
+            // declare which GENERATION of the curve they carry.
+            //
+            // Generation 1 documents (everything published before the SBC
+            // engine was rewritten) hold the old "pre-emphasis" curve, which
+            // peaked at +7dB on the top band. That curve is not a milder
+            // version of the current one — it is the opposite of it. SBC
+            // allocates bits in proportion to each subband's level, so
+            // boosting the top octave spends the bitpool on the least
+            // audible region and starves the rest; the current curve cuts
+            // there for exactly that reason (see SbcEngine).
+            //
+            // Since a content document overrides the built-in curve, a stale
+            // generation-1 document sitting in a cache — or still being served
+            // — would silently reinstate the old behaviour on devices that
+            // have the fix. Requiring the marker means old documents fall
+            // through to SbcEngine.conditioningCurveDb instead, and a future
+            // retune only has to set "sbcCurveGeneration": 2.
+            val sbcGeneration = obj.optInt("sbcCurveGeneration", 1)
+            val sbc = obj.optJSONArray("sbcPreEmphasis")
+                ?.takeIf { sbcGeneration >= SBC_CURVE_GENERATION }
+                ?.let { arr ->
+                    if (arr.length() != EqBands.count) null
+                    else FloatArray(EqBands.count) { band ->
+                        arr.optDouble(band, 0.0).toFloat()
+                            .takeIf { it.isFinite() }
+                            // Tighter than the general EQ bound: this curve is
+                            // summed on TOP of the user's own EQ and the
+                            // surround smile. ±10 leaves room to retune
+                            // without room to blow up the mix.
+                            ?.coerceIn(-10f, 10f) ?: 0f
+                    }
                 }
-            }
 
             return RemoteTuning(
                 // Bounds mirror what these values can sanely be in

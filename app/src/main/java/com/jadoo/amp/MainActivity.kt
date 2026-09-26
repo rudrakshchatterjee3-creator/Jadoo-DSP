@@ -1,6 +1,5 @@
 package com.jadoo.amp
 
-import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -58,6 +57,8 @@ import com.jadoo.amp.update.ReleaseInfo
 import com.jadoo.amp.update.UpdateChecker
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+
+private const val POST_NOTIFICATIONS_PERMISSION = "android.permission.POST_NOTIFICATIONS"
 
 class MainActivity : ComponentActivity() {
 
@@ -236,7 +237,7 @@ class MainActivity : ComponentActivity() {
                     val permissionLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.RequestMultiplePermissions()
                     ) { permissions ->
-                        val notifGranted = permissions[Manifest.permission.POST_NOTIFICATIONS] ?: true
+                        val notifGranted = permissions[POST_NOTIFICATIONS_PERMISSION] ?: true
                         hasPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) notifGranted else true
                     }
 
@@ -244,10 +245,10 @@ class MainActivity : ComponentActivity() {
                         val perms = mutableListOf<String>()
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             if (ContextCompat.checkSelfPermission(
-                                    this@MainActivity, Manifest.permission.POST_NOTIFICATIONS
+                                    this@MainActivity, POST_NOTIFICATIONS_PERMISSION
                                 ) != PackageManager.PERMISSION_GRANTED
                             ) {
-                                perms.add(Manifest.permission.POST_NOTIFICATIONS)
+                                perms.add(POST_NOTIFICATIONS_PERMISSION)
                             }
                         }
                         if (perms.isNotEmpty()) {
@@ -259,7 +260,10 @@ class MainActivity : ComponentActivity() {
                         MainContent(
                             onAppearanceChanged = applyThemeAnimated,
                             currentAppearance = effectiveSettings,
-                            themeSettings = themeSettings
+                            themeSettings = themeSettings,
+                            // Settings' manual "Check for updates" — shows the
+                            // same dialog as the launch check, snooze ignored.
+                            onUpdateAvailable = { newRelease = it }
                         )
                     } else {
                         PermissionsErrorCard()
@@ -366,7 +370,8 @@ class MainActivity : ComponentActivity() {
          * point, which is what makes the transition feel caused rather than
          * merely triggered.
          */
-        onAppearanceChanged: (Offset, ThemeSettings) -> Unit
+        onAppearanceChanged: (Offset, ThemeSettings) -> Unit,
+        onUpdateAvailable: (ReleaseInfo) -> Unit
     ) {
         // Forward an "External EQ" launch to the service once it's bound.
         LaunchedEffect(audioService, pendingExternalSession) {
@@ -774,6 +779,7 @@ class MainActivity : ComponentActivity() {
             },
             // Content channel
             onRefreshContent = { audioService?.refreshRemoteContent() },
+            onUpdateAvailable = onUpdateAvailable,
             onApplySuggestedDeviceProfile = { audioService?.applySuggestedDeviceProfile() },
             onSelectDeviceProfile = { name -> audioService?.selectDeviceProfile(name) },
             onClearDeviceProfile = { audioService?.clearDeviceProfile() },
@@ -810,7 +816,7 @@ class MainActivity : ComponentActivity() {
 
     private fun checkPermissions(): Boolean {
         val notifGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, POST_NOTIFICATIONS_PERMISSION) == PackageManager.PERMISSION_GRANTED
         } else {
             true
         }

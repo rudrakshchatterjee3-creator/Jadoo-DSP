@@ -7,9 +7,11 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.database.ContentObserver
+import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.AudioPlaybackConfiguration
 import android.media.audiofx.AudioEffect
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
@@ -29,6 +31,7 @@ import com.jadoo.amp.update.ContentRepository
 import com.jadoo.amp.update.RemoteContent
 import com.jadoo.amp.update.RemoteHeadphoneProfile
 import com.jadoo.amp.update.RemoteTuning
+import kotlin.math.abs
 import kotlin.math.log10
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +54,16 @@ class JadooDspService : Service() {
     companion object {
         private const val TAG = "JadooDspService"
         private const val GLOBAL_AUDIO_SESSION_ID = 0
+
+        // How long to wait after a playback-stream change before re-attaching,
+        // so the new output mix thread is fully up first. See
+        // registerAudioPlaybackCallback.
+        private const val PLAYBACK_REATTACH_DEBOUNCE_MS = 450L
+
+        // Floor on the interval between playback-triggered re-attaches. A
+        // single track transition can emit several config callbacks; rebuilding
+        // the topology for each one would be audible.
+        private const val PLAYBACK_REATTACH_MIN_INTERVAL_MS = 1_500L
     }
 
     private val binder = LocalBinder()
@@ -316,7 +329,8 @@ class JadooDspService : Service() {
 
     /**
      * Peak static PreEQ gain currently sitting in the bass/treble zones from
-     * Graphic EQ + Loudness Contour + Crossfeed's tonal curve COMBINED — fed
+     * Graphic EQ, Parametric EQ, Loudness Contour, Crossfeed, device correction,
+     * and SBC pre-emphasis combined — fed
      * to DspEngine's gain-budget model (see calculateGainBudget) so a manual
      * EQ boost gets the same limiter-headroom credit every other narrowband
      * feature already gets. Graphic EQ and Crossfeed were both previously
@@ -324,16 +338,9 @@ class JadooDspService : Service() {
      * touched PreEQ at all — now that it's a tonal-EQ curve, its own
      * low-mid boost needs the same credit as everything else that lands there).
      *
-     * Deliberately not the full writeCombinedBand sum (which also includes
-     * Parametric EQ, SBC pre-emphasis, HDR's air shelf, Tube Warmth's shape):
-     * those need DigitalFilterEngine's biquad evaluator to get a real
-     * per-band value, and this is recomputed on every tick of the Device
-     * Quality Tier slider (see setDeviceQualityTier/refreshHeadroom) — plain
-     * arithmetic here is free at that rate, a 15-band biquad evaluation is
-     * not. All three sources are summed PER BAND before the peak is taken,
-     * matching how they actually combine in the live PreEQ write, so gains
-     * landing on the same band credit correctly instead of double-counting
-     * different bands' separate peaks.
+     * All contributors are summed per band before the peak is taken, matching
+     * the live PreEQ write. This prevents an active narrow PEQ boost or the SBC
+     * air curve from escaping the limiter-headroom model.
      */
     /**
      * The device-class tonal correction for one band — see
@@ -351,15 +358,40 @@ class JadooDspService : Service() {
         return _deviceType.value.correctionDb(index, _deviceQualityTier.value)
     }
 
+    private fun parametricEqShape(index: Int): Float {
+        val loHz = if (index == 0) 20f else EqBands.cutoffFrequencies[index - 1]
+        return digitalFilterEngine.evaluateBandPeakDb(loHz, EqBands.cutoffFrequencies[index])
+    }
+
+    /**
+     * True when SBC encoder-input conditioning should be running: the user
+     * enabled it AND we are actually on a Bluetooth route. Single source of
+     * truth for the tonal half (below), the dynamics half (DspEngine's crest
+     * band) and hasActiveDspFeatures, so the three cannot disagree and leave
+     * the curve written with no crest band behind it, or vice versa.
+     */
+    private fun sbcConditioningActive(): Boolean =
+        _sbcModeEnabled.value && currentDeviceKey.startsWith("bt")
+
+    /**
+     * The tonal half of SBC conditioning — see [SbcEngine] for why this curve
+     * cuts the top octave instead of boosting it.
+     */
+    private fun sbcPreEmphasisShape(index: Int): Float {
+        if (!sbcConditioningActive()) return 0f
+        return remoteTuning.sbcPreEmphasis?.getOrNull(index)
+            ?: SbcEngine.conditioningCurveDb.getOrElse(index) { 0f }
+    }
+
+    private fun staticPreEqShape(index: Int): Float =
+        manualBandGains[index] + parametricEqShape(index) + loudnessCompensation[index] +
+            crossfeedShape(index) + deviceCorrectionShape(index) + sbcPreEmphasisShape(index)
+
     private fun preEqBassPeakDb(): Float =
-        LoudnessContour.BASS_BANDS.maxOf {
-            manualBandGains[it] + loudnessCompensation[it] + crossfeedShape(it) + deviceCorrectionShape(it)
-        }.coerceAtLeast(0f)
+        LoudnessContour.BASS_BANDS.maxOf(::staticPreEqShape).coerceAtLeast(0f)
 
     private fun preEqTreblePeakDb(): Float =
-        LoudnessContour.TREBLE_BANDS.maxOf {
-            manualBandGains[it] + loudnessCompensation[it] + crossfeedShape(it) + deviceCorrectionShape(it)
-        }.coerceAtLeast(0f)
+        LoudnessContour.TREBLE_BANDS.maxOf(::staticPreEqShape).coerceAtLeast(0f)
 
     private var volumeObserver: ContentObserver? = null
     private var loudnessDebounceJob: Job? = null
@@ -415,6 +447,7 @@ class JadooDspService : Service() {
     val digitalFilterEnabled: StateFlow<Boolean> = _digitalFilterEnabled.asStateFlow()
 
     private var saveDebounceJob: Job? = null
+    private var peqApplyJob: Job? = null
     // Generation counter guarding the delayed PreEQ "settle" re-apply after
     // HDR Dynamics is enabled (see setHdrDynamicsEnabled).
     private var hdrSettleToken = 0
@@ -504,6 +537,12 @@ class JadooDspService : Service() {
     private var audioDeviceHandlerThread: HandlerThread? = null
     private var audioDeviceHandler: Handler? = null
 
+    // ── Playback-stream watcher (see registerAudioPlaybackCallback) ───────
+    private var audioPlaybackCallback: AudioManager.AudioPlaybackCallback? = null
+    private var lastPlaybackFingerprint: String? = null
+    private var playbackReattachJob: Job? = null
+    private var lastPlaybackReattachAt = 0L
+
     inner class LocalBinder : Binder() {
         fun getService(): JadooDspService = this@JadooDspService
     }
@@ -557,6 +596,7 @@ class JadooDspService : Service() {
         _currentOutputDevice.value = initialDeviceLabel
         refreshSuggestedDeviceProfile()
         registerAudioDeviceCallback()
+        registerAudioPlaybackCallback()
         registerVolumeObserver()
 
         // Load the per-app opt-in list before anything can resolve a profile
@@ -624,7 +664,21 @@ class JadooDspService : Service() {
         // USB audio is exclusive — if it's in the list it IS the active route.
         val allOutputs = try { am.getDevices(AudioManager.GET_DEVICES_OUTPUTS) }
                          catch (_: Exception) { emptyArray() }
-        val usb = allOutputs.firstOrNull {
+        val mediaOutputs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                am.getAudioDevicesForAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                ).toTypedArray().takeIf { it.isNotEmpty() } ?: allOutputs
+            } catch (e: Exception) {
+                Log.w(TAG, "Active media route query failed; using legacy detection: ${e.message}")
+                allOutputs
+            }
+        } else allOutputs
+
+        val usb = mediaOutputs.firstOrNull {
             it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
                 it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
                 it.type == AudioDeviceInfo.TYPE_USB_ACCESSORY
@@ -641,27 +695,7 @@ class JadooDspService : Service() {
                 else "usb" to "USB Audio"
             } else "usb" to "USB Audio"
 
-            // Prefer the sample rate reported directly by the device over the
-            // HAL property — the property can be stale at callback time (HAL
-            // updates it asynchronously after the route switches). Pick the
-            // highest rate the DAC advertises that the HAL also confirms, so
-            // biquad coefficients are calculated at the rate audio actually flows.
-            val deviceRates = usb.sampleRates ?: IntArray(0)
-            val halRate = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toFloatOrNull() ?: 48000f
-            val usbRate = if (deviceRates.isNotEmpty()) {
-                // Use the HAL rate if it's one the device supports (most likely case),
-                // else fall back to the device's highest supported rate.
-                val halRateInt = halRate.toInt()
-                if (halRateInt in deviceRates) halRate
-                else deviceRates.max().toFloat()
-            } else halRate
-
-            if (usbRate != digitalFilterEngine.sampleRateHz) {
-                analogBassEngine.initialize(usbRate)
-                digitalFilterEngine.initialize(usbRate)
-                Log.d(TAG, "USB DAC ($usbLabel) — filters re-initialized at ${usbRate}Hz " +
-                    "(device supports: ${deviceRates.joinToString()}, HAL reports: ${halRate}Hz)")
-            }
+            updateFilterSampleRate(am, usb, usbLabel)
             currentOutputDeviceApiType = usb.type
             return usbKey to usbLabel
         }
@@ -674,21 +708,23 @@ class JadooDspService : Service() {
         @Suppress("DEPRECATION")
         val btA2dpActive = try { am.isBluetoothA2dpOn } catch (_: Exception) { false }
         val bleActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            allOutputs.any {
+            mediaOutputs.any {
                 it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
                     it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
-                    (Build.VERSION.SDK_INT >= 33 && it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST)
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST)
             }
         } else false
 
-        if (btA2dpActive || bleActive) {
-            val btDevice = allOutputs.firstOrNull {
+        val routedBtDevice = mediaOutputs.firstOrNull {
                 it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
                     (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                         (it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                         it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER)) ||
-                    (Build.VERSION.SDK_INT >= 33 && it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST)
-            }
+                         it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER))
+        }
+        if (btA2dpActive || bleActive ||
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && routedBtDevice != null)) {
+            val btDevice = routedBtDevice
             currentOutputDeviceApiType = btDevice?.type ?: AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
 
             // Re-initialise the biquad engines at this route's rate, exactly as
@@ -700,17 +736,7 @@ class JadooDspService : Service() {
             // magnitude response folded into the PreEQ, and Analog Bass's
             // shaping, both land slightly off their intended frequencies, with
             // the error growing towards Nyquist where it is most audible.
-            val btRates = btDevice?.sampleRates ?: IntArray(0)
-            val btHalRate = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toFloatOrNull() ?: 48000f
-            val btRate = if (btRates.isNotEmpty()) {
-                val halRateInt = btHalRate.toInt()
-                if (halRateInt in btRates) btHalRate else btRates.max().toFloat()
-            } else btHalRate
-            if (btRate != digitalFilterEngine.sampleRateHz) {
-                analogBassEngine.initialize(btRate)
-                digitalFilterEngine.initialize(btRate)
-                Log.d(TAG, "Bluetooth route — filters re-initialized at ${btRate}Hz")
-            }
+            updateFilterSampleRate(am, btDevice, "Bluetooth")
 
             val rawName = try { btDevice?.productName?.toString()?.trim() } catch (_: Exception) { null }
             return if (!rawName.isNullOrBlank()) {
@@ -726,10 +752,12 @@ class JadooDspService : Service() {
         @Suppress("DEPRECATION")
         val wiredActive = try { am.isWiredHeadsetOn } catch (_: Exception) { false }
         if (wiredActive) {
-            currentOutputDeviceApiType = allOutputs.firstOrNull {
+            val wiredDevice = mediaOutputs.firstOrNull {
                 it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
                     it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET
-            }?.type ?: AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+            }
+            currentOutputDeviceApiType = wiredDevice?.type ?: AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+            updateFilterSampleRate(am, wiredDevice, "Wired Headphones")
             return "wired" to "Wired Headphones"
         }
 
@@ -738,20 +766,41 @@ class JadooDspService : Service() {
         // switches back to the phone's native rate. PROPERTY_OUTPUT_SAMPLE_RATE
         // can still briefly reflect the USB rate right after removal; the built-in
         // speaker's AudioDeviceInfo entry is more reliable for its supported rates.
-        val speakerDevice = allOutputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-        val speakerRates = speakerDevice?.sampleRates ?: IntArray(0)
-        val halRate = am.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toFloatOrNull() ?: 48000f
-        val nativeRate = if (speakerRates.isNotEmpty()) {
-            val halRateInt = halRate.toInt()
-            if (halRateInt in speakerRates) halRate else speakerRates.max().toFloat()
-        } else halRate
-        if (nativeRate != digitalFilterEngine.sampleRateHz) {
-            analogBassEngine.initialize(nativeRate)
-            digitalFilterEngine.initialize(nativeRate)
-            Log.d(TAG, "Output reverted to speaker — filters re-initialized at ${nativeRate}Hz")
-        }
+        val speakerDevice = mediaOutputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+            ?: allOutputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+        updateFilterSampleRate(am, speakerDevice, "Phone Speaker")
         currentOutputDeviceApiType = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
         return "speaker" to "Phone Speaker"
+    }
+
+    /**
+     * AudioDeviceInfo.sampleRates is a capability list, not the active rate.
+     * Android does not expose the exact live output-mix rate here. Prefer the
+     * platform's native primary-output rate; if an OEM reports a value the
+     * route cannot use, choose the closest capability instead of incorrectly
+     * treating the highest advertised rate as active.
+     */
+    private fun updateFilterSampleRate(
+        audioManager: AudioManager,
+        device: AudioDeviceInfo?,
+        routeLabel: String
+    ) {
+        val reportedRate = try {
+            audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toFloatOrNull()
+        } catch (_: Exception) { null }
+        val safeReportedRate = reportedRate
+            ?.takeIf { it.isFinite() && it in 8_000f..384_000f }
+            ?: DigitalFilterEngine.DEFAULT_SAMPLE_RATE_HZ
+        val supportedRates = (device?.sampleRates ?: intArrayOf()).filter { it in 8_000..384_000 }
+        val resolvedRate = if (supportedRates.isEmpty()) safeReportedRate else {
+            supportedRates.minByOrNull { abs(it - safeReportedRate) }?.toFloat() ?: safeReportedRate
+        }
+        if (resolvedRate != digitalFilterEngine.sampleRateHz) {
+            analogBassEngine.initialize(resolvedRate)
+            digitalFilterEngine.initialize(resolvedRate)
+            Log.d(TAG, "$routeLabel — filters re-initialized at ${resolvedRate}Hz " +
+                "(supported: ${supportedRates.joinToString()}, platform reports: ${safeReportedRate}Hz)")
+        }
     }
 
     // ── Loudness Contour ──────────────────────────────────────────────────
@@ -1010,6 +1059,120 @@ class JadooDspService : Service() {
         }
         audioDeviceCallback = callback
         am.registerAudioDeviceCallback(callback, audioDeviceHandler)
+    }
+
+    /**
+     * Watches the set of live playback streams, and re-attaches the DSP when
+     * it changes.
+     *
+     * This is what fixes "lossless sounds wrong until I toggle the app off and
+     * on again, every single track". Apple Music and other lossless sources
+     * switch output sample rate per track (44.1 / 48 / 96 / 192 kHz). Each
+     * switch makes AudioFlinger tear down and rebuild the output mix thread.
+     * Our DynamicsProcessing is attached to GLOBAL_AUDIO_SESSION_ID, so it is
+     * left bound to the mix that no longer exists — processing silently stops
+     * or half-applies, which is the "odd" sound. attachSession() already knows
+     * this (see its forceReattach note); what was missing was anything that
+     * NOTICED it happening mid-album.
+     *
+     * None of the three existing triggers fire on a track change inside one
+     * app:
+     *   - ACTION_OPEN/CLOSE_AUDIO_EFFECT_CONTROL_SESSION: Apple Music never
+     *     broadcasts them at all.
+     *   - OnActiveSessionsChangedListener: the app keeps ONE MediaSession
+     *     across its whole queue, so the active-session list is unchanged.
+     *   - AudioDeviceCallback: the route did not change, only the format.
+     *
+     * A playback-configuration change does fire, because the old AudioTrack is
+     * destroyed and a new one created for the new format.
+     *
+     * Two guards keep this from thrashing. The fingerprint ignores callbacks
+     * that do not actually change the playback set (gapless playback at the
+     * same rate never tears the track down, and correctly gets no re-attach).
+     * The rate limit stops a burst of callbacks around one transition from
+     * rebuilding the topology several times, which would be audible.
+     *
+     * AudioPlaybackConfiguration does not expose the stream's sample rate on
+     * any public API level, so it serves as the TRIGGER only — the rate itself
+     * still comes from handleOutputRouteChange()'s existing resolution, which
+     * is as accurate as the platform's own reporting (see updateFilterSampleRate).
+     */
+    private fun registerAudioPlaybackCallback() {
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val callback = object : AudioManager.AudioPlaybackCallback() {
+            override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>) {
+                handlePlaybackConfigChanged(configs)
+            }
+        }
+        audioPlaybackCallback = callback
+        try {
+            // Same background handler as the device callback: the work this
+            // schedules queries AudioManager.getDevices() and re-initialises
+            // the filter engines, neither of which belongs on the main looper.
+            am.registerAudioPlaybackCallback(callback, audioDeviceHandler)
+        } catch (e: Exception) {
+            Log.w(TAG, "Playback callback unavailable on this ROM: ${e.message}")
+            audioPlaybackCallback = null
+        }
+    }
+
+    /**
+     * Collapses the live playback set into a string that changes only when the
+     * set itself meaningfully changes. Restricted to media usages so that a
+     * notification chime or a navigation prompt starting does not count as a
+     * track change.
+     *
+     * Only public AudioPlaybackConfiguration surface is used here:
+     * getAudioAttributes() is public, while the client uid/session accessors
+     * that would let us attribute a stream to an app are @SystemApi and not
+     * callable from a normal app.
+     */
+    private fun playbackFingerprint(configs: List<AudioPlaybackConfiguration>): String =
+        configs.asSequence()
+            .map { it.audioAttributes }
+            .filter {
+                it.usage == AudioAttributes.USAGE_MEDIA ||
+                    it.usage == AudioAttributes.USAGE_UNKNOWN
+            }
+            .map { "${it.usage}:${it.contentType}:${it.flags}" }
+            .sorted()
+            .joinToString("|")
+
+    private fun handlePlaybackConfigChanged(configs: List<AudioPlaybackConfiguration>) {
+        val fingerprint = try {
+            playbackFingerprint(configs)
+        } catch (e: Exception) {
+            Log.w(TAG, "Playback fingerprint failed: ${e.message}")
+            return
+        }
+        if (fingerprint == lastPlaybackFingerprint) return
+        val previous = lastPlaybackFingerprint
+        lastPlaybackFingerprint = fingerprint
+        // Nothing is playing — no mix to re-attach to. The next transition
+        // back to a non-empty set is the one worth acting on.
+        if (fingerprint.isEmpty()) return
+        // First fingerprint after the service starts is not a track change;
+        // restoreSession()/attachSession have already handled the initial attach.
+        if (previous == null) return
+        if (!_masterEnabled.value) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastPlaybackReattachAt < PLAYBACK_REATTACH_MIN_INTERVAL_MS) return
+        lastPlaybackReattachAt = now
+
+        playbackReattachJob?.cancel()
+        playbackReattachJob = serviceScope.launch {
+            // Let the new output stream settle before we resolve its rate and
+            // rebuild against it — re-attaching into a half-built mix thread
+            // is how we would end up bound to a stale session all over again.
+            delay(PLAYBACK_REATTACH_DEBOUNCE_MS)
+            // Re-resolves the route AND re-reads the output sample rate, so a
+            // 44.1 -> 96kHz track change also re-derives the parametric EQ
+            // coefficients instead of leaving them on the old rate.
+            audioDeviceHandler?.post { handleOutputRouteChange() }
+            resolveAndAttachSession()
+            Log.d(TAG, "Playback stream changed — re-attached DSP to the new output mix")
+        }
     }
 
     /**
@@ -1473,29 +1636,17 @@ class JadooDspService : Service() {
     }
 
     // ── PEQ serialization helpers ────────────────────────────────────────
-    // Format: "Type,freq,gain,q,enabled" per band, bands separated by "|"
+    // Format: "Type,freq,gain,q,enabled" per band, bands separated by "|".
+    // PeqBandCodec keeps old 8-band profiles compatible with the 16-band bank.
 
     private fun serializePeqBands(): String =
-        (0 until DigitalFilterEngine.MAX_BANDS).joinToString("|") { i ->
-            val b = digitalFilterEngine.getBand(i)
-            "${b.type.name},${b.frequencyHz},${b.gainDb},${b.q},${b.enabled}"
-        }
+        PeqBandCodec.encode(
+            List(DigitalFilterEngine.MAX_BANDS) { digitalFilterEngine.getBand(it) }
+        )
 
     private fun deserializePeqBands(serialized: String) {
-        if (serialized.isBlank()) return
-        serialized.split("|").forEachIndexed { i, part ->
-            if (i >= DigitalFilterEngine.MAX_BANDS) return@forEachIndexed
-            val fields = part.split(",")
-            if (fields.size < 5) return@forEachIndexed
-            val type    = DigitalFilterEngine.FilterType.entries
-                            .firstOrNull { it.name == fields[0] } ?: DigitalFilterEngine.FilterType.Peak
-            val freq    = fields[1].toFloatOrNull() ?: 1000f
-            val gain    = fields[2].toFloatOrNull() ?: 0f
-            val q       = fields[3].toFloatOrNull() ?: 1.0f
-            val enabled = fields[4].toBooleanStrictOrNull() ?: false
-            digitalFilterEngine.setBand(i, DigitalFilterEngine.FilterBand(
-                enabled = enabled, type = type, frequencyHz = freq, gainDb = gain, q = q
-            ))
+        PeqBandCodec.decode(serialized).forEachIndexed { index, band ->
+            digitalFilterEngine.setBand(index, band)
         }
     }
 
@@ -1585,11 +1736,24 @@ class JadooDspService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        peqApplyJob?.cancel()
+        peqApplyJob = null
         unregisterMediaSessionListener()
         audioDeviceCallback?.let {
             (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(it)
         }
         audioDeviceCallback = null
+        playbackReattachJob?.cancel()
+        playbackReattachJob = null
+        audioPlaybackCallback?.let {
+            try {
+                (getSystemService(Context.AUDIO_SERVICE) as AudioManager)
+                    .unregisterAudioPlaybackCallback(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Playback callback unregister failed: ${e.message}")
+            }
+        }
+        audioPlaybackCallback = null
         volumeObserver?.let {
             try { contentResolver.unregisterContentObserver(it) }
             catch (e: Exception) { Log.w(TAG, "Volume observer unregister failed: ${e.message}") }
@@ -1685,7 +1849,7 @@ class JadooDspService : Service() {
         // failure as Crossfeed: enabled alone, it was inert. Gated on the
         // route for the same reason writeCombinedBand is — the curve is only
         // applied on Bluetooth, so off-BT it genuinely changes nothing.
-        if (_sbcModeEnabled.value && currentDeviceKey.startsWith("bt")) return true
+        if (sbcConditioningActive()) return true
         // Device tuning — both the content-channel model curve and the
         // DeviceType class curve are PreEQ contributors written by
         // writeCombinedBand (see deviceCorrectionShape), so they need the DP
@@ -1781,7 +1945,9 @@ class JadooDspService : Service() {
                 preciseGainStaging = _preciseGainStaging.value,
                 hdrRestorationThreshold = remoteTuning.hdrRestorationThreshold,
                 hdrRestorationKnee = remoteTuning.hdrRestorationKnee,
-                hdrRestorationExpanderRatio = remoteTuning.hdrRestorationExpanderRatio
+                hdrRestorationExpanderRatio = remoteTuning.hdrRestorationExpanderRatio,
+                sbcConditioningEnabled = sbcConditioningActive(),
+                sbcCrestCutoffHz = SbcEngine.crestBandCutoffHz(digitalFilterEngine.sampleRateHz)
             )
             if (attached) {
                 _audioSessionId.value = sessionId
@@ -2292,20 +2458,31 @@ class JadooDspService : Service() {
     fun setDigitalFilterEnabled(enabled: Boolean) {
         digitalFilterEngine.enabled = enabled
         _digitalFilterEnabled.value = enabled
-        if (_masterEnabled.value) {
-            attachGlobalSession()
-            applyDigitalFilterToPreEq()
-        }
+        scheduleDigitalFilterApply()
         saveSession()
     }
 
-    /** Applies a single PEQ band mutation, then re-attaches/re-writes/persists exactly like every other band setter. */
+    /**
+     * Coalesces dense slider/graph gestures into one frame-paced DSP update.
+     * This prevents repeated full 15-band writes from piling up while retaining
+     * immediate UI state and persistence for every edit.
+     */
+    private fun scheduleDigitalFilterApply() {
+        peqApplyJob?.cancel()
+        peqApplyJob = serviceScope.launch {
+            delay(16L)
+            if (!_masterEnabled.value) return@launch
+            val wasAttached = dspEngine.dynamicsProcessing != null
+            attachGlobalSession()
+            if (wasAttached && dspEngine.dynamicsProcessing != null) applyDigitalFilterToPreEq()
+            refreshHeadroom()
+        }
+    }
+
+    /** Applies a single PEQ band mutation, then frame-paces the DSP write and persistence. */
     private inline fun applyDigitalFilterChange(mutate: () -> Unit) {
         mutate()
-        if (_masterEnabled.value) {
-            attachGlobalSession()
-            applyDigitalFilterToPreEq()
-        }
+        scheduleDigitalFilterApply()
         saveSession()
     }
 
@@ -2324,34 +2501,32 @@ class JadooDspService : Service() {
     fun setDigitalFilterBandEnabled(index: Int, enabled: Boolean) =
         applyDigitalFilterChange { digitalFilterEngine.setBandEnabled(index, enabled) }
 
-    /** Reset all 8 PEQ bands to defaults in a single batch — avoids 40 rapid DSP writes. */
+    /** Reset the complete 16-band bank in one batch. */
     fun resetDigitalFilterBands() {
         for (i in 0 until DigitalFilterEngine.MAX_BANDS) {
-            digitalFilterEngine.setBand(i, DigitalFilterEngine.FilterBand(
-                enabled = false,
-                type = DigitalFilterEngine.FilterType.Peak,
-                frequencyHz = 1000f,
-                gainDb = 0f,
-                q = 1.0f
-            ))
+            digitalFilterEngine.setBand(i, DigitalFilterEngine.defaultBand(i))
         }
-        if (_masterEnabled.value) {
-            attachGlobalSession()
-            applyDigitalFilterToPreEq()
-        }
+        scheduleDigitalFilterApply()
         saveSession()
     }
 
     fun setSbcModeEnabled(enabled: Boolean) {
         _sbcModeEnabled.value = enabled
         if (_masterEnabled.value) {
-            // applyAllBands alone is not enough when SBC is the FIRST active
-            // feature: the engine is still released for true bypass at that
-            // point, so applyAllBands early-returns on a null
-            // DynamicsProcessing and the pre-emphasis is silently dropped.
-            // attachGlobalSession() builds the topology if needed (or tears it
-            // down again when SBC was the last thing on), then the bands land.
+            // attachGlobalSession() first: when SBC is the FIRST active
+            // feature the engine is still released for true bypass, so
+            // rebuildDspTopology() would bail on a null session and the
+            // conditioning would silently never land. It also tears the
+            // engine back down when SBC was the LAST thing on.
             attachGlobalSession()
+            // Then a full topology rebuild, which attachGlobalSession() does
+            // NOT do on its own once a DynamicsProcessing already exists for
+            // this session. SBC conditioning adds an MBC band (see
+            // SbcEngine's crest control), and band count is fixed at
+            // construction — without this, toggling SBC on top of a live
+            // engine would write the new PreEQ curve while the dynamics half
+            // of the feature stayed missing.
+            rebuildDspTopology()
             applyAllBands(manualBandGains.copyOf())
         }
         saveSession()
@@ -2457,7 +2632,9 @@ class JadooDspService : Service() {
             preEqTreblePeakDb = preEqTreblePeakDb(),
             hdrRestorationThreshold = remoteTuning.hdrRestorationThreshold,
             hdrRestorationKnee = remoteTuning.hdrRestorationKnee,
-            hdrRestorationExpanderRatio = remoteTuning.hdrRestorationExpanderRatio
+            hdrRestorationExpanderRatio = remoteTuning.hdrRestorationExpanderRatio,
+            sbcConditioningEnabled = sbcConditioningActive(),
+            sbcCrestCutoffHz = SbcEngine.crestBandCutoffHz(digitalFilterEngine.sampleRateHz)
         )
         if (attached) {
             applyAllBands(currentGains)
@@ -2656,9 +2833,7 @@ class JadooDspService : Service() {
         // point — see DigitalFilterEngine.evaluateBandPeakDb for why a
         // single-point sample silently swallowed narrow (high-Q) PEQ filters
         // that didn't happen to land on one of the 15 fixed centres.
-        val peqLoHz = if (index == 0) 20f else EqBands.cutoffFrequencies[index - 1]
-        val peqHiHz = EqBands.cutoffFrequencies[index]
-        val peqGain = digitalFilterEngine.evaluateBandPeakDb(peqLoHz, peqHiHz)
+        val peqGain = parametricEqShape(index)
         val hdrAirBoost = when {
             !_hdrDynamicsEnabled.value -> 0f
             _hdrMode.value != HdrMode.Restoration -> 0f
@@ -2700,19 +2875,7 @@ class JadooDspService : Service() {
         // gets revised between releases. The remote array is already clamped to
         // ±10dB by RemoteContent.parseTuning; absent or malformed, the built-in
         // curve below is used unchanged.
-        val sbcPreEmphasis = if (_sbcModeEnabled.value && currentDeviceKey.startsWith("bt")) {
-            remoteTuning.sbcPreEmphasis?.getOrNull(index) ?: when (index) {
-                2  ->  1.2f  // 63Hz: restore sub-bass body SBC spreads across too-wide a band
-                3  ->  0.8f  // 100Hz: gentle warmth floor
-                9  -> -0.5f  // 1.6kHz: soften SBC's dense midrange quantisation noise
-                10 -> -1.2f  // 2.5kHz: reduce harshness at SBC's first upper subband edge
-                11 -> -2.5f  // 4kHz: SBC's worst subband transition — clear, audible cut
-                12 ->  1.5f  // 6.3kHz: smooth presence lift, fills the post-cut dip naturally
-                13 ->  4.5f  // 10kHz: strong bit-allocation push — SBC starves this range
-                14 ->  7.0f  // 16kHz: maximum air push — SBC spends almost no bits here naturally
-                else -> 0f
-            }
-        } else 0f
+        val sbcPreEmphasis = sbcPreEmphasisShape(index)
         // Loudness Contour (ISO 226): re-tilts the balance to match how the
         // ear actually behaves at the current listening level. Summed in here
         // like every other tonal shape rather than applied as its own stage,

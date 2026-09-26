@@ -107,7 +107,7 @@ private val onboardingPages = listOf(
     OnboardingPage(
         tag = "GRAPHIC EQ",
         headline = "Precision that listens.",
-        body = "A full 15-band graphic EQ at ISO standard frequencies, plus an 8-band parametric EQ for surgical control - shape your sound exactly the way you want it.",
+        body = "A full 15-band graphic EQ at ISO standard frequencies, plus a 16-band parametric EQ for surgical control - shape your sound exactly the way you want it.",
         accentColor = Color(0xFFD8C3A0),   // warm sand — the brand secondary
         visual = OnboardingVisual.EqBars
     ),

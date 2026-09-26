@@ -3,6 +3,7 @@
 import java.util.Locale
 
 import android.graphics.Rect
+import android.os.Build
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalView
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -112,6 +114,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.CircularProgressIndicator
+import com.jadoo.amp.update.ReleaseInfo
+import com.jadoo.amp.update.UpdateChecker
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -225,12 +231,12 @@ private sealed class HelpContent(
 
     data object DigitalFilters : HelpContent(
         title = "Parametric EQ",
-        body = "8-band surgical EQ for precise corrections - narrow notches, shelves, and passes, on top of the graphic EQ."
+        body = "16-band surgical EQ for precise corrections - narrow notches, shelves, and passes, on top of the graphic EQ."
     )
 
     data object SbcEnhancement : HelpContent(
         title = "SBC Enhancement",
-        body = "Pre-emphasizes high frequencies before the signal reaches the SBC encoder, so SBC spends more bits on treble detail. Result: cleaner highs, less quantization harshness.\n\nEnable only for **SBC** devices - not LDAC, LHDC, or aptX HD, which already have the headroom to reproduce treble faithfully."
+        body = "Conditions the signal before it reaches the SBC encoder, so the codec has an easier job.\n\nSBC hands its bits out in proportion to how loud each frequency region is, and it re-decides every 3 milliseconds. The top octave is the most expensive region to encode and the least audible, so it is rolled off - that frees bits for the range you actually hear. The 8-12kHz air is lifted slightly to buy the treble back where bits are cheap.\n\nOn top of that the highs are gently peak-controlled. That steadies SBC's bit allocation, which is what stops cymbals and sibilance breaking up into the swirling, watery sound SBC is known for.\n\nA little headroom is also reserved, because SBC decoders can overshoot the original peaks and clip.\n\nEnable only for **SBC** devices - not LDAC, LHDC, or aptX HD. If your headphones support one of those, switching to it beats anything this feature can do."
     )
 
     data object LoudnessContour : HelpContent(
@@ -392,6 +398,7 @@ fun DashboardScreen(
     onPerAppProfileToggled: (String, Boolean) -> Unit,
     // Content channel callbacks
     onRefreshContent: () -> Unit,
+    onUpdateAvailable: (ReleaseInfo) -> Unit,
     onApplySuggestedDeviceProfile: () -> Unit,
     onSelectDeviceProfile: (String) -> Unit,
     onClearDeviceProfile: () -> Unit,
@@ -430,12 +437,14 @@ fun DashboardScreen(
     val settingsBackView = LocalView.current
     val settingsBackDensity = LocalDensity.current
     DisposableEffect(showSettings) {
-        if (showSettings) {
+        if (showSettings && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val exclusionWidthPx = with(settingsBackDensity) { 32.dp.roundToPx() }
             settingsBackView.systemGestureExclusionRects = listOf(Rect(0, 0, exclusionWidthPx, 10000))
         }
         onDispose {
-            settingsBackView.systemGestureExclusionRects = emptyList()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                settingsBackView.systemGestureExclusionRects = emptyList()
+            }
         }
     }
     PredictiveBackHandler(enabled = showSettings) { events ->
@@ -625,6 +634,7 @@ fun DashboardScreen(
             perAppProfilePackages = perAppProfilePackages,
             onPerAppProfileToggled = onPerAppProfileToggled,
             onRefreshContent = onRefreshContent,
+            onUpdateAvailable = onUpdateAvailable,
             deviceProfileNames = deviceProfileNames,
             activeDeviceProfileName = activeDeviceProfileName,
             onSelectDeviceProfile = onSelectDeviceProfile,
@@ -792,7 +802,7 @@ fun DashboardScreen(
                         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                             CompactToggleRow(
                                 title = "Parametric EQ",
-                                subtitle = "8-band · Q control · Filter types",
+                                subtitle = "16-band · Q control · Filter types",
                                 checked = digitalFilterEnabled, enabled = masterEnabled,
                                 leadingIcon = { Icon(Icons.Default.Tune, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
                                 onCheckedChange = onDigitalFilterEnabledChanged,
@@ -1307,7 +1317,7 @@ fun DashboardScreen(
                                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                                     CompactToggleRow(
                                         title = "SBC Enhancement",
-                                        subtitle = if (sbcModeEnabled) "Pre-emphasising highs for SBC codec"
+                                        subtitle = if (sbcModeEnabled) "Conditioning signal for the SBC encoder"
                                                    else "Enable for SBC devices · not for LDAC/LHDC",
                                         checked = sbcModeEnabled, enabled = masterEnabled,
                                         leadingIcon = { Icon(Icons.Default.Bluetooth, null,
@@ -1352,12 +1362,19 @@ fun DashboardScreen(
 
     // Parametric EQ Dialog
     if (showParametricEq) {
-        Dialog(onDismissRequest = { showParametricEq = false }) {
+        Dialog(
+            onDismissRequest = { showParametricEq = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.9f),
-                shape = RoundedCornerShape(16.dp),
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+                shape = RoundedCornerShape(0.dp),
                 color = MaterialTheme.colorScheme.surface
             ) {
                 ParametricEqScreen(
@@ -1519,8 +1536,8 @@ private fun DeviceTypeCard(
     type: com.jadoo.amp.audio.DeviceType,
     isSelected: Boolean,
     onClick: () -> Unit,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     val containerColor by animateColorAsState(
         targetValue = if (!enabled) MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.5f)
@@ -2610,6 +2627,82 @@ private fun SavePresetDialog(
  * of this used 20+24 and made every section noticeably narrower from the
  * sides than before cards existed at all.
  */
+/**
+ * Manual "Check for updates". The launch-time check in MainActivity honours
+ * "Remind me later"; this one deliberately does not — tapping the button is
+ * an explicit request, so a snoozed release is shown anyway. A newer release
+ * is handed up through [onUpdateAvailable], which opens the same
+ * WhatsNewDialog (and the same verified in-app install) as the automatic path.
+ */
+@Composable
+private fun UpdatesCard(onUpdateAvailable: (ReleaseInfo) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val installed = remember {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
+    }
+    val versionName = installed?.versionName ?: "unknown"
+    var checking by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var statusIsError by remember { mutableStateOf(false) }
+
+    SettingsCard {
+        Text(
+            text = "Updates",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = "Installed version $versionName",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp
+        )
+        status?.let {
+            Text(
+                text = it,
+                color = if (statusIsError) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary,
+                fontSize = 13.sp
+            )
+        }
+        OutlinedButton(
+            onClick = {
+                checking = true
+                status = null
+                scope.launch {
+                    val release = UpdateChecker.fetchLatestRelease()
+                    checking = false
+                    when {
+                        release == null -> {
+                            statusIsError = true
+                            status = "Couldn't reach the update server. Check your connection and try again."
+                        }
+                        UpdateChecker.isNewer(release.tagName, versionName) -> {
+                            statusIsError = false
+                            status = "Version ${release.tagName.removePrefix("v")} is available."
+                            onUpdateAvailable(release)
+                        }
+                        else -> {
+                            statusIsError = false
+                            status = "You're on the latest version."
+                        }
+                    }
+                }
+            },
+            enabled = !checking,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (checking) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(10.dp))
+                Text("Checking…")
+            } else {
+                Text("Check for updates")
+            }
+        }
+    }
+}
+
 @Composable
 private fun SettingsCard(
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(12.dp),
@@ -2667,6 +2760,7 @@ private fun SettingsScreen(
     perAppProfilePackages: Set<String>,
     onPerAppProfileToggled: (String, Boolean) -> Unit,
     onRefreshContent: () -> Unit,
+    onUpdateAvailable: (ReleaseInfo) -> Unit,
     deviceProfileNames: List<String>,
     activeDeviceProfileName: String,
     onSelectDeviceProfile: (String) -> Unit,
@@ -2918,6 +3012,8 @@ private fun SettingsScreen(
                     }
                 }
 
+                UpdatesCard(onUpdateAvailable = onUpdateAvailable)
+
                 SettingsCard {
                     Text(
                         text = "Backup & Restore",
@@ -3055,6 +3151,9 @@ private fun HelpDialog(
     content: HelpContent,
     onDismiss: () -> Unit
 ) {
+    val maxDialogHeight = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.height.toDp() * 0.78f
+    }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -3063,7 +3162,7 @@ private fun HelpDialog(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .wrapContentHeight()
-                .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.78f),
+                .heightIn(max = maxDialogHeight),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface

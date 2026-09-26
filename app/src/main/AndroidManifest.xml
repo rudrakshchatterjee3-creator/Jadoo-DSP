@@ -83,6 +83,16 @@
         <receiver android:name=".update.InstallResultReceiver"
             android:exported="false" />
 
+        <!-- Restarts the DSP service after an update kills it. MY_PACKAGE_REPLACED
+             is only ever sent to this app itself, so it needs no exported filter
+             from other apps' point of view. -->
+        <receiver android:name=".update.PackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         </application>
 
 </manifest>

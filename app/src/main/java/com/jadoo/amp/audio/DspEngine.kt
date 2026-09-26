@@ -39,6 +39,18 @@ class DspEngine {
      */
     private var autoTrimDb = 0f
 
+    /**
+     * Pre-encoder headroom trim for SBC (0 or negative dB). Separate from
+     * [autoTrimDb] because it is not a gain-budget correction at all — it is
+     * protection against the SBC decoder reconstructing peaks ABOVE what we
+     * sent and clipping at the receiver's DAC. See SbcEngine.HEADROOM_TRIM_DB.
+     *
+     * Lives in the limiter's postGain rather than the input stage so it
+     * applies after everything else in the chain, which is where the peak
+     * that reaches the encoder is actually determined.
+     */
+    private var sbcTrimDb = 0f
+
     /** Last computed gain budget in dB, surfaced for the UI readout. */
     @Volatile var gainBudgetDb = 0f
         private set
@@ -162,9 +174,10 @@ class DspEngine {
         val hdr: Int,
         val harmonicExciter: Int,
         val preHiResSafety: Int,
-        val hiRes: Int
+        val hiRes: Int,
+        val sbcCrest: Int
     ) {
-        val total: Int get() = analogBass + dbfb + mobileBass + hdr + harmonicExciter + preHiResSafety + hiRes
+        val total: Int get() = analogBass + dbfb + mobileBass + hdr + harmonicExciter + preHiResSafety + hiRes + sbcCrest
     }
 
     private fun mbcBandCounts(
@@ -173,7 +186,12 @@ class DspEngine {
         analogBassEnabled: Boolean,
         mobileBassEnabled: Boolean,
         hdrDynamicsEnabled: Boolean,
-        harmonicExciterEnabled: Boolean
+        harmonicExciterEnabled: Boolean,
+        // SBC crest control appends its band at the very END of the array, so
+        // it never shifts any existing feature's index. That is why the four
+        // updateXxx live-update helpers below can keep calling this with the
+        // default and still locate their band correctly.
+        sbcConditioningEnabled: Boolean = false
     ): MbcBandCounts {
         val analogBassBands = if (analogBassEnabled) 3 else 0
         val dbfbBands = if (dbfbMode != DbfbMode.Off) 3 else 0
@@ -187,7 +205,15 @@ class DspEngine {
         val preHiResSafetyBand =
             if (hiResEnabled && !hdrDynamicsEnabled && dbfbMode == DbfbMode.Off && !harmonicExciterEnabled) 1 else 0
         val hiResBands = if (hiResEnabled) 3 else 0
-        return MbcBandCounts(analogBassBands, dbfbBands, mobileBassBands, hdrBands, harmonicExciterBands, preHiResSafetyBand, hiResBands)
+        // When HiRes is on, crest control rides on HiRes's own top two air
+        // bands (which already split at 14.5kHz) instead of adding one — see
+        // configureMbc. Only the HiRes-off paths need a band of their own,
+        // and they need it in BOTH cases that would otherwise close the array
+        // themselves: the plain fallback closing band, and "HDR alone", which
+        // returns early after closing at 20000Hz. Each of those emits the
+        // transparent lower half plus the crest band, i.e. one band more.
+        val sbcCrestBands = if (sbcConditioningEnabled && !hiResEnabled) 1 else 0
+        return MbcBandCounts(analogBassBands, dbfbBands, mobileBassBands, hdrBands, harmonicExciterBands, preHiResSafetyBand, hiResBands, sbcCrestBands)
     }
 
     fun attach(
@@ -241,7 +267,13 @@ class DspEngine {
         // Already clamped to sane bounds by RemoteContent.parseTuning.
         hdrRestorationThreshold: Float = -38f,
         hdrRestorationKnee: Float = 14f,
-        hdrRestorationExpanderRatio: Float = 1.12f
+        hdrRestorationExpanderRatio: Float = 1.12f,
+        // SBC encoder-input conditioning — see SbcEngine. Only ever true on a
+        // Bluetooth route with the feature explicitly enabled; the tonal half
+        // of it lives in JadooDspService's PreEQ sum, this is the dynamics
+        // half plus the decoder-overshoot trim.
+        sbcConditioningEnabled: Boolean = false,
+        sbcCrestCutoffHz: Float = 11_025f
     ): Boolean = synchronized(this) {
         // Any in-flight glide is targeting the OLD DynamicsProcessing
         // instance this attach() is about to replace — cancel rather than
@@ -254,6 +286,9 @@ class DspEngine {
         try {
             preGainDb = initialPreGainDb.coerceIn(-12f, 12f)
             postGainDb = initialPostGainDb.coerceIn(-12f, 12f)
+            // Set before the limiter is built below — effectivePostGainDb()
+            // folds this in, and the limiter is constructed from it.
+            sbcTrimDb = if (sbcConditioningEnabled) SbcEngine.HEADROOM_TRIM_DB else 0f
 
             // JadOO Mobile Bass now has its own MBC band (a leveler in the
             // 0-400Hz "overtone" region — see configureMbc) plus a small
@@ -273,7 +308,7 @@ class DspEngine {
             // bands only span 5.2-20kHz, so it additionally needs 1 "safety"
             // band to cover whatever's below 5.2kHz when neither DBFB nor
             // HDR already extends up that far.
-            val counts = mbcBandCounts(hiResEnabled, dbfbMode, analogBassEnabled, mobileBassEnabled, hdrDynamicsEnabled, harmonicExciterEnabled)
+            val counts = mbcBandCounts(hiResEnabled, dbfbMode, analogBassEnabled, mobileBassEnabled, hdrDynamicsEnabled, harmonicExciterEnabled, sbcConditioningEnabled)
             // A closing band is needed unless something already reaches
             // 20000Hz on its own: HiRes's last band always does; HDR's own
             // band does too, but ONLY when HiRes is off AND the exciter is
@@ -284,6 +319,13 @@ class DspEngine {
             // the array's last band wouldn't actually cover up to Nyquist —
             // whenever Harmonic Exciter was on together with HDR and HiRes
             // was off.
+            //
+            // SBC crest control does not change this calculation. Whichever
+            // band would have closed the array at 20000Hz — HDR's own in the
+            // "HDR alone" case, or the fallback closing band otherwise — is
+            // split into a transparent lower half plus the crest band, and
+            // the extra band that costs is counted by MbcBandCounts.sbcCrest
+            // rather than by flipping this flag.
             val hdrAloneClosesSpectrum = hdrDynamicsEnabled && !hiResEnabled && !harmonicExciterEnabled
             val needsFinalClosingBand = !hiResEnabled && !hdrAloneClosesSpectrum
             val mbcBandCount = counts.total + (if (needsFinalClosingBand) 1 else 0)
@@ -317,7 +359,7 @@ class DspEngine {
             configBuilder.setPreEqAllChannelsTo(preEq)
 
             val mbc = DynamicsProcessing.Mbc(true, true, mbcBandCount)
-            configureMbc(mbc, hiResEnabled, dbfbMode, hdrDynamicsEnabled, hdrMode, analogBassEnabled, analogBassDrive, analogBassWarmth, analogBassDrift = analogBassDrift, mobileBassEnabled = mobileBassEnabled, mobileBassIntensity = mobileBassIntensity, harmonicExciterEnabled = harmonicExciterEnabled, harmonicExciterIntensity = harmonicExciterIntensity, bassExtension = bassExtension, trebleExtension = trebleExtension, mobileBassExtension = mobileBassExtension, hdrRestorationThreshold = hdrRestorationThreshold, hdrRestorationKnee = hdrRestorationKnee, hdrRestorationExpanderRatio = hdrRestorationExpanderRatio)
+            configureMbc(mbc, hiResEnabled, dbfbMode, hdrDynamicsEnabled, hdrMode, analogBassEnabled, analogBassDrive, analogBassWarmth, analogBassDrift = analogBassDrift, mobileBassEnabled = mobileBassEnabled, mobileBassIntensity = mobileBassIntensity, harmonicExciterEnabled = harmonicExciterEnabled, harmonicExciterIntensity = harmonicExciterIntensity, bassExtension = bassExtension, trebleExtension = trebleExtension, mobileBassExtension = mobileBassExtension, hdrRestorationThreshold = hdrRestorationThreshold, hdrRestorationKnee = hdrRestorationKnee, hdrRestorationExpanderRatio = hdrRestorationExpanderRatio, sbcConditioningEnabled = sbcConditioningEnabled, sbcCrestCutoffHz = sbcCrestCutoffHz)
             configBuilder.setMbcAllChannelsTo(mbc)
 
             // ── PostEQ: Pultec-style Analog Bass curve, or Mobile Bass's
@@ -457,7 +499,7 @@ class DspEngine {
             setPreGain(preGainDb)
             setPostGain(postGainDb)
             configureTubeWarmthSaturation(sessionId, tubeWarmthEnabled, tubeWarmthIntensity)
-            Log.i("DspEngine", "Attached session=$sessionId hiRes=$hiResEnabled dbfb=$dbfbMode hdr=$hdrDynamicsEnabled surroundMode=$surroundMode analogBass=$analogBassEnabled mobileBass=$mobileBassEnabled harmonicExciter=$harmonicExciterEnabled mbcBands=$mbcBandCount bassExtension=$bassExtension trebleExtension=$trebleExtension mobileBassExtension=$mobileBassExtension")
+            Log.i("DspEngine", "Attached session=$sessionId hiRes=$hiResEnabled dbfb=$dbfbMode hdr=$hdrDynamicsEnabled surroundMode=$surroundMode analogBass=$analogBassEnabled mobileBass=$mobileBassEnabled harmonicExciter=$harmonicExciterEnabled mbcBands=$mbcBandCount sbcConditioning=$sbcConditioningEnabled bassExtension=$bassExtension trebleExtension=$trebleExtension mobileBassExtension=$mobileBassExtension")
             true
         } catch (e: Exception) {
             Log.e("DspEngine", "Failed to attach DynamicsProcessing — old DP preserved if present", e)
@@ -729,6 +771,33 @@ class DspEngine {
         }
     }
 
+    /**
+     * Configures one MBC band as SBC's HF crest-control stage — the part of
+     * SbcEngine that attacks the watery-highs artifact at its source.
+     *
+     * The artifact is not tonal. SBC redraws its bit allocation every 2.9ms
+     * frame from each subband's peak-derived scale factor, so a high subband
+     * sitting near the zero-bit threshold flickers on and off ~344 times a
+     * second. Compressing the peaks across subbands 4-7 lowers that scale
+     * factor, which both shrinks the quantisation step and lifts the subband
+     * clear of the threshold it was oscillating around.
+     *
+     * Deliberately no makeup gain: restoring the level would restore the
+     * scale factor this band exists to lower.
+     */
+    private fun configureSbcCrestBand(band: DynamicsProcessing.MbcBand, cutoffHz: Float) {
+        band.cutoffFrequency = cutoffHz
+        band.attackTime = SbcEngine.CREST_ATTACK_MS
+        band.releaseTime = SbcEngine.CREST_RELEASE_MS
+        band.ratio = SbcEngine.CREST_RATIO
+        band.threshold = SbcEngine.CREST_THRESHOLD_DB
+        band.kneeWidth = SbcEngine.CREST_KNEE_DB
+        band.noiseGateThreshold = -90f
+        band.expanderRatio = 1f
+        band.preGain = 0f
+        band.postGain = 0f
+    }
+
     private fun configureMbc(
         mbc: DynamicsProcessing.Mbc,
         hiResEnabled: Boolean,
@@ -748,7 +817,9 @@ class DspEngine {
         mobileBassExtension: Float = 1f,
         hdrRestorationThreshold: Float = -38f,
         hdrRestorationKnee: Float = 14f,
-        hdrRestorationExpanderRatio: Float = 1.12f
+        hdrRestorationExpanderRatio: Float = 1.12f,
+        sbcConditioningEnabled: Boolean = false,
+        sbcCrestCutoffHz: Float = 11_025f
     ) {
         // ═══════════════════════════════════════════════════════════════
         // DO NOT "FIX" THE ANALOG BASS + DBFB BAND ORDER. READ THIS FIRST.
@@ -1052,8 +1123,13 @@ class DspEngine {
             val restorationRelease = 320f
 
             if (!hiResEnabled && !harmonicExciterEnabled) {
-                mbc.getBand(index).apply {
-                    cutoffFrequency = 20000f
+                // Normally HDR's band closes the array at 20000Hz on its own.
+                // With SBC conditioning on it stops at the subband 3/4 edge
+                // instead and hands the rest to the crest band, which then
+                // closes the array — the extra slot is reserved by
+                // MbcBandCounts.sbcCrest.
+                mbc.getBand(index++).apply {
+                    cutoffFrequency = if (sbcConditioningEnabled) sbcCrestCutoffHz else 20000f
                     attackTime = if (isRestoration) restorationAttack else 15f
                     releaseTime = if (isRestoration) restorationRelease else 180f
                     ratio = 1.0f
@@ -1064,7 +1140,10 @@ class DspEngine {
                     preGain = 0f
                     postGain = 0f
                 }
-                return  // fully configured: [AnalogBass?] + [DBFB?] + [MobileBass?] + HDR(1) = done
+                if (sbcConditioningEnabled) {
+                    configureSbcCrestBand(mbc.getBand(index), 20000f)
+                }
+                return  // fully configured: [AnalogBass?] + [DBFB?] + [MobileBass?] + HDR(1) [+ SBC crest] = done
             }
             if (harmonicExciterEnabled) {
                 // Harmonic Exciter is on: HDR's band must stop at the
@@ -1204,30 +1283,41 @@ class DspEngine {
                 postGain = 2.5f * trebleExtension
             }
             // 9.6–14.5 kHz: silk — pure linear boost
+            //
+            // With SBC conditioning also on, these top two bands ARE the crest
+            // control: they already split at 14.5kHz, so compressing them in
+            // place costs no extra band (which is why MbcBandCounts.sbcCrest
+            // is 0 whenever HiRes is on). Their boost is scaled down at the
+            // same time — a +4/+5.5dB air lift is exactly the bit-stealing
+            // move SbcEngine exists to undo, since SBC hands bits out in
+            // proportion to each subband's level and the top octave is both
+            // the least audible and the most expensive place to spend them.
             mbc.getBand(index++).apply {
                 cutoffFrequency = 14500f
-                attackTime = 2f
-                releaseTime = 50f
-                ratio = 1.0f
-                threshold = 0f
-                kneeWidth = 0f
+                attackTime = if (sbcConditioningEnabled) SbcEngine.CREST_ATTACK_MS else 2f
+                releaseTime = if (sbcConditioningEnabled) SbcEngine.CREST_RELEASE_MS else 50f
+                ratio = if (sbcConditioningEnabled) 2.4f else 1.0f
+                threshold = if (sbcConditioningEnabled) -24f else 0f
+                kneeWidth = if (sbcConditioningEnabled) SbcEngine.CREST_KNEE_DB else 0f
                 noiseGateThreshold = -90f
                 expanderRatio = 1.0f
                 preGain = 0f
-                postGain = 4.0f * trebleExtension
+                postGain = 4.0f * trebleExtension *
+                    (if (sbcConditioningEnabled) SbcEngine.AIR_SCALE_SILK else 1f)
             }
             // 14.5–20 kHz: pure air — pure linear boost
             mbc.getBand(index).apply {
                 cutoffFrequency = 20000f
-                attackTime = 2f
-                releaseTime = 50f
-                ratio = 1.0f
-                threshold = 0f
-                kneeWidth = 0f
+                attackTime = if (sbcConditioningEnabled) SbcEngine.CREST_ATTACK_MS else 2f
+                releaseTime = if (sbcConditioningEnabled) SbcEngine.CREST_RELEASE_MS else 50f
+                ratio = if (sbcConditioningEnabled) SbcEngine.CREST_RATIO else 1.0f
+                threshold = if (sbcConditioningEnabled) SbcEngine.CREST_THRESHOLD_DB else 0f
+                kneeWidth = if (sbcConditioningEnabled) SbcEngine.CREST_KNEE_DB else 0f
                 noiseGateThreshold = -90f
                 expanderRatio = 1.0f
                 preGain = 0f
-                postGain = 5.5f * trebleExtension
+                postGain = 5.5f * trebleExtension *
+                    (if (sbcConditioningEnabled) SbcEngine.AIR_SCALE_TOP else 1f)
             }
             return  // fully configured: [AnalogBass?] + DBFB(opt) + [MobileBass?] + HDR(opt) + HiRes(4) = done
         }
@@ -1241,32 +1331,26 @@ class DspEngine {
         // though HDR's band now stops at 8000f in that combination instead
         // of closing the spectrum itself — leaving a real gap in coverage
         // and an unconfigured trailing band in the array.
-        if (dbfbMode == DbfbMode.Off) {
-            mbc.getBand(index).apply {
-                cutoffFrequency = 20000f
-                attackTime = 5f
-                releaseTime = 65f
-                ratio = 1f
-                threshold = 0f
-                kneeWidth = 0f
-                noiseGateThreshold = -90f
-                expanderRatio = 1f
-                preGain = 0f
-                postGain = 0f
-            }
-        } else {
-            mbc.getBand(index).apply {
-                cutoffFrequency = 20000f
-                attackTime = 6f
-                releaseTime = 80f
-                ratio = 1f
-                threshold = 0f
-                kneeWidth = 0f
-                noiseGateThreshold = -90f
-                expanderRatio = 1f
-                preGain = 0f
-                postGain = 0f
-            }
+        //
+        // With SBC conditioning on, this closing band is split in two: the
+        // transparent part stops at the subband 3/4 edge and the crest band
+        // covers 4-7 up to Nyquist. MbcBandCounts.sbcCrest reserves the slot.
+        val closingAttack = if (dbfbMode == DbfbMode.Off) 5f else 6f
+        val closingRelease = if (dbfbMode == DbfbMode.Off) 65f else 80f
+        mbc.getBand(index++).apply {
+            cutoffFrequency = if (sbcConditioningEnabled) sbcCrestCutoffHz else 20000f
+            attackTime = closingAttack
+            releaseTime = closingRelease
+            ratio = 1f
+            threshold = 0f
+            kneeWidth = 0f
+            noiseGateThreshold = -90f
+            expanderRatio = 1f
+            preGain = 0f
+            postGain = 0f
+        }
+        if (sbcConditioningEnabled) {
+            configureSbcCrestBand(mbc.getBand(index), 20000f)
         }
     }
 
@@ -1619,6 +1703,7 @@ class DspEngine {
         autoTrimDb = 0f
         autoTrimReadoutDb = 0f
         limiterMakeupDb = 0f
+        sbcTrimDb = 0f
         gainBudgetDb = 0f
         allChannelGlideJobs.forEachIndexed { i, job -> job?.cancel(); allChannelGlideJobs[i] = null }
         perChannelGlideJobs.forEach { channelJobs ->
@@ -1626,9 +1711,14 @@ class DspEngine {
         }
         glideScope.cancel()
         glideScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-        dynamicsProcessing?.enabled = false
-        dynamicsProcessing?.release()
-        dynamicsProcessing = null
+        try {
+            dynamicsProcessing?.enabled = false
+            dynamicsProcessing?.release()
+        } catch (e: Exception) {
+            Log.e("DspEngine", "Error releasing DynamicsProcessing", e)
+        } finally {
+            dynamicsProcessing = null
+        }
         currentLimiter = null
         try {
             loudnessEnhancer?.enabled = false
@@ -1786,7 +1876,7 @@ class DspEngine {
      * disagree and silently drop or double it.
      */
     private fun effectivePostGainDb(): Float =
-        (postGainDb + limiterMakeupDb).coerceIn(-12f, 12f)
+        (postGainDb + limiterMakeupDb + sbcTrimDb).coerceIn(-12f, 12f)
 
     fun setPreGain(gainDb: Float) = synchronized(this) {
         preGainDb = gainDb.coerceIn(-12f, 12f)

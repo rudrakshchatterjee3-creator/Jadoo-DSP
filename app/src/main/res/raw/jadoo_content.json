@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contentVersion": 9,
+  "contentVersion": 10,
   "presets": [
     {
       "name": "Late Night",
@@ -87,22 +87,23 @@
     "hdrRestorationThreshold": -38.0,
     "hdrRestorationKnee": 14.0,
     "hdrRestorationExpanderRatio": 1.12,
+    "sbcCurveGeneration": 2,
     "sbcPreEmphasis": [
       0.0,
       0.0,
-      1.2,
-      0.8,
       0.0,
       0.0,
       0.0,
       0.0,
       0.0,
-      -0.5,
-      -1.2,
-      -2.5,
-      1.5,
-      4.5,
-      7.0
+      0.0,
+      0.0,
+      0.0,
+      -0.4,
+      -0.8,
+      0.5,
+      2.0,
+      -6.5
     ]
   }
 }

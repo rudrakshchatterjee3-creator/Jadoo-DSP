@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,24 +40,23 @@ import androidx.compose.ui.graphics.luminance
 import kotlin.math.*
 
 /**
- * The eight parametric band colours, derived from the active scheme rather
+ * The sixteen parametric band colours, derived from the active scheme rather
  * than hardcoded.
  *
  * These used to be eleven fixed neons (electric cyan, neon pink, cyber yellow,
  * magenta…) that belonged to no theme and clashed with all of them. They are
- * now a ramp rotating 45° of hue per step from the scheme's primary, so band 1
+ * now a golden-angle hue ramp from the scheme's primary, so band 1
  * genuinely IS the brand gold in Brand mode and the whole set moves with a
  * custom seed.
  *
  * Lightness alternates by ±7 rather than being held constant. A constant-L*
- * ramp is more "correct" and noticeably harder to tell apart — eight colours
+ * ramp is more "correct" and noticeably harder to tell apart — many colours
  * of identical lightness separated only by hue read as one smear in
  * peripheral vision, which is exactly how you look at a band selector while
  * dragging a different control. The alternation costs a little tonal purity
  * and buys back the thing the colours exist for.
  *
- * Chroma is floored so a near-grey seed still yields eight distinguishable
- * bands rather than eight greys.
+ * Chroma is floored so a near-grey seed still yields distinguishable bands.
  */
 @Composable
 private fun rememberBandColors(): List<Color> {
@@ -66,11 +66,11 @@ private fun rememberBandColors(): List<Color> {
         val (_, chroma, hue) = primary.toLch()
         val baseL = if (isDark) 72f else 48f
         val c = chroma.coerceAtLeast(38f)
-        List(8) { i ->
+        List(DigitalFilterEngine.MAX_BANDS) { i ->
             lchToColor(
                 lightness = baseL + if (i % 2 == 0) 7f else -7f,
                 chroma = c,
-                hue = (hue + i * 45f) % 360f
+                hue = (hue + i * 137.5f) % 360f
             )
         }
     }
@@ -80,6 +80,7 @@ private fun rememberBandColors(): List<Color> {
 @Composable
 fun ParametricEqScreen(
     bandStates: List<DigitalFilterEngine.BiquadBandState>,
+    modifier: Modifier = Modifier,
     preampDb: Float = 0f,
     onBandTypeChanged: (Int, DigitalFilterEngine.FilterType) -> Unit,
     onBandFrequencyChanged: (Int, Float) -> Unit,
@@ -88,8 +89,7 @@ fun ParametricEqScreen(
     onBandEnabledChanged: (Int, Boolean) -> Unit,
     onPreampChanged: (Float) -> Unit = {},
     onResetAllBands: () -> Unit,
-    onNavigateBack: () -> Unit,
-    modifier: Modifier = Modifier
+    onNavigateBack: () -> Unit
 ) {
     val bandColors = rememberBandColors()
     var showResetConfirm by remember { mutableStateOf(false) }
@@ -135,8 +135,8 @@ fun ParametricEqScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
-                .clip(RoundedCornerShape(21.dp))
+                .height(52.dp)
+                .clip(RoundedCornerShape(26.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
@@ -148,7 +148,7 @@ fun ParametricEqScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .clip(RoundedCornerShape(21.dp))
+                        .clip(RoundedCornerShape(26.dp))
                         .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                         .clickable { selectedTab = index },
                     contentAlignment = Alignment.Center
@@ -176,7 +176,7 @@ fun ParametricEqScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(240.dp)
+                    .height(320.dp)
             )
 
             // ── Band selector ──
@@ -249,7 +249,7 @@ fun ParametricEqScreen(
                     if (selectedBand.isEnabled) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "${formatFrequency(selectedBand.frequency)} Hz · ${String.format(Locale.US, "%+.1f", selectedBand.gain)} dB · Q ${String.format(Locale.US, "%.2f", selectedBand.q)}",
+                            text = "${formatFrequency(selectedBand.frequency)} · ${String.format(Locale.US, "%+.1f", selectedBand.gain)} dB · Q ${String.format(Locale.US, "%.2f", selectedBand.q)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -264,51 +264,44 @@ fun ParametricEqScreen(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        DigitalFilterEngine.FilterType.Peak to "PEAK",
-                        DigitalFilterEngine.FilterType.LowShelf to "LOW SHELF",
-                        DigitalFilterEngine.FilterType.HighShelf to "HIGH SHELF"
-                    ).forEach { (type, label) ->
-                        FilterTypePill(
-                            label = label,
-                            selected = selectedBand.isEnabled && selectedBand.type == type,
-                            onClick = {
-                                if (!selectedBand.isEnabled) onBandEnabledChanged(selectedBandIndex, true)
-                                onBandTypeChanged(selectedBandIndex, type)
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val filterChoices: List<Pair<DigitalFilterEngine.FilterType, String>?> = listOf(
+                    DigitalFilterEngine.FilterType.Peak to "PEAK",
+                    DigitalFilterEngine.FilterType.LowShelf to "LOW SHELF",
+                    DigitalFilterEngine.FilterType.HighShelf to "HIGH SHELF",
+                    DigitalFilterEngine.FilterType.LowPass to "LOW PASS",
+                    DigitalFilterEngine.FilterType.HighPass to "HIGH PASS",
+                    DigitalFilterEngine.FilterType.BandPass to "BAND PASS",
+                    DigitalFilterEngine.FilterType.Notch to "NOTCH",
+                    null
+                )
+                filterChoices.chunked(4).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        row.forEach { entry ->
+                            if (entry == null) {
+                                FilterTypePill(
+                                    label = "BYPASS",
+                                    selected = !selectedBand.isEnabled,
+                                    onClick = { onBandEnabledChanged(selectedBandIndex, false) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            } else {
+                                val (type, label) = entry
+                                FilterTypePill(
+                                    label = label,
+                                    selected = selectedBand.isEnabled && selectedBand.type == type,
+                                    onClick = {
+                                        if (!selectedBand.isEnabled) onBandEnabledChanged(selectedBandIndex, true)
+                                        onBandTypeChanged(selectedBandIndex, type)
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                     }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        DigitalFilterEngine.FilterType.LowPass to "LOW PASS",
-                        DigitalFilterEngine.FilterType.HighPass to "HIGH PASS"
-                    ).forEach { (type, label) ->
-                        FilterTypePill(
-                            label = label,
-                            selected = selectedBand.isEnabled && selectedBand.type == type,
-                            onClick = {
-                                if (!selectedBand.isEnabled) onBandEnabledChanged(selectedBandIndex, true)
-                                onBandTypeChanged(selectedBandIndex, type)
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    FilterTypePill(
-                        label = "BYPASS",
-                        selected = !selectedBand.isEnabled,
-                        onClick = { onBandEnabledChanged(selectedBandIndex, false) },
-                        modifier = Modifier.weight(1f)
-                    )
                 }
             }
 
@@ -397,7 +390,7 @@ fun ParametricEqScreen(
         AlertDialog(
             onDismissRequest = { showResetConfirm = false },
             title = { Text("Reset all bands?") },
-            text = { Text("This will disable all 8 PEQ bands and restore their default values.") },
+            text = { Text("This will disable all 16 PEQ bands and restore their default values.") },
             confirmButton = {
                 TextButton(onClick = {
                     showResetConfirm = false
@@ -510,7 +503,11 @@ private fun EqGraph(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = 24.dp, bottom = 4.dp)
-                        .pointerInput(bandStates) {
+                        .onSizeChanged {
+                            graphSize = Size(it.width.toFloat(), it.height.toFloat())
+                        }
+                        .pointerInput(bandStates, selectedBandIndex) {
+                            var draggingBandIndex = selectedBandIndex
                             detectDragGestures(
                                 onDragStart = { offset ->
                                     val w = graphSize.width
@@ -533,27 +530,27 @@ private fun EqGraph(
                                         }
                                     }
                                     if (closestIndex != -1) {
+                                        draggingBandIndex = closestIndex
                                         onSelectBand(closestIndex)
                                     }
                                 },
-                                onDrag = { change, dragAmount ->
+                                onDrag = { change, _ ->
                                     change.consume()
                                     val w = graphSize.width
                                     val h = graphSize.height
                                     if (w <= 0 || h <= 0) return@detectDragGestures
-                                    val band = bandStates.getOrNull(selectedBandIndex)
+                                    val band = bandStates.getOrNull(draggingBandIndex)
                                         ?: return@detectDragGestures
                                     if (!band.isEnabled) return@detectDragGestures
                                     val newFreq = xToFreq(change.position.x, w)
                                     val newGain = yToDb(change.position.y, h)
-                                    onBandFreqGainChanged(selectedBandIndex, newFreq, newGain)
+                                    onBandFreqGainChanged(draggingBandIndex, newFreq, newGain)
                                 }
                             )
                         }
                 ) {
                     val w = size.width
                     val h = size.height
-                    graphSize = size
 
                     // Horizontal grid lines (dB)
                     for (db in listOf(-20, -10, 0, 10, 20)) {
@@ -961,7 +958,6 @@ private fun TableView(
                     Switch(
                         checked = band.isEnabled,
                         onCheckedChange = { onBandEnabledChanged(index, it) },
-                        modifier = Modifier.width(36.dp).height(20.dp),
                         colors = SwitchDefaults.colors(
                             checkedTrackColor = bandColor.copy(alpha = 0.7f),
                             checkedThumbColor = bandColor
@@ -988,76 +984,70 @@ private fun BandSelector(
     modifier: Modifier = Modifier
 ) {
     val bandColors = rememberBandColors()
-    Row(
+    Column(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        bandStates.forEachIndexed { index, band ->
-            val selected = index == selectedIndex
-            val enabled = band.isEnabled
-            val color = bandColors[index % bandColors.size]
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(
-                        when {
-                            selected -> MaterialTheme.colorScheme.primaryContainer
-                            enabled -> MaterialTheme.colorScheme.surfaceContainerHighest
-                            else -> MaterialTheme.colorScheme.surfaceContainer
-                        }
-                    )
-                    .border(
-                        width = if (selected) 2.dp else 1.dp,
-                        color = if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                    .clickable { onSelect(index) },
-                contentAlignment = Alignment.Center
+        bandStates.indices.chunked(4).forEach { indices ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    // Filter curve icon
-                    FilterCurveIcon(
-                        type = band.type,
-                        color = if (enabled) color else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = "${index + 1}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when {
-                            selected -> MaterialTheme.colorScheme.onPrimaryContainer
-                            enabled -> MaterialTheme.colorScheme.onSurface
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        },
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                    )
+                indices.forEach { index ->
+                    val band = bandStates[index]
+                    val selected = index == selectedIndex
+                    val enabled = band.isEnabled
+                    val color = bandColors[index % bandColors.size]
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 56.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                when {
+                                    selected -> MaterialTheme.colorScheme.primaryContainer
+                                    enabled -> MaterialTheme.colorScheme.surfaceContainerHighest
+                                    else -> MaterialTheme.colorScheme.surfaceContainer
+                                }
+                            )
+                            .border(
+                                width = if (selected) 2.dp else 1.dp,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable { onSelect(index) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            FilterCurveIcon(
+                                type = band.type,
+                                color = if (enabled) color else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "Band ${index + 1}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = when {
+                                    selected -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    enabled -> MaterialTheme.colorScheme.onSurface
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                },
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // Add band button
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(10.dp)
-                )
-                .clickable { onAddBand() },
-            contentAlignment = Alignment.Center
+        FilledTonalButton(
+            onClick = onAddBand,
+            enabled = bandStates.any { !it.isEnabled },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
         ) {
-            Text(
-                text = "+",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text("Enable next available band")
         }
     }
 }
@@ -1075,8 +1065,8 @@ private fun FilterTypePill(
 ) {
     Box(
         modifier = modifier
-            .height(40.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .heightIn(min = 52.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(
                 if (selected) MaterialTheme.colorScheme.primaryContainer
                 else MaterialTheme.colorScheme.surfaceContainerHigh
@@ -1085,14 +1075,14 @@ private fun FilterTypePill(
                 width = if (selected) 1.5.dp else 1.dp,
                 color = if (selected) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(16.dp)
             )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1115,65 +1105,88 @@ private fun EqParamSlider(
     activeColor: Color,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    val sliderValue = if (logarithmic) {
+        val logMin = log10(valueRange.start.coerceAtLeast(1f))
+        val logMax = log10(valueRange.endInclusive)
+        val logCur = log10(value.coerceAtLeast(1f))
+        ((logCur - logMin) / (logMax - logMin)).coerceIn(0f, 1f)
+    } else {
+        ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
+    }
+    val linearStep = when (label) {
+        "Gain" -> 0.1f
+        "Q" -> 0.1f
+        else -> 1f
+    }
+    val semitoneRatio = 2f.pow(1f / 12f)
+
+    Column(
         modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.width(44.dp)
-        )
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        val sliderValue = if (logarithmic) {
-            val logMin = log10(valueRange.start.coerceAtLeast(1f))
-            val logMax = log10(valueRange.endInclusive)
-            val logCur = log10(value.coerceAtLeast(1f))
-            ((logCur - logMin) / (logMax - logMin)).coerceIn(0f, 1f)
-        } else {
-            ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
-        }
-
-        Slider(
-            value = sliderValue,
-            onValueChange = { newSliderValue ->
-                val newValue = if (logarithmic) {
-                    val logMin = log10(valueRange.start.coerceAtLeast(1f))
-                    val logMax = log10(valueRange.endInclusive)
-                    10f.pow(logMin + newSliderValue * (logMax - logMin))
-                } else {
-                    valueRange.start + newSliderValue * (valueRange.endInclusive - valueRange.start)
-                }
-                onValueChange(newValue)
-            },
-            modifier = Modifier.weight(1f),
-            colors = SliderDefaults.colors(
-                activeTrackColor = activeColor,
-                inactiveTrackColor = activeColor.copy(alpha = 0.2f),
-                thumbColor = activeColor
-            )
-        )
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        // Numeric display box
-        Box(
-            modifier = Modifier
-                .width(64.dp)
-                .height(36.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = displayFormatter(value),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold
             )
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest
+            ) {
+                Text(
+                    text = displayFormatter(value),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(
+                onClick = {
+                    onValueChange(
+                        (if (logarithmic) value / semitoneRatio else value - linearStep)
+                            .coerceIn(valueRange)
+                    )
+                },
+                modifier = Modifier.size(48.dp),
+                contentPadding = PaddingValues(0.dp)
+            ) { Text("−", fontSize = 22.sp) }
+            Slider(
+                value = sliderValue,
+                onValueChange = { newSliderValue ->
+                    val newValue = if (logarithmic) {
+                        val logMin = log10(valueRange.start.coerceAtLeast(1f))
+                        val logMax = log10(valueRange.endInclusive)
+                        10f.pow(logMin + newSliderValue * (logMax - logMin))
+                    } else {
+                        valueRange.start + newSliderValue * (valueRange.endInclusive - valueRange.start)
+                    }
+                    onValueChange(newValue)
+                },
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                colors = SliderDefaults.colors(
+                    activeTrackColor = activeColor,
+                    inactiveTrackColor = activeColor.copy(alpha = 0.2f),
+                    thumbColor = activeColor
+                )
+            )
+            OutlinedButton(
+                onClick = {
+                    onValueChange(
+                        (if (logarithmic) value * semitoneRatio else value + linearStep)
+                            .coerceIn(valueRange)
+                    )
+                },
+                modifier = Modifier.size(48.dp),
+                contentPadding = PaddingValues(0.dp)
+            ) { Text("+", fontSize = 20.sp) }
         }
     }
 }
@@ -1188,42 +1201,46 @@ private fun PreampSlider(
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    Column(
         modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(
-            text = "Preamp (dB)",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.width(90.dp)
-        )
-
-        Slider(
-            value = ((value + 12f) / 24f).coerceIn(0f, 1f),
-            onValueChange = { onValueChange(-12f + it * 24f) },
-            modifier = Modifier.weight(1f),
-            colors = SliderDefaults.colors(
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.primaryContainer
-            )
-        )
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Box(
-            modifier = Modifier
-                .width(64.dp)
-                .height(36.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Text("Preamp", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
             Text(
-                text = String.format(Locale.US, "%.1f", value),
+                text = String.format(Locale.US, "%+.1f dB", value),
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(
+                onClick = { onValueChange((value - 0.1f).coerceAtLeast(-12f)) },
+                modifier = Modifier.size(48.dp),
+                contentPadding = PaddingValues(0.dp)
+            ) { Text("−", fontSize = 22.sp) }
+            Slider(
+                value = ((value + 12f) / 24f).coerceIn(0f, 1f),
+                onValueChange = { onValueChange(-12f + it * 24f) },
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                colors = SliderDefaults.colors(
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            )
+            OutlinedButton(
+                onClick = { onValueChange((value + 0.1f).coerceAtMost(12f)) },
+                modifier = Modifier.size(48.dp),
+                contentPadding = PaddingValues(0.dp)
+            ) { Text("+", fontSize = 20.sp) }
         }
     }
 }
@@ -1269,7 +1286,15 @@ private fun FilterCurveIcon(
                 path.quadraticTo(w * 0.2f, h * 0.2f, w * 0.5f, h * 0.2f)
                 path.lineTo(w, h * 0.2f)
             }
-            else -> {
+            DigitalFilterEngine.FilterType.BandPass -> {
+                path.moveTo(0f, h * 0.9f)
+                path.quadraticTo(w * 0.5f, h * 0.05f, w, h * 0.9f)
+            }
+            DigitalFilterEngine.FilterType.Notch -> {
+                path.moveTo(0f, h * 0.2f)
+                path.quadraticTo(w * 0.5f, h * 0.95f, w, h * 0.2f)
+            }
+            DigitalFilterEngine.FilterType.AllPass -> {
                 path.moveTo(0f, h * 0.5f)
                 path.lineTo(w, h * 0.5f)
             }
@@ -1284,8 +1309,8 @@ private fun FilterCurveIcon(
 
 private fun formatFrequency(freq: Float): String {
     return when {
-        freq < 1000f -> "${freq.roundToInt()}"
-        else -> String.format(Locale.US, "%.1f", freq / 1000f)
+        freq < 1000f -> "${freq.roundToInt()} Hz"
+        else -> String.format(Locale.US, "%.1f kHz", freq / 1000f)
     }
 }
 
@@ -1295,8 +1320,7 @@ private fun calculateFrequencyResponse(
     bandStates: List<DigitalFilterEngine.BiquadBandState>,
     sampleRateHz: Float = 48000f
 ): List<ResponsePoint> {
-    val enabledBands = bandStates.filter { it.isEnabled }
-    if (enabledBands.isEmpty()) {
+    if (bandStates.none { it.isEnabled }) {
         return (20..20000 step 100).map { ResponsePoint(it.toFloat(), 0f) }
     }
     val frequencies = mutableListOf<Float>()
@@ -1306,66 +1330,10 @@ private fun calculateFrequencyResponse(
         freq *= 1.08f
     }
     return frequencies.map { f ->
-        var totalGain = 0f
-        for (band in enabledBands) {
-            totalGain += calculateBandGain(band, f, sampleRateHz)
-        }
-        ResponsePoint(f, totalGain.coerceIn(-20f, 20f))
+        ResponsePoint(
+            f,
+            DigitalFilterEngine.evaluateCombinedMagnitudeResponseDb(bandStates, f, sampleRateHz)
+                .coerceIn(-20f, 20f)
+        )
     }
-}
-
-private fun calculateBandGain(
-    band: DigitalFilterEngine.BiquadBandState,
-    frequency: Float,
-    sampleRateHz: Float
-): Float {
-    val w0 = 2.0 * PI * band.frequency / sampleRateHz
-    val cosW0 = cos(w0)
-    val sinW0 = sin(w0)
-    val alpha = sinW0 / (2.0 * band.q)
-    val A = 10.0.pow(band.gain / 40.0)
-
-    val b0: Double; val b1: Double; val b2: Double
-    val a0: Double; val a1: Double; val a2: Double
-
-    when (band.type) {
-        DigitalFilterEngine.FilterType.Peak -> {
-            b0 = 1.0 + alpha * A; b1 = -2.0 * cosW0; b2 = 1.0 - alpha * A
-            a0 = 1.0 + alpha / A; a1 = -2.0 * cosW0; a2 = 1.0 - alpha / A
-        }
-        DigitalFilterEngine.FilterType.LowShelf -> {
-            val sqrtA = sqrt(A)
-            b0 = A * ((A + 1.0) - (A - 1.0) * cosW0 + 2.0 * sqrtA * alpha)
-            b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosW0)
-            b2 = A * ((A + 1.0) - (A - 1.0) * cosW0 - 2.0 * sqrtA * alpha)
-            a0 = (A + 1.0) + (A - 1.0) * cosW0 + 2.0 * sqrtA * alpha
-            a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosW0)
-            a2 = (A + 1.0) + (A - 1.0) * cosW0 - 2.0 * sqrtA * alpha
-        }
-        DigitalFilterEngine.FilterType.HighShelf -> {
-            val sqrtA = sqrt(A)
-            b0 = A * ((A + 1.0) + (A - 1.0) * cosW0 + 2.0 * sqrtA * alpha)
-            b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosW0)
-            b2 = A * ((A + 1.0) + (A - 1.0) * cosW0 - 2.0 * sqrtA * alpha)
-            a0 = (A + 1.0) - (A - 1.0) * cosW0 + 2.0 * sqrtA * alpha
-            a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosW0)
-            a2 = (A + 1.0) - (A - 1.0) * cosW0 - 2.0 * sqrtA * alpha
-        }
-        DigitalFilterEngine.FilterType.LowPass -> {
-            b0 = (1.0 - cosW0) / 2.0; b1 = 1.0 - cosW0; b2 = (1.0 - cosW0) / 2.0
-            a0 = 1.0 + alpha; a1 = -2.0 * cosW0; a2 = 1.0 - alpha
-        }
-        DigitalFilterEngine.FilterType.HighPass -> {
-            b0 = (1.0 + cosW0) / 2.0; b1 = -(1.0 + cosW0); b2 = (1.0 + cosW0) / 2.0
-            a0 = 1.0 + alpha; a1 = -2.0 * cosW0; a2 = 1.0 - alpha
-        }
-        else -> return 0f
-    }
-
-    if (a0 == 0.0) return 0f
-    return DigitalFilterEngine.evaluateMagnitudeResponseDb(
-        b0 = (b0 / a0).toFloat(), b1 = (b1 / a0).toFloat(), b2 = (b2 / a0).toFloat(),
-        a1 = (a1 / a0).toFloat(), a2 = (a2 / a0).toFloat(),
-        frequencyHz = frequency, sampleRateHz = sampleRateHz
-    )
 }
