@@ -18,6 +18,7 @@ captures/
 .externalNativeBuild/
 .cxx/
 *.apk
+*.aab
 *.ap_
 
 # OS
