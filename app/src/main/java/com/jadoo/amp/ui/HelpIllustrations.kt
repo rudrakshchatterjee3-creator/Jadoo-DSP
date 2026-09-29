@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jadoo.amp.audio.DigitalFilterEngine
 import com.jadoo.amp.audio.EqBands
 import com.jadoo.amp.audio.LoudnessContour
 import kotlin.math.abs
@@ -701,7 +702,7 @@ internal fun ParametricEqIllustration(modifier: Modifier = Modifier) {
 
         val name = when (idx) { 0 -> "peak → shelf"; 1 -> "shelf → notch"; else -> "notch → peak" }
         caption(name, 0f, size.height, muted)
-        caption("8 bands", size.width, size.height, muted, Paint.Align.RIGHT)
+        caption("${DigitalFilterEngine.MAX_BANDS} bands", size.width, size.height, muted, Paint.Align.RIGHT)
     }
 }
 

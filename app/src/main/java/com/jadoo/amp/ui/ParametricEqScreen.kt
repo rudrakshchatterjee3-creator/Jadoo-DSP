@@ -681,8 +681,11 @@ private fun GraphicView(
     val textColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     val enabledBands = bandStates.filter { it.isEnabled }
-    val peakGain = if (enabledBands.isEmpty()) 0f else responsePoints.maxOf { it.gain }
-    val peakFreq = if (enabledBands.isEmpty()) 0f else responsePoints.maxByOrNull { it.gain }?.frequency ?: 0f
+    // Enabled bands all at 0 dB still draw a flat line; a "peak" of +0.0 dB
+    // at whatever frequency happens to sort first would be meaningless.
+    val isFlat = enabledBands.isEmpty() || responsePoints.all { abs(it.gain) < 0.05f }
+    val peakGain = if (isFlat) 0f else responsePoints.maxOf { it.gain }
+    val peakFreq = if (isFlat) 0f else responsePoints.maxByOrNull { it.gain }?.frequency ?: 0f
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Large response curve
@@ -769,12 +772,12 @@ private fun GraphicView(
             )
             SummaryCard(
                 label = "Peak Gain",
-                value = if (enabledBands.isEmpty()) "Flat" else String.format(Locale.US, "%+.1f dB", peakGain),
+                value = if (isFlat) "Flat" else String.format(Locale.US, "%+.1f dB", peakGain),
                 modifier = Modifier.weight(1f)
             )
             SummaryCard(
                 label = "Peak Freq",
-                value = if (enabledBands.isEmpty()) "-" else if (peakFreq >= 1000f) String.format(Locale.US, "%.1f kHz", peakFreq / 1000f) else "${peakFreq.roundToInt()} Hz",
+                value = if (isFlat) "-" else if (peakFreq >= 1000f) String.format(Locale.US, "%.1f kHz", peakFreq / 1000f) else "${peakFreq.roundToInt()} Hz",
                 modifier = Modifier.weight(1f)
             )
         }

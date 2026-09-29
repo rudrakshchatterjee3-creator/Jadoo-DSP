@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Merged into src/main/AndroidManifest.xml for the play flavor only. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- The only network use in main is the content refresh, which is off in
+         this flavor (REMOTE_CONTENT_ENABLED = false), so the Play build ships
+         with no network access at all. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+
+</manifest>

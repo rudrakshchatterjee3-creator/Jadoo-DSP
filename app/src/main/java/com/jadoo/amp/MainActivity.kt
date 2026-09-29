@@ -1,5 +1,7 @@
 package com.jadoo.amp
 
+import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -12,6 +14,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -41,10 +44,8 @@ import com.jadoo.amp.settings.OnboardingPreferences
 import com.jadoo.amp.settings.ThemePreferences
 import com.jadoo.amp.settings.ThemeSettings
 import com.jadoo.amp.settings.toSpec
-import com.jadoo.amp.settings.UpdatePreferences
 import com.jadoo.amp.ui.DashboardScreen
 import com.jadoo.amp.ui.OnboardingScreen
-import com.jadoo.amp.ui.WhatsNewDialog
 import com.jadoo.amp.ui.theme.JadOOampTheme
 import com.jadoo.amp.ui.theme.buildColorScheme
 import com.jadoo.amp.ui.theme.rememberMotionEnabled
@@ -53,8 +54,7 @@ import com.jadoo.amp.ui.components.rememberThemeTransitionState
 import com.jadoo.amp.ui.components.play
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.isSystemInDarkTheme
-import com.jadoo.amp.update.ReleaseInfo
-import com.jadoo.amp.update.UpdateChecker
+import com.jadoo.amp.update.UpdateLaunchCheck
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -78,7 +78,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var themePreferences: ThemePreferences
     private lateinit var eqPresetPreferences: EqPresetPreferences
     private lateinit var onboardingPreferences: OnboardingPreferences
-    private lateinit var updatePreferences: UpdatePreferences
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
@@ -100,7 +99,6 @@ class MainActivity : ComponentActivity() {
         themePreferences = ThemePreferences(this)
         eqPresetPreferences = EqPresetPreferences(this)
         onboardingPreferences = OnboardingPreferences(this)
-        updatePreferences = UpdatePreferences(this)
         // One-time, read-once-before-Compose-starts check for whether this
         // install already has a completed onboarding — see
         // ThemePreferences.settings for why this decides the theme default
@@ -207,7 +205,6 @@ class MainActivity : ComponentActivity() {
                     var showBatteryDialog by remember {
                         mutableStateOf(shouldRequestBatteryOptimizationExemption())
                     }
-                    var newRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
                     // Non-null exactly once, right after a launch that follows a
                     // crash — see CrashHandler. Most people who hit an OEM-specific
                     // startup crash have no idea what logcat is; this turns "please
@@ -218,22 +215,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // Runs on every launch, as requested — silently fails offline.
-                    // Keeps showing on every launch until the update is actually
-                    // installed (a newer versionName than the release) — "Download
-                    // Update" opens the browser but does NOT suppress the popup,
-                    // since backing out without installing shouldn't mean never
-                    // seeing it again. Only "Remind me later" snoozes it, and only
-                    // temporarily (see UpdatePreferences).
-                    LaunchedEffect(Unit) {
-                        val release = UpdateChecker.fetchLatestRelease() ?: return@LaunchedEffect
-                        val installedVersion = try {
-                            packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
-                        } catch (_: Exception) { "0" }
-                        if (!UpdateChecker.isNewer(release.tagName, installedVersion)) return@LaunchedEffect
-                        if (updatePreferences.isSnoozed(release.tagName)) return@LaunchedEffect
-                        newRelease = release
-                    }
                     val permissionLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.RequestMultiplePermissions()
                     ) { permissions ->
@@ -260,10 +241,7 @@ class MainActivity : ComponentActivity() {
                         MainContent(
                             onAppearanceChanged = applyThemeAnimated,
                             currentAppearance = effectiveSettings,
-                            themeSettings = themeSettings,
-                            // Settings' manual "Check for updates" — shows the
-                            // same dialog as the launch check, snooze ignored.
-                            onUpdateAvailable = { newRelease = it }
+                            themeSettings = themeSettings
                         )
                     } else {
                         PermissionsErrorCard()
@@ -274,7 +252,12 @@ class MainActivity : ComponentActivity() {
                             onDismissRequest = { showBatteryDialog = false },
                             title = { Text("Allow unrestricted background usage") },
                             text = {
-                                Text("Some OEM ROMs may stop the JadOO DSP engine after a few seconds. Allow JadOO DSP to ignore battery optimizations so the DSP can keep running while music plays.")
+                                Text(
+                                    if (canRequestBatteryExemptionDirectly())
+                                        "Some OEM ROMs may stop the JadOO DSP engine after a few seconds. Allow JadOO DSP to ignore battery optimizations so the DSP can keep running while music plays."
+                                    else
+                                        "Some OEM ROMs may stop the JadOO DSP engine after a few seconds. On the next screen, find JadOO DSP and set it to \"Don't optimize\" so the DSP can keep running while music plays."
+                                )
                             },
                             confirmButton = {
                                 TextButton(
@@ -322,21 +305,9 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    newRelease?.let { release ->
-                        WhatsNewDialog(
-                            release = release,
-                            onDownload = {
-                                // Closes the dialog for this session only — does NOT
-                                // snooze, so if the user backs out of the browser
-                                // without installing, they'll see this again next launch.
-                                newRelease = null
-                            },
-                            onRemindLater = {
-                                newRelease = null
-                                lifecycleScope.launch { updatePreferences.snooze(release.tagName) }
-                            }
-                        )
-                    }
+                    // GitHub build: release check + What's New dialog.
+                    // Play build: no-op — the Play Store updates the app.
+                    UpdateLaunchCheck()
                                             } // end true -> branch
                     }   // end when(onboardingDone)
                 }
@@ -370,8 +341,7 @@ class MainActivity : ComponentActivity() {
          * point, which is what makes the transition feel caused rather than
          * merely triggered.
          */
-        onAppearanceChanged: (Offset, ThemeSettings) -> Unit,
-        onUpdateAvailable: (ReleaseInfo) -> Unit
+        onAppearanceChanged: (Offset, ThemeSettings) -> Unit
     ) {
         // Forward an "External EQ" launch to the service once it's bound.
         LaunchedEffect(audioService, pendingExternalSession) {
@@ -779,7 +749,6 @@ class MainActivity : ComponentActivity() {
             },
             // Content channel
             onRefreshContent = { audioService?.refreshRemoteContent() },
-            onUpdateAvailable = onUpdateAvailable,
             onApplySuggestedDeviceProfile = { audioService?.applySuggestedDeviceProfile() },
             onSelectDeviceProfile = { name -> audioService?.selectDeviceProfile(name) },
             onClearDeviceProfile = { audioService?.clearDeviceProfile() },
@@ -828,11 +797,31 @@ class MainActivity : ComponentActivity() {
         return !powerManager.isIgnoringBatteryOptimizations(packageName)
     }
 
+    /**
+     * The one-tap exemption prompt needs REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+     * which only the github flavor declares — Google Play restricts it to apps
+     * that Doze breaks outright. Without it, the Play build opens the system's
+     * battery-optimization list and the user picks "Don't optimize" there.
+     */
+    private fun canRequestBatteryExemptionDirectly(): Boolean =
+        ContextCompat.checkSelfPermission(
+            this, Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+
     private fun requestBatteryOptimizationExemption() {
-        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:$packageName")
+        val intent = if (canRequestBatteryExemptionDirectly()) {
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+        } else {
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
         }
-        startActivity(intent)
+        try {
+            startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            // A few OEM ROMs strip the battery-optimization screens entirely.
+            Log.w("MainActivity", "No battery optimization settings screen: ${e.message}")
+        }
     }
 
     private fun refreshDumpPermission() {

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Merged into src/main/AndroidManifest.xml for the github flavor only. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- In-app update (Lane B). Lets JadOO DSP hand a downloaded release APK
+         straight to PackageInstaller instead of sending the user to a browser
+         and a file manager. The APK's signing certificate is verified against
+         the installed app's before any install is attempted — see
+         ApkUpdater.verifyApk. Users still confirm the install in the system's
+         own dialog; this permission only removes the download/file-manager
+         detour, it does not grant silent installs. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Lets the battery dialog open the one-tap "ignore optimizations"
+         prompt. The play flavor opens the system list instead — see
+         MainActivity.canRequestBatteryExemptionDirectly. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <application>
+        <!-- PackageInstaller session callbacks for the in-app updater.
+             Not exported: the only sender is the system installer replying to
+             a PendingIntent this app created, which does not require the
+             receiver to be visible to other apps. -->
+        <receiver android:name=".update.InstallResultReceiver"
+            android:exported="false" />
+    </application>
+
+</manifest>

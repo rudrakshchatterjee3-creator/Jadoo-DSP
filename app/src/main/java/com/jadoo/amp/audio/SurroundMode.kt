@@ -22,8 +22,8 @@ enum class SurroundMode {
     val description: String
         get() = when (this) {
             Off         -> "Spatial processing disabled. Audio passes through unmodified."
-            Traditional -> "DTS-style smooth stereo tilt. Subtle high-frequency widening with vocals locked center. Fatigue-free for long listening."
-            Front       -> "Enhanced DTS stereo expansion. Clearer instrument separation with forward projection. Vocals stay centered."
-            Wide        -> "Full DTS immersive soundstage. Maximum high-frequency spread for movies, gaming, and ambient music."
+            Traditional -> "Smooth stereo tilt. Subtle high-frequency widening with vocals locked center. Fatigue-free for long listening."
+            Front       -> "Stronger stereo expansion. Clearer instrument separation with forward projection. Vocals stay centered."
+            Wide        -> "Widest soundstage. Maximum high-frequency spread for movies, gaming, and ambient music."
         }
 }

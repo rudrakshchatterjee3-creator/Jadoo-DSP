@@ -1,0 +1,33 @@
+JadOO DSP is a system-wide audio processor for Android. It shapes the sound of the music app you already use, in real time, entirely on your phone.
+
+No accounts. No ads. No internet access. Nothing leaves your device.
+
+EQUALIZERS
+• 15-band graphic EQ from 25 Hz to 16 kHz at ISO centre frequencies
+• 16-band parametric EQ: peak, shelf, pass, band-pass, notch and all-pass filters, with a draggable response graph, Q control and preamp
+• Save, recall and back up your own presets
+
+BASS
+• Analog Bass: vintage-console-style bass with Drive, Warmth and Drift, plus a passive-EQ style boost/cut
+• JadOO DBFB: level-aware sub-bass weight
+• Mobile Bass: fuller low end on your phone's own speaker
+
+CLARITY AND SPACE
+• Hi-Res Upscaler: recovers treble detail lost to compression
+• HDR Dynamics: restores punch to loudness-war masters
+• Harmonic Exciter: presence and sparkle in the 2–8 kHz range
+• Tube Warmth: valve-amp style bloom and softened highs
+• Surround+: wider stereo image while vocals stay centred
+• Crossfeed (beta): softens the hard left/right split of headphones
+
+SMART LISTENING
+• Loudness Contour keeps tonal balance at low volume
+• Per-app profiles switch automatically when an app starts playing
+• Separate settings for each headphone, speaker and Bluetooth device
+• SBC Enhancement conditions audio for Bluetooth headphones that use the SBC codec
+• Precise gain staging to keep stacked boosts from clipping
+
+WORKS WITH YOUR PLAYER
+JadOO DSP attaches to music apps that support Android's audio-effect sessions, and appears in their "Equalizer" or "Audio effects" menu. Some players and some phone manufacturers restrict this; if a player isn't detected, check its equalizer settings.
+
+A notification stays visible while the audio engine runs, so Android doesn't stop it mid-song.

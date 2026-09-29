@@ -17,12 +17,31 @@ android {
         applicationId = "com.jadoo.amp"
         minSdk = 28
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.6.4"
+        versionCode = 14
+        versionName = "1.6.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    // Same applicationId and signing key for both, so a user can move between
+    // them without uninstalling. versionCode is shared: keep it increasing
+    // across both channels or one will refuse to update the other.
+    flavorDimensions += "distribution"
+    productFlavors {
+        // GitHub Releases APK. Checks for and installs its own updates
+        // (src/github: UpdateChecker, ApkUpdater, REQUEST_INSTALL_PACKAGES).
+        create("github") {
+            dimension = "distribution"
+            isDefault = true
+        }
+        // Google Play AAB. Play's Device and Network Abuse policy forbids
+        // self-updating, so none of the src/github updater code or its
+        // install permission is compiled in; Play delivers updates itself.
+        create("play") {
+            dimension = "distribution"
         }
     }
 

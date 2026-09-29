@@ -46,8 +46,8 @@ Not with simple bass-boost sliders, but with the same signal-processing ideas th
 ### 🎚 15-Band Graphic EQ
 A full-spectrum equalizer spanning **25 Hz to 16 kHz**, with bands aligned to ISO standard centre frequencies. Every cutoff is set to the geometric mean between adjacent bands, so your adjustments land exactly where you intend — not half an octave away.
 
-### 🎛 8-Band Parametric EQ
-For the surgically precise. Each of the 8 bands is fully configurable:
+### 🎛 16-Band Parametric EQ
+For the surgically precise. Each of the 16 bands is fully configurable:
 - **8 filter types**: Peak, Low Shelf, High Shelf, Low-Pass, High-Pass, Band-Pass, Notch, All-Pass
 - **Draggable frequency response graph** — tap to add a band, drag nodes to reshape your sound visually
 - **Range**: 20 Hz – 20 kHz, ±15 dB gain, Q from 0.1 to 18.0
@@ -177,15 +177,21 @@ Requirements: Android Studio Hedgehog or later, JDK 17, Android SDK 34.
 ```bash
 git clone https://github.com/rudrakshchatterjee3-creator/Jadoo-DSP
 cd Jadoo-DSP
-./gradlew assembleRelease
+./gradlew assembleGithubRelease
 ```
 
-The release APK will be at `app/build/outputs/apk/release/JadOO-DSP-release.apk`.
+The release APK will be at `app/build/outputs/apk/github/release/JadOO-DSP-github-release.apk`.
+
+There are two build flavors, sharing one package name and signing key:
+
+| Flavor | Output | Updates |
+|--------|--------|---------|
+| `github` | APK (`assembleGithubRelease`) | Checks GitHub Releases and installs in-app |
+| `play` | AAB (`bundlePlayRelease`) | Delivered by Google Play; no in-app updater or install permission |
 
 For debug builds with logging:
 ```bash
-./gradlew assembleDebug
-adb install app/build/outputs/apk/debug/app-debug.apk
+./gradlew installGithubDebug
 ```
 
 ---

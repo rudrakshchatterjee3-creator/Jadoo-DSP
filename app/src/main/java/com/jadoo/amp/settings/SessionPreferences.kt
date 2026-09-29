@@ -41,7 +41,7 @@ data class SessionState(
     // Harmonic Exciter
     val harmonicExciterEnabled: Boolean = false,
     val harmonicExciterIntensity: Float = 0.5f,
-    // Parametric EQ (8 bands, serialised as "type,freq,gain,q,enabled" joined by "|")
+    // Parametric EQ (16 bands, serialised as "type,freq,gain,q,enabled" joined by "|")
     val peqEnabled: Boolean = false,
     val peqBands: String = "",       // "" means all-default (not yet configured)
     // SBC Enhancement: pre-emphasis for Bluetooth SBC codec devices (not for LDAC/LHDC)

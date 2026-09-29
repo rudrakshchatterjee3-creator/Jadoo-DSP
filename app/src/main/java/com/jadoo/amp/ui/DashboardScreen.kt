@@ -115,9 +115,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material3.CircularProgressIndicator
-import com.jadoo.amp.update.ReleaseInfo
-import com.jadoo.amp.update.UpdateChecker
+import com.jadoo.amp.update.REMOTE_CONTENT_ENABLED
+import com.jadoo.amp.update.UpdateCheckControls
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -201,7 +200,7 @@ private sealed class HelpContent(
 
     data object SpatialSurround : HelpContent(
         title = "JadOO Surround+",
-        body = "Widens the sound through EQ shaping alone - vocals stay centered.\n\n• **Traditional** - natural width\n• **Front Stage** - pushes vocals forward\n• **Wide** - the most spacious"
+        body = "Widens the sound through EQ shaping alone - vocals stay centered.\n\n• **Traditional** - natural width\n• **Front Stage** - pushes vocals forward\n• **Ultra Wide** - the most spacious"
     )
 
     data object DumpPermission : HelpContent(
@@ -246,7 +245,10 @@ private sealed class HelpContent(
 
     data object ContentChannel : HelpContent(
         title = "Tuning & Presets",
-        body = "Preset packs and headphone tuning arrive over the air - no app update needed.\n\n• Data only, never code\n• A bad download can't push the DSP past its normal limits"
+        body = if (REMOTE_CONTENT_ENABLED)
+            "Preset packs and headphone tuning arrive over the air - no app update needed.\n\n• Data only, never code\n• A bad download can't push the DSP past its normal limits"
+        else
+            "Preset packs and headphone tuning are built into the app, and new ones arrive with app updates.\n\nIf your headphones aren't matched automatically, pick them from the Device tuning list."
     )
 
     data object PerAppProfiles : HelpContent(
@@ -398,7 +400,6 @@ fun DashboardScreen(
     onPerAppProfileToggled: (String, Boolean) -> Unit,
     // Content channel callbacks
     onRefreshContent: () -> Unit,
-    onUpdateAvailable: (ReleaseInfo) -> Unit,
     onApplySuggestedDeviceProfile: () -> Unit,
     onSelectDeviceProfile: (String) -> Unit,
     onClearDeviceProfile: () -> Unit,
@@ -634,7 +635,6 @@ fun DashboardScreen(
             perAppProfilePackages = perAppProfilePackages,
             onPerAppProfileToggled = onPerAppProfileToggled,
             onRefreshContent = onRefreshContent,
-            onUpdateAvailable = onUpdateAvailable,
             deviceProfileNames = deviceProfileNames,
             activeDeviceProfileName = activeDeviceProfileName,
             onSelectDeviceProfile = onSelectDeviceProfile,
@@ -817,7 +817,7 @@ fun DashboardScreen(
                                         containerColor = MaterialTheme.colorScheme.primary
                                     )
                                 ) {
-                                    Text("Configure 8 Bands")
+                                    Text("Configure ${DigitalFilterEngine.MAX_BANDS} Bands")
                                 }
                             }
                         }
@@ -880,7 +880,7 @@ fun DashboardScreen(
                             CompactToggleRow(
                                 title = "Harmonic Exciter",
                                 subtitle = if (harmonicExciterEnabled) "Adding presence sparkle"
-                                           else "BBE/Aphex-style clarity enhancer",
+                                           else "Psychoacoustic clarity enhancer",
                                 checked = harmonicExciterEnabled, enabled = masterEnabled,
                                 leadingIcon = { Icon(Icons.Default.AutoAwesome, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
                                 onCheckedChange = onHarmonicExciterEnabledChanged,
@@ -2628,23 +2628,17 @@ private fun SavePresetDialog(
  * sides than before cards existed at all.
  */
 /**
- * Manual "Check for updates". The launch-time check in MainActivity honours
- * "Remind me later"; this one deliberately does not — tapping the button is
- * an explicit request, so a snoozed release is shown anyway. A newer release
- * is handed up through [onUpdateAvailable], which opens the same
- * WhatsNewDialog (and the same verified in-app install) as the automatic path.
+ * Settings' Updates card. The check itself is per distribution channel (see
+ * UpdateChannel.kt in src/github and src/play): GitHub builds query GitHub
+ * Releases and install in-app, Play builds hand off to the Play Store.
  */
 @Composable
-private fun UpdatesCard(onUpdateAvailable: (ReleaseInfo) -> Unit) {
+private fun UpdatesCard() {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val installed = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
     }
     val versionName = installed?.versionName ?: "unknown"
-    var checking by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf<String?>(null) }
-    var statusIsError by remember { mutableStateOf(false) }
 
     SettingsCard {
         Text(
@@ -2657,49 +2651,7 @@ private fun UpdatesCard(onUpdateAvailable: (ReleaseInfo) -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.sp
         )
-        status?.let {
-            Text(
-                text = it,
-                color = if (statusIsError) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.primary,
-                fontSize = 13.sp
-            )
-        }
-        OutlinedButton(
-            onClick = {
-                checking = true
-                status = null
-                scope.launch {
-                    val release = UpdateChecker.fetchLatestRelease()
-                    checking = false
-                    when {
-                        release == null -> {
-                            statusIsError = true
-                            status = "Couldn't reach the update server. Check your connection and try again."
-                        }
-                        UpdateChecker.isNewer(release.tagName, versionName) -> {
-                            statusIsError = false
-                            status = "Version ${release.tagName.removePrefix("v")} is available."
-                            onUpdateAvailable(release)
-                        }
-                        else -> {
-                            statusIsError = false
-                            status = "You're on the latest version."
-                        }
-                    }
-                }
-            },
-            enabled = !checking,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            if (checking) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
-                Text("Checking…")
-            } else {
-                Text("Check for updates")
-            }
-        }
+        UpdateCheckControls(installedVersion = versionName)
     }
 }
 
@@ -2760,7 +2712,6 @@ private fun SettingsScreen(
     perAppProfilePackages: Set<String>,
     onPerAppProfileToggled: (String, Boolean) -> Unit,
     onRefreshContent: () -> Unit,
-    onUpdateAvailable: (ReleaseInfo) -> Unit,
     deviceProfileNames: List<String>,
     activeDeviceProfileName: String,
     onSelectDeviceProfile: (String) -> Unit,
@@ -2925,6 +2876,9 @@ private fun SettingsScreen(
                 }
 
                 // ── Content channel (Lane A) ──────────────────────────────
+                // Hidden when there is nothing to refresh and no device
+                // tuning to pick (the Play build).
+                if (REMOTE_CONTENT_ENABLED || deviceProfileNames.isNotEmpty())
                 SettingsCard(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -2941,16 +2895,22 @@ private fun SettingsScreen(
                         }
                     }
                     Text(
-                        text = "Preset packs, known-device tuning and DSP constants update on " +
-                            "their own, no app reinstall needed.",
+                        text = if (REMOTE_CONTENT_ENABLED)
+                            "Preset packs, known-device tuning and DSP constants update on " +
+                                "their own, no app reinstall needed."
+                        else
+                            "Preset packs and known-device tuning are built in. New ones " +
+                                "arrive with app updates.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
-                    OutlinedButton(
-                        onClick = onRefreshContent,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Check for new tuning")
+                    if (REMOTE_CONTENT_ENABLED) {
+                        OutlinedButton(
+                            onClick = onRefreshContent,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Check for new tuning")
+                        }
                     }
 
                     // ── Manual device tuning picker ───────────────────────
@@ -3012,7 +2972,7 @@ private fun SettingsScreen(
                     }
                 }
 
-                UpdatesCard(onUpdateAvailable = onUpdateAvailable)
+                UpdatesCard()
 
                 SettingsCard {
                     Text(
@@ -3229,7 +3189,10 @@ private fun HelpDialog(
                         HelpContent.SbcEnhancement  -> { m -> SbcIllustration(m) }
                         HelpContent.LoudnessContour -> { m -> LoudnessIllustration(m) }
                         HelpContent.PerAppProfiles  -> { m -> PerAppIllustration(m) }
-                        HelpContent.ContentChannel  -> { m -> ContentChannelIllustration(m) }
+                        // Its animation shows content arriving over the air,
+                        // which the Play build doesn't do.
+                        HelpContent.ContentChannel  ->
+                            if (REMOTE_CONTENT_ENABLED) { m -> ContentChannelIllustration(m) } else null
                         HelpContent.GainStaging     -> null
                         HelpContent.DumpPermission  -> null
                     }

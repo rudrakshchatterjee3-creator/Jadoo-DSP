@@ -73,3 +73,7 @@ nul
 
 # Build-time scratch/cache leftovers (e.g. unpacked AAR contents)
 .tmp/
+
+# Raw device captures (show the phone status bar); only the framed
+# Play screenshots made from them by fastlane/make_screenshots.py are committed.
+fastlane/screenshots-raw/

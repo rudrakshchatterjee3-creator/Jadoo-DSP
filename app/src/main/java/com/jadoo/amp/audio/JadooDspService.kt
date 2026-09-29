@@ -3,6 +3,7 @@ package com.jadoo.amp.audio
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -28,6 +29,7 @@ import com.jadoo.amp.session.SessionController
 import com.jadoo.amp.settings.SessionPreferences
 import com.jadoo.amp.settings.SessionState
 import com.jadoo.amp.update.ContentRepository
+import com.jadoo.amp.update.DEVICE_TUNING_ENABLED
 import com.jadoo.amp.update.RemoteContent
 import com.jadoo.amp.update.RemoteHeadphoneProfile
 import com.jadoo.amp.update.RemoteTuning
@@ -570,7 +572,12 @@ class JadooDspService : Service() {
             contentRepository.content.collect { content ->
                 val tuningChanged = content.tuning != remoteTuning
                 remoteTuning = content.tuning
-                _remoteContent.value = content
+                // Without device tuning (Play build) the profiles are dropped
+                // here, so everything downstream — suggestion, picker, applied
+                // curve — sees an empty list.
+                _remoteContent.value =
+                    if (DEVICE_TUNING_ENABLED) content
+                    else content.copy(headphoneProfiles = emptyList())
                 refreshSuggestedDeviceProfile()
                 // Re-resolve any applied device correction against the new
                 // content, so an improved curve reaches devices already using
@@ -1684,6 +1691,15 @@ class JadooDspService : Service() {
             .setSmallIcon(com.jadoo.amp.R.drawable.ic_notification)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
+            // Tapping the engine notification opens the app (MainActivity is
+            // singleTask, so an existing instance is brought forward).
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    this, 0,
+                    Intent(this, com.jadoo.amp.MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
             .build()
     }
 
