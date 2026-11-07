@@ -49,14 +49,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import com.jadoo.amp.ui.theme.BrandPalette
+import com.jadoo.amp.update.AUTOEQ_ENABLED
 import com.jadoo.amp.ui.theme.BrandScheme
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import com.jadoo.amp.ui.theme.JadooTheme
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.cos
@@ -89,39 +92,33 @@ private enum class OnboardingVisual {
 // The five page accents used to be an unrelated green/cyan/amber/violet set.
 // They are now a ramp anchored on the brand gold, warm through cool and back,
 // so the sequence has a direction and every page still belongs to JadOO.
-private val onboardingPages = listOf(
+private val onboardingPages = listOfNotNull(
     OnboardingPage(
         tag = "JADOO DSP",
-        headline = "Your music deserves better.",
-        body = "Professional-grade audio processing built from first principles, running entirely on your phone, in real time.",
+        headline = "Every app.\nBetter sound.",
+        body = "JadOO processes the audio of whatever is playing - your music app, video, games - live, on the phone.",
         accentColor = BrandPalette.Gold,
         visual = OnboardingVisual.Waveform
     ),
-    OnboardingPage(
-        tag = "THE MOMENT",
-        headline = "You've heard it.\nThat feeling.",
-        body = "Great headphones. Your best track. And something still feels off.\n\nThe bass is muddy. The vocals drift. The mix sounds lifeless, compressed, flat.",
+    // AutoEQ isn't in the Play build (no network there), so neither is its page.
+    if (!AUTOEQ_ENABLED) null else OnboardingPage(
+        tag = "HEADPHONE CORRECTION",
+        headline = "Your headphones,\nmeasured.",
+        body = "Pick your model from 8,000+ lab measurements and JadOO corrects its response toward a neutral target.",
         accentColor = Color(0xFFE8C67A),   // gold, lifted and softened
         visual = OnboardingVisual.Headphones
     ),
     OnboardingPage(
-        tag = "GRAPHIC EQ",
-        headline = "Precision that listens.",
-        body = "A full 15-band graphic EQ at ISO standard frequencies, plus a 16-band parametric EQ for surgical control - shape your sound exactly the way you want it.",
-        accentColor = Color(0xFFD8C3A0),   // warm sand — the brand secondary
+        tag = "TONE · CHARACTER · SPACE",
+        headline = "Then make it\nyours.",
+        body = "A 15-band graphic EQ, 16 parametric filters, analog bass, tube warmth and a wider stage that keeps vocals centred.",
+        accentColor = Color(0xFFA6CFC4),   // the one cool counterweight, as in the scheme
         visual = OnboardingVisual.EqBars
     ),
     OnboardingPage(
-        tag = "ANALOG BASS · SURROUND+",
-        headline = "Warmth. Width. Life.",
-        body = "The Analog Bass Engine models vintage tube and transformer circuits - saturation, drift, Pultec EQ curves - to make bass feel three-dimensional.\n\nSurround+ stretches your stereo field without ever moving the vocals.",
-        accentColor = Color(0xFFA6CFC4),   // the one cool counterweight, as in the scheme
-        visual = OnboardingVisual.Surround
-    ),
-    OnboardingPage(
-        tag = "READY",
-        headline = "Your ears deserve this.",
-        body = "Everything runs locally. No cloud. No subscriptions. No compromises.\n\nGrant permissions when asked - the DSP engine needs them to reach your music.",
+        tag = "PRIVATE",
+        headline = "Nothing leaves\nyour phone.",
+        body = "No account, no cloud, no subscription. Allow notifications when asked - they keep the engine running.",
         accentColor = BrandPalette.Gold,   // returns home
         visual = OnboardingVisual.Constellation
     )
@@ -134,7 +131,10 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     val pagerState = rememberPagerState(pageCount = { onboardingPages.size })
     val scope = rememberCoroutineScope()
     val currentPage = pagerState.currentPage
-    val accent = onboardingPages[currentPage].accentColor
+    // The glow and the button follow the page being swiped TO, blending as
+    // the finger moves rather than snapping when the page settles.
+    val accent by animateColorAsState(onboardingPages[pagerState.targetPage].accentColor,
+                                      tween(450), label = "onboarding_accent")
 
     Box(
         modifier = Modifier
@@ -144,9 +144,13 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         // Ambient radial glow behind content
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawCircle(
-                color = accent.copy(alpha = 0.07f),
-                radius = size.minDimension * 0.9f,
-                center = Offset(size.width * 0.5f, size.height * 0.3f)
+                brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                    listOf(accent.copy(alpha = 0.16f), Color.Transparent),
+                    center = Offset(size.width * 0.5f, size.height * 0.28f),
+                    radius = size.minDimension * 0.95f
+                ),
+                radius = size.minDimension * 0.95f,
+                center = Offset(size.width * 0.5f, size.height * 0.28f)
             )
         }
 
@@ -165,7 +169,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
             ) {
                 if (currentPage < onboardingPages.size - 1) {
                     TextButton(onClick = onFinished) {
-                        Text("Skip", color = Color.White.copy(alpha = 0.38f), fontSize = 14.sp)
+                        Text("Skip", color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp)
                     }
                 }
             }
@@ -175,7 +179,9 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                 state = pagerState,
                 modifier = Modifier.weight(1f)
             ) { index ->
-                PageContent(page = onboardingPages[index])
+                // Signed distance of this page from the centre, -1..1 while swiping.
+                val offset = (pagerState.currentPage - index) + pagerState.currentPageOffsetFraction
+                PageContent(page = onboardingPages[index], offset = offset)
             }
 
             // Dots + button
@@ -184,7 +190,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                     .fillMaxWidth()
                     .padding(horizontal = 28.dp)
                     .padding(bottom = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                horizontalAlignment = Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 PageDots(
@@ -209,9 +215,9 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                     )
                 ) {
                     Text(
-                        text = if (isLast) "Get started" else "Continue",
+                        text = if (isLast) "Start listening" else "Continue",
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
@@ -250,7 +256,7 @@ private fun PageDots(pageCount: Int, current: Int, accentColor: Color) {
 // ── Page layout ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun PageContent(page: OnboardingPage) {
+private fun PageContent(page: OnboardingPage, offset: Float) {
     val infinite = rememberInfiniteTransition(label = "pg")
     val pulse by infinite.animateFloat(
         initialValue = 0f, targetValue = 1f,
@@ -259,76 +265,76 @@ private fun PageContent(page: OnboardingPage) {
         ),
         label = "pulse"
     )
+    val motion = JadooTheme.motion.enabled
+    val distance = kotlin.math.abs(offset).coerceIn(0f, 1f)
 
-    // A fixed-size visual box plus weight(0.5f)/weight(1f) spacers had no
-    // scroll fallback — on shorter screens, or pages with longer body text
-    // (e.g. the Analog Bass/Surround+ page), the available space could run
-    // out and Compose would collapse the spacers to near-zero, jamming the
-    // visual and text together with no breathing room ("muffled up"). A
-    // scrollable column with fixed, modest gaps instead of competing
-    // weights guarantees the same comfortable spacing on every screen size,
-    // scrolling only on the rare page/device where it's actually needed.
+    // Scrollable with fixed gaps, never competing weights: on short screens
+    // or long pages the spacers used to collapse and jam visual into text.
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 28.dp)
     ) {
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
 
-        // Visual illustration
+        // Parallax: the visual drifts at a third of the page's speed and
+        // shrinks a touch as it leaves, so pages read as layered depth
+        // rather than flat slides. Off under reduced motion.
         Box(
-            modifier = Modifier.size(200.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(240.dp)
+                .graphicsLayer {
+                    if (motion) {
+                        translationX = offset * size.width * 0.66f
+                        val scale = 1f - distance * 0.12f
+                        scaleX = scale; scaleY = scale
+                    }
+                    alpha = 1f - distance * 0.7f
+                },
             contentAlignment = Alignment.Center
         ) {
-            when (page.visual) {
-                OnboardingVisual.Waveform      -> WaveformVisual(page.accentColor, pulse)
-                OnboardingVisual.Headphones    -> HeadphonesVisual(page.accentColor, pulse)
-                OnboardingVisual.EqBars        -> EqBarsVisual(page.accentColor, pulse)
-                OnboardingVisual.Surround      -> SurroundVisual(page.accentColor, pulse)
-                OnboardingVisual.Constellation -> ConstellationVisual(page.accentColor, pulse)
+            Box(Modifier.size(220.dp), contentAlignment = Alignment.Center) {
+                when (page.visual) {
+                    OnboardingVisual.Waveform      -> WaveformVisual(page.accentColor, pulse)
+                    OnboardingVisual.Headphones    -> HeadphonesVisual(page.accentColor, pulse)
+                    OnboardingVisual.EqBars        -> EqBarsVisual(page.accentColor, pulse)
+                    OnboardingVisual.Surround      -> SurroundVisual(page.accentColor, pulse)
+                    OnboardingVisual.Constellation -> ConstellationVisual(page.accentColor, pulse)
+                }
             }
         }
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(36.dp))
 
-        // Chip tag
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(20.dp))
-                .background(page.accentColor.copy(alpha = 0.13f))
-                .padding(horizontal = 14.dp, vertical = 5.dp)
-        ) {
+        Column(Modifier.graphicsLayer {
+            if (motion) translationX = offset * 48.dp.toPx()
+            alpha = 1f - distance
+        }) {
             Text(
                 page.tag,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = page.accentColor,
-                letterSpacing = 1.6.sp
+                letterSpacing = 1.4.sp
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                page.headline,
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                lineHeight = 42.sp
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                page.body,
+                fontSize = 17.sp,
+                color = Color.White.copy(alpha = 0.72f),
+                lineHeight = 25.sp
             )
         }
-
-        Spacer(Modifier.height(14.dp))
-
-        Text(
-            page.headline,
-            fontSize = 25.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = Color.White,
-            textAlign = TextAlign.Center,
-            lineHeight = 31.sp
-        )
-
-        Spacer(Modifier.height(14.dp))
-
-        Text(
-            page.body,
-            fontSize = 14.sp,
-            color = Color.White.copy(alpha = 0.55f),
-            textAlign = TextAlign.Center,
-            lineHeight = 21.sp
-        )
 
         Spacer(Modifier.height(24.dp))
     }

@@ -22,6 +22,4 @@ data class JadooAlpha(
     val disabled: Float = 0.42f,
     /** Icon and container tints that sit behind content. */
     val subtle: Float = 0.24f,
-    /** Hairlines, dividers, the faintest structural marks. */
-    val hairline: Float = 0.12f
 )

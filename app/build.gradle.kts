@@ -17,8 +17,8 @@ android {
         applicationId = "com.jadoo.amp"
         minSdk = 28
         targetSdk = 36
-        versionCode = 14
-        versionName = "1.6.5"
+        versionCode = 15
+        versionName = "1.6.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -104,6 +104,7 @@ dependencies {
     // Shizuku removed entirely — Play Protect flags its provider manifest entry
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.materialkolor)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

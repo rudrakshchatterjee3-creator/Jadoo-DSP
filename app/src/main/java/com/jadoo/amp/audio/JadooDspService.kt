@@ -29,9 +29,7 @@ import com.jadoo.amp.session.SessionController
 import com.jadoo.amp.settings.SessionPreferences
 import com.jadoo.amp.settings.SessionState
 import com.jadoo.amp.update.ContentRepository
-import com.jadoo.amp.update.DEVICE_TUNING_ENABLED
 import com.jadoo.amp.update.RemoteContent
-import com.jadoo.amp.update.RemoteHeadphoneProfile
 import com.jadoo.amp.update.RemoteTuning
 import kotlin.math.abs
 import kotlin.math.log10
@@ -176,6 +174,58 @@ class JadooDspService : Service() {
 
     private fun bassExtension(): Float = _deviceType.value.bassExtension(_deviceQualityTier.value)
     private fun trebleExtension(): Float = _deviceType.value.trebleExtension(_deviceQualityTier.value)
+
+    /**
+     * Bluetooth stack balance — see DspEngine.bluetoothStackScale. 1 on every
+     * other route and whenever the active features don't stack past the
+     * caps. Feeds the feature extensions below and Surround's smile.
+     */
+    private fun stackScale(): StackScale {
+        if (!onBluetoothPlan()) return StackScale()
+        val mode = _surroundMode.value
+        return dspEngine.bluetoothStackScale(
+            FloatArray(EqBands.count) { surroundBandProfile(mode, it) },
+            _hiResUpscalerEnabled.value, _dbfbMode.value, _analogBassEnabled.value,
+            analogBassVoicing(), bassExtension(), trebleExtension()
+        )
+    }
+
+    /** The route takes DspEngine.planBluetoothMbc. */
+    private fun onBluetoothPlan() = currentOutputDeviceApiType in BLUETOOTH_OUTPUT_TYPES && _preciseGainStaging.value
+
+    private fun analogBassVoicing() = AnalogBassVoicing(
+        _analogBassDrive.value, _analogBassWarmth.value, _analogBassDrift.value,
+        _analogBassPultecBoost.value, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value
+    )
+
+    /**
+     * After anything that can move the stack scale or the Bluetooth band
+     * plan (DspEngine.planBluetoothMbc). All of it lands live: a rebuild
+     * here would drop out on every step of a slider. On a wired route the
+     * scale is always 1 and this is just a headroom refresh.
+     */
+    private fun refreshBluetoothPlan() {
+        if (stackScale() != attachedStackScale) {
+            attachedStackScale = stackScale()
+            // Surround's smile is in the PreEQ, Analog Bass's shelf in the PostEQ.
+            applyAllBands(manualBandGains.copyOf())
+            if (_analogBassEnabled.value && !_mobileBassEnabled.value) {
+                dspEngine.updateAnalogBassPostEq(
+                    _analogBassPultecBoost.value, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value,
+                    _analogBassWarmth.value, featureBassExtension()
+                )
+            }
+        }
+        refreshHeadroom()
+    }
+
+    /** The stack scale the engine last took. */
+    private var attachedStackScale = StackScale()
+
+    // Extensions as the boosting features receive them: the driver's, times
+    // the Bluetooth stack balance. Loudness Contour keeps the plain driver value.
+    private fun featureBassExtension(): Float = bassExtension() * stackScale().bass
+    private fun featureTrebleExtension(): Float = trebleExtension() * stackScale().treble
     // Mobile Bass always runs on the phone's own built-in speaker, never on
     // whatever DeviceType the user has manually selected (that picker
     // describes the OUTPUT device on the current route, which for Mobile
@@ -183,77 +233,6 @@ class JadooDspService : Service() {
     // scale it as CompactSpeaker so it can't be over/under-driven by an
     // unrelated DeviceType choice like HomeSpeaker.
     private fun mobileBassExtension(): Float = DeviceType.CompactSpeaker.bassExtension(_deviceQualityTier.value)
-
-    /**
-     * The user's Crossfeed strength slider, scaled by how much of a problem
-     * Crossfeed actually solves on the connected headphone type — see
-     * DeviceType.crossfeedFactor. The RAW slider value is what gets
-     * persisted (buildSessionState); this is only ever computed at the point
-     * it's handed to the engine, so a later DeviceType change re-derives it
-     * rather than compounding on top of an already-scaled stored value.
-     */
-    private fun crossfeedEffectiveStrength(): Float =
-        _crossfeedStrength.value * _deviceType.value.crossfeedFactor()
-
-    /**
-     * Crossfeed's per-band PreEQ contribution — 0 everywhere unless enabled
-     * on a real headphone route (see isHeadphoneRoute).
-     *
-     * Used to run on Android's Virtualizer effect (vendor HRTF/virtual-
-     * surround processing) and it never sounded right — reported repeatedly
-     * as "muddy/smeared", because that's what it structurally is: an
-     * OEM-implemented spatializer, not a BS2B/Meier-style crossfeed circuit,
-     * and no amount of strength/mode tuning changes what algorithm is
-     * actually running. There is no way to build a REAL crossfeed circuit
-     * through the public AudioEffect API either — that needs sample-accurate
-     * cross-channel mixing (a low-passed, delayed copy of each channel
-     * summed into the other), and this app only ever gets a session-level
-     * effect attach, never raw PCM.
-     *
-     * So Crossfeed is this instead: the same shape of static tonal-EQ curve
-     * SurroundMode.Front uses to approximate crossfeed's net perceptual
-     * result (see surroundBandProfile's SurroundMode.Front case for the full
-     * reasoning — low-mid warmth, forward vocal lock, soft high rolloff),
-     * scaled up from Front's own magnitude — confirmed on real IEMs that
-     * Front's numbers, copied verbatim, were too small to register as
-     * audible at all. It can't narrow the stereo image the way real
-     * cross-channel mixing does, but it's a curve we fully control: no
-     * per-OEM variance, no reverb/room artefacts, completely predictable.
-     * Scaled by the same
-     * strength slider and DeviceType.crossfeedFactor as before.
-     */
-    private fun crossfeedShape(index: Int): Float {
-        if (!_crossfeedEnabled.value || !isHeadphoneRoute()) return 0f
-        val strength = crossfeedEffectiveStrength()
-        // Confirmed on real IEMs at max strength: the original magnitude
-        // (peak +1.8dB/-2.5dB, matching SurroundMode.Front's curve exactly)
-        // was correctly wired end-to-end but read as "does nothing" — not a
-        // bug, just too small a move to register, especially since this
-        // curve can never deliver the one thing that actually defines
-        // crossfeed to a listener (image narrowing needs real cross-channel
-        // mixing, which the platform doesn't expose — see crossfeedShape's
-        // class doc). Since subtlety was never the goal here — the whole
-        // point of dropping the Virtualizer was to trade "processed and
-        // wrong" for "small but honest" — there's no reason to also make it
-        // "honest but inaudible." Scaled up ~1.7x: peak now +3.0dB/-4.5dB,
-        // in the same range Surround Wide's own treble leg already uses
-        // safely elsewhere in this app.
-        val fullStrength = when (index) {
-            3  ->  2.5f  // 100 Hz
-            4  ->  3.0f  // 160 Hz: peak of the low-mid bloom
-            5  ->  2.0f  // 250 Hz
-            6  ->  1.0f  // 400 Hz
-            8  ->  1.5f  // 1 kHz: forward vocal lock
-            9  ->  1.8f  // 1.6 kHz
-            10 ->  1.2f  // 2.5 kHz
-            11 -> -1.5f  // 4 kHz: high rolloff begins
-            12 -> -2.5f  // 6.3 kHz
-            13 -> -3.5f  // 10 kHz
-            14 -> -4.5f  // 16 kHz: maximum rolloff
-            else -> 0f
-        }
-        return fullStrength * strength
-    }
 
     /**
      * Driver capability used to scale ONLY the Loudness Contour's sub-100 Hz
@@ -270,15 +249,6 @@ class JadooDspService : Service() {
         } else {
             bassExtension()
         }
-
-    // ── Crossfeed state ───────────────────────────────────────────────
-    // A static tonal-EQ curve applied via the ordinary PreEQ path — see
-    // crossfeedShape() for why (used to be the Virtualizer effect; dropped).
-    private val _crossfeedEnabled = MutableStateFlow(false)
-    val crossfeedEnabled: StateFlow<Boolean> = _crossfeedEnabled.asStateFlow()
-
-    private val _crossfeedStrength = MutableStateFlow(0.5f)
-    val crossfeedStrength: StateFlow<Float> = _crossfeedStrength.asStateFlow()
 
     // ── Loudness Contour (ISO 226) state ──────────────────────────────
     // Tracks the system media volume and re-tilts the PreEQ so the mix keeps
@@ -300,11 +270,24 @@ class JadooDspService : Service() {
     val loudnessCurrentPhon: StateFlow<Float> = _loudnessCurrentPhon.asStateFlow()
 
     // ── Gain staging ──────────────────────────────────────────────────
-    // See DspEngine.splitGainBudget. ON is the corrected model; OFF restores
+    // See DspEngine.levelMatchTrimDb. ON is the corrected model; OFF restores
     // the pre-v1.6 behaviour of paying the entire budget on the limiter
     // threshold, kept only so the change is A/B-able by ear.
     private val _preciseGainStaging = MutableStateFlow(true)
     val preciseGainStaging: StateFlow<Boolean> = _preciseGainStaging.asStateFlow()
+
+    private val _autoEqProfileName = MutableStateFlow("")
+    /** AutoEQ correction applied to this output's PEQ, "Model · lab", or "". */
+    val autoEqProfileName: StateFlow<String> = _autoEqProfileName.asStateFlow()
+
+    // The 15 PreEQ gains last written to DynamicsProcessing — every tonal
+    // contributor summed (graphic EQ, PEQ, device tuning, loudness,
+    // surround, tube warmth, HDR air, SBC). Drives the dashboard's
+    // response curve, so it shows what the chain is really doing rather
+    // than a UI-side reconstruction. Dynamics stages (MBC) aren't static EQ
+    // and aren't in it.
+    private val _responseCurveDb = MutableStateFlow(FloatArray(DpResponse.DISPLAY_FREQUENCIES_HZ.size))
+    val responseCurveDb: StateFlow<FloatArray> = _responseCurveDb.asStateFlow()
 
     // Name of the EQ preset last explicitly selected, so the highlighted
     // chip / "Overwrite" target survives a relaunch. Pure UI metadata, not
@@ -323,6 +306,15 @@ class JadooDspService : Service() {
     val autoTrimDb: StateFlow<Float> = _autoTrimDb.asStateFlow()
 
     /**
+     * True while a Bluetooth route is on absolute volume: the slider is below
+     * max yet the phone attenuates nothing, so JadOO always sees full scale
+     * and the boosts need the input trim. Drives the dashboard's tip to turn
+     * absolute volume off. See measureVolumeHeadroom.
+     */
+    private val _bluetoothFullScale = MutableStateFlow(false)
+    val bluetoothFullScale: StateFlow<Boolean> = _bluetoothFullScale.asStateFlow()
+
+    /**
      * The live per-band correction, summed into every PreEQ band write by
      * writeCombinedBand(). All-zero whenever the feature is off, so the
      * summing path needs no special-casing.
@@ -331,14 +323,10 @@ class JadooDspService : Service() {
 
     /**
      * Peak static PreEQ gain currently sitting in the bass/treble zones from
-     * Graphic EQ, Parametric EQ, Loudness Contour, Crossfeed, device correction,
-     * and SBC pre-emphasis combined — fed
-     * to DspEngine's gain-budget model (see calculateGainBudget) so a manual
-     * EQ boost gets the same limiter-headroom credit every other narrowband
-     * feature already gets. Graphic EQ and Crossfeed were both previously
-     * uncredited (Crossfeed used to run on the Virtualizer, which never
-     * touched PreEQ at all — now that it's a tonal-EQ curve, its own
-     * low-mid boost needs the same credit as everything else that lands there).
+     * Graphic EQ, Parametric EQ, Loudness Contour, device correction and
+     * SBC pre-emphasis combined — fed to DspEngine's gain-budget model (see
+     * calculateGainBudget) so a manual EQ boost gets the same limiter-headroom
+     * credit every other narrowband feature already gets.
      *
      * All contributors are summed per band before the peak is taken, matching
      * the live PreEQ write. This prevents an active narrow PEQ boost or the SBC
@@ -347,22 +335,17 @@ class JadooDspService : Service() {
     /**
      * The device-class tonal correction for one band — see
      * [DeviceType.correctionDb]. Gated on the phone speaker, which is locked
-     * to General in the UI and has Mobile Bass doing its own thing.
-     *
-     * A model-specific curve from the content channel, when one is active,
-     * REPLACES the class average rather than stacking on it: both describe the
-     * same correction, so summing them would double-correct whatever the two
-     * agree about. The specific measurement always wins over the class guess.
+     * to General in the UI and has Mobile Bass doing its own thing. Model-
+     * specific correction is AutoEQ's job now, through the Parametric EQ.
      */
     private fun deviceCorrectionShape(index: Int): Float {
         if (currentDeviceKey == "speaker") return 0f
-        deviceProfileCurve?.let { return it.getOrElse(index) { 0f } }
         return _deviceType.value.correctionDb(index, _deviceQualityTier.value)
     }
 
     private fun parametricEqShape(index: Int): Float {
         val loHz = if (index == 0) 20f else EqBands.cutoffFrequencies[index - 1]
-        return digitalFilterEngine.evaluateBandPeakDb(loHz, EqBands.cutoffFrequencies[index])
+        return digitalFilterEngine.evaluateBandGainDb(loHz, EqBands.cutoffFrequencies[index])
     }
 
     /**
@@ -372,6 +355,15 @@ class JadooDspService : Service() {
      * band) and hasActiveDspFeatures, so the three cannot disagree and leave
      * the curve written with no crest band behind it, or vice versa.
      */
+    private val _sbcStyle = MutableStateFlow(SbcStyle.New)
+    val sbcStyle: StateFlow<SbcStyle> = _sbcStyle.asStateFlow()
+
+    /**
+     * The dynamics half of SBC Enhancement (crest band + headroom trim) only
+     * exists in [SbcStyle.New]; Classic was a pure tonal curve.
+     */
+    private fun sbcDynamicsActive(): Boolean = sbcConditioningActive() && _sbcStyle.value == SbcStyle.New
+
     private fun sbcConditioningActive(): Boolean =
         _sbcModeEnabled.value && currentDeviceKey.startsWith("bt")
 
@@ -381,13 +373,14 @@ class JadooDspService : Service() {
      */
     private fun sbcPreEmphasisShape(index: Int): Float {
         if (!sbcConditioningActive()) return 0f
+        if (_sbcStyle.value == SbcStyle.Classic) return SbcEngine.classicCurveDb.getOrElse(index) { 0f }
         return remoteTuning.sbcPreEmphasis?.getOrNull(index)
             ?: SbcEngine.conditioningCurveDb.getOrElse(index) { 0f }
     }
 
     private fun staticPreEqShape(index: Int): Float =
         manualBandGains[index] + parametricEqShape(index) + loudnessCompensation[index] +
-            crossfeedShape(index) + deviceCorrectionShape(index) + sbcPreEmphasisShape(index)
+            deviceCorrectionShape(index) + sbcPreEmphasisShape(index)
 
     private fun preEqBassPeakDb(): Float =
         LoudnessContour.BASS_BANDS.maxOf(::staticPreEqShape).coerceAtLeast(0f)
@@ -395,11 +388,25 @@ class JadooDspService : Service() {
     private fun preEqTreblePeakDb(): Float =
         LoudnessContour.TREBLE_BANDS.maxOf(::staticPreEqShape).coerceAtLeast(0f)
 
+    /**
+     * The live PreEQ curve for one channel (0 = left, 1 = right): every tonal
+     * contributor plus Surround's L/R split, exactly what writeCombinedBand
+     * sends. DspEngine weighs it for the level-match input trim.
+     */
+    private fun preEqCurve(channel: Int): FloatArray {
+        val mode = _surroundMode.value
+        return FloatArray(EqBands.count) { i ->
+            val half = surroundChannelDifferential(mode, i) / 2f
+            (combinedCenteredGain(i, manualBandGains.getOrElse(i) { 0f }, mode) +
+                if (channel == 0) half else -half).coerceIn(-15f, 15f)
+        }
+    }
+
     private var volumeObserver: ContentObserver? = null
     private var loudnessDebounceJob: Job? = null
 
-    /** Volume-tracking poll for the Loudness Contour — see updateLoudnessTracking. */
-    private var loudnessPollJob: Job? = null
+    /** Volume-tracking poll for the Loudness Contour and the input trim — see updateVolumeTracking. */
+    private var volumePollJob: Job? = null
 
     /**
      * AudioDeviceInfo.TYPE_* of the active output route, kept in sync by
@@ -410,7 +417,6 @@ class JadooDspService : Service() {
     @Volatile private var currentOutputDeviceApiType: Int = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
 
     // ── Analog Bass state ────────────────────────────────────────────
-    val analogBassEngine = AnalogBassEngine()
     val digitalFilterEngine = DigitalFilterEngine()
 
     private val _analogBassEnabled = MutableStateFlow(false)
@@ -501,28 +507,6 @@ class JadooDspService : Service() {
     val remoteContent: StateFlow<RemoteContent> = _remoteContent.asStateFlow()
 
     /**
-     * The content-channel device profile matching the current output, if any.
-     * Only a suggestion — it's surfaced in the UI as a one-tap "apply" rather
-     * than being forced, because the user's own DeviceType choice for a route
-     * is a deliberate setting and shouldn't be silently overwritten by a
-     * remote document.
-     */
-    private val _suggestedDeviceProfile = MutableStateFlow<RemoteHeadphoneProfile?>(null)
-    val suggestedDeviceProfile: StateFlow<RemoteHeadphoneProfile?> = _suggestedDeviceProfile.asStateFlow()
-
-    /**
-     * Name of the content-channel device profile currently applied, or "" for
-     * none. Persisted per output device; the CURVE itself is resolved from
-     * live content (see applyDeviceProfileCurve) rather than stored, so a
-     * later content update improving a curve reaches everyone already on it.
-     */
-    private val _activeDeviceProfileName = MutableStateFlow("")
-    val activeDeviceProfileName: StateFlow<String> = _activeDeviceProfileName.asStateFlow()
-
-    /** Live resolved curve for [_activeDeviceProfileName]; null when none. */
-    @Volatile private var deviceProfileCurve: FloatArray? = null
-
-    /**
      * Profile key for the current (device, app) pair: the per-app key when the
      * active package is opted in, otherwise the plain device key.
      */
@@ -557,7 +541,6 @@ class JadooDspService : Service() {
                 .getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
                 ?.toFloatOrNull() ?: 48000f
         } catch (_: Exception) { 48000f }
-        analogBassEngine.initialize(detectedRate)
         digitalFilterEngine.initialize(detectedRate)
         mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
         sessionController = SessionController(this)
@@ -572,24 +555,7 @@ class JadooDspService : Service() {
             contentRepository.content.collect { content ->
                 val tuningChanged = content.tuning != remoteTuning
                 remoteTuning = content.tuning
-                // Without device tuning (Play build) the profiles are dropped
-                // here, so everything downstream — suggestion, picker, applied
-                // curve — sees an empty list.
-                _remoteContent.value =
-                    if (DEVICE_TUNING_ENABLED) content
-                    else content.copy(headphoneProfiles = emptyList())
-                refreshSuggestedDeviceProfile()
-                // Re-resolve any applied device correction against the new
-                // content, so an improved curve reaches devices already using
-                // that profile without them having to re-apply it.
-                val previousCurve = deviceProfileCurve
-                applyDeviceProfileCurve()
-                val curveChanged = !(previousCurve?.contentEquals(deviceProfileCurve ?: FloatArray(0))
-                    ?: (deviceProfileCurve == null))
-                if (curveChanged && _masterEnabled.value && dspEngine.dynamicsProcessing != null) {
-                    applyAllBands(manualBandGains.copyOf())
-                    refreshHeadroom()
-                }
+                _remoteContent.value = content
                 if (tuningChanged && _masterEnabled.value && dspEngine.dynamicsProcessing != null) {
                     rebuildDspTopology()
                 }
@@ -601,7 +567,6 @@ class JadooDspService : Service() {
         currentDeviceKey = initialDeviceKey
         currentProfileKey = initialDeviceKey
         _currentOutputDevice.value = initialDeviceLabel
-        refreshSuggestedDeviceProfile()
         registerAudioDeviceCallback()
         registerAudioPlaybackCallback()
         registerVolumeObserver()
@@ -803,7 +768,6 @@ class JadooDspService : Service() {
             supportedRates.minByOrNull { abs(it - safeReportedRate) }?.toFloat() ?: safeReportedRate
         }
         if (resolvedRate != digitalFilterEngine.sampleRateHz) {
-            analogBassEngine.initialize(resolvedRate)
             digitalFilterEngine.initialize(resolvedRate)
             Log.d(TAG, "$routeLabel — filters re-initialized at ${resolvedRate}Hz " +
                 "(supported: ${supportedRates.joinToString()}, platform reports: ${safeReportedRate}Hz)")
@@ -876,6 +840,64 @@ class JadooDspService : Service() {
     }
 
     /**
+     * Digital attenuation (dB, 0 or positive) the system volume applies to
+     * the stream before it reaches this effect: the room the boosts already
+     * have before anything can clip. See DspEngine.levelMatchTrimDb.
+     *
+     * Deliberately NOT computeCurrentPhon's index-ratio fallback. On Bluetooth
+     * with absolute volume the reading is flat because the phone really does
+     * send full scale — the earbuds do the turning down — so 0 dB is the
+     * true answer here, and it is exactly the case the trim exists for.
+     */
+    private fun measureVolumeHeadroom(): Float {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return 0f
+        val headroom = try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val index = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val maxIndex = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val currentDb = am.getStreamVolumeDb(AudioManager.STREAM_MUSIC, index, currentOutputDeviceApiType)
+            val maxDb = am.getStreamVolumeDb(AudioManager.STREAM_MUSIC, maxIndex, currentOutputDeviceApiType)
+            val bluetooth = currentOutputDeviceApiType in BLUETOOTH_OUTPUT_TYPES
+            // Only readable below max: at max every route reports 0 dB, so
+            // keep the last verdict rather than flicker the tip.
+            if (!bluetooth) _bluetoothFullScale.value = false
+            else if (index in 1 until maxIndex && currentDb.isFinite() && maxDb.isFinite())
+                _bluetoothFullScale.value = kotlin.math.abs(maxDb - currentDb) < 0.01f
+            when {
+                maxIndex <= 0 || !maxDb.isFinite() -> 0f
+                // Muted: nothing can clip.
+                !currentDb.isFinite() -> MAX_VOLUME_HEADROOM_DB
+                else -> (maxDb - currentDb).coerceIn(0f, MAX_VOLUME_HEADROOM_DB)
+            }
+        } catch (e: Exception) {
+            0f
+        }
+        lastVolumeHeadroomDb = headroom
+        return headroom
+    }
+
+    @Volatile private var lastVolumeHeadroomDb = 0f
+
+    private val BLUETOOTH_OUTPUT_TYPES = setOf(
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER,
+        AudioDeviceInfo.TYPE_BLE_BROADCAST
+    )
+
+    /**
+     * Volume moved (or might have): re-tilt Loudness, and re-fit the input
+     * trim to the new headroom. Turning a wired route up to full takes the
+     * headroom away, so the trim has to follow or the boosts start clipping.
+     */
+    private fun onVolumeMaybeChanged() {
+        if (_loudnessEnabled.value) applyLoudnessNow()
+        if (!_masterEnabled.value || dspEngine.dynamicsProcessing == null) return
+        val before = lastVolumeHeadroomDb
+        if (kotlin.math.abs(measureVolumeHeadroom() - before) >= 0.5f) refreshHeadroom()
+    }
+
+    /**
      * Recomputes the loudness correction and pushes it into the live PreEQ.
      *
      * Debounced because the ContentObserver fires on every volume-key repeat
@@ -888,7 +910,7 @@ class JadooDspService : Service() {
         loudnessDebounceJob?.cancel()
         loudnessDebounceJob = serviceScope.launch {
             delay(120)
-            applyLoudnessNow()
+            onVolumeMaybeChanged()
         }
     }
 
@@ -906,21 +928,22 @@ class JadooDspService : Service() {
      * A slow poll is the honest fix. One getStreamVolume plus two
      * getStreamVolumeDb reads per second, and [applyLoudnessNow] already
      * discards any change under 0.1 dB before it touches a single band — so in
-     * the steady state this costs three cheap AudioManager calls a second and
-     * nothing else. It only runs while the feature is actually engaged.
+     * the steady state this costs a few cheap AudioManager calls a second and
+     * nothing else. Runs whenever the engine is on: the input trim tracks the
+     * volume too (see measureVolumeHeadroom), not just the Loudness Contour.
      */
-    private fun updateLoudnessTracking() {
-        val shouldTrack = _loudnessEnabled.value && _masterEnabled.value
+    private fun updateVolumeTracking() {
+        val shouldTrack = _masterEnabled.value
         if (!shouldTrack) {
-            loudnessPollJob?.cancel()
-            loudnessPollJob = null
+            volumePollJob?.cancel()
+            volumePollJob = null
             return
         }
-        if (loudnessPollJob?.isActive == true) return
-        loudnessPollJob = serviceScope.launch {
-            while (isActive && _loudnessEnabled.value && _masterEnabled.value) {
+        if (volumePollJob?.isActive == true) return
+        volumePollJob = serviceScope.launch {
+            while (isActive && _masterEnabled.value) {
                 delay(1000)
-                applyLoudnessNow()
+                onVolumeMaybeChanged()
             }
         }
     }
@@ -977,11 +1000,14 @@ class JadooDspService : Service() {
             surroundMode = _surroundMode.value,
             harmonicExciterEnabled = _harmonicExciterEnabled.value,
             harmonicExciterIntensity = _harmonicExciterIntensity.value,
-            bassExtension = bassExtension(),
-            trebleExtension = trebleExtension(),
+            bassExtension = featureBassExtension(),
+            trebleExtension = featureTrebleExtension(),
             mobileBassExtension = mobileBassExtension(),
             preEqBassPeakDb = preEqBassPeakDb(),
             preEqTreblePeakDb = preEqTreblePeakDb(),
+            preEqLeftDb = preEqCurve(0),
+            preEqRightDb = preEqCurve(1),
+            volumeHeadroomDb = measureVolumeHeadroom(),
             preciseGainStaging = _preciseGainStaging.value
         )
         publishGainStagingReadout()
@@ -991,6 +1017,7 @@ class JadooDspService : Service() {
     private fun publishGainStagingReadout() {
         _gainBudgetDb.value = dspEngine.gainBudgetDb
         _autoTrimDb.value = dspEngine.autoTrimReadoutDb
+        scheduleResponseRefresh()
     }
 
     /**
@@ -1031,7 +1058,7 @@ class JadooDspService : Service() {
         } else if (_masterEnabled.value) {
             applyLoudnessNow()
         }
-        updateLoudnessTracking()
+        updateVolumeTracking()
         saveSession()
     }
 
@@ -1197,125 +1224,12 @@ class JadooDspService : Service() {
                 return
             }
             currentDeviceKey = newKey
-            refreshSuggestedDeviceProfile()
             switchToProfile(resolveProfileKey(), "output device: $newLabel")
         } catch (e: Exception) {
             Log.e(TAG, "handleOutputRouteChange failed (OEM HAL issue?): ${e.message}", e)
         }
     }
 
-    /**
-     * Looks for a content-channel profile matching the current output device's
-     * label (e.g. "Bluetooth: WH-1000XM4"). Cleared on routes that carry no
-     * product name — the phone speaker and generic wired output can't be
-     * identified, so there's nothing to match against.
-     */
-    private fun refreshSuggestedDeviceProfile() {
-        val label = _currentOutputDevice.value
-        _suggestedDeviceProfile.value = _remoteContent.value.headphoneProfiles
-            .firstOrNull { it.matches(label) }
-            // Only meaningful once we know it would actually change something.
-            ?.takeIf {
-                it.deviceType != _deviceType.value.name ||
-                    kotlin.math.abs(it.qualityTier - _deviceQualityTier.value) > 0.01f
-            }
-    }
-
-    /**
-     * Applies the matched content-channel device profile — user-initiated
-     * only. Sets the same two values the manual DeviceType picker does, so it
-     * goes through exactly the same code path and persists in the current
-     * profile like any other manual change.
-     */
-    fun applySuggestedDeviceProfile() {
-        val suggestion = _suggestedDeviceProfile.value ?: return
-        // Remember WHICH profile is active rather than copying its curve into
-        // the user's own band gains. Copying would silently overwrite an EQ
-        // they had dialled in, and would also freeze the correction at the
-        // version that happened to be live when they tapped Apply — a later
-        // content update improving the curve would never reach them.
-        //
-        // Set before setDeviceType for the same reason as selectDeviceProfile:
-        // the rebuild it triggers decides whether the engine stays attached.
-        _activeDeviceProfileName.value = suggestion.name
-        applyDeviceProfileCurve()
-        val type = DeviceType.entries.firstOrNull { it.name == suggestion.deviceType }
-        if (type != null) setDeviceType(type)
-        setDeviceQualityTier(suggestion.qualityTier)
-        _suggestedDeviceProfile.value = null
-        if (_masterEnabled.value) {
-            attachGlobalSession()
-            applyAllBands(manualBandGains.copyOf())
-            refreshHeadroom()
-        }
-        saveSession()
-    }
-
-    /**
-     * Applies a content-channel device tuning chosen by name.
-     *
-     * The manual counterpart to [applySuggestedDeviceProfile]. Auto-matching
-     * only works where the phone can see the transducer itself; anything
-     * behind an intermediary (a PC over Bluetooth, an AV receiver, a DAC
-     * driving passive speakers) reports the intermediary's name instead, so
-     * for those devices no match string is ever correct and hand-selection is
-     * the only route to the tuning.
-     */
-    fun selectDeviceProfile(name: String) {
-        val profile = _remoteContent.value.headphoneProfiles.firstOrNull { it.name == name } ?: return
-        // Resolve the curve FIRST. setDeviceType below triggers a topology
-        // rebuild, which asks hasActiveDspFeatures() whether to keep the
-        // engine attached — and with the curve not yet live, a profile
-        // selected as the only active feature would answer "no", release the
-        // engine, and never write the correction.
-        _activeDeviceProfileName.value = profile.name
-        applyDeviceProfileCurve()
-        DeviceType.entries.firstOrNull { it.name == profile.deviceType }?.let { setDeviceType(it) }
-        setDeviceQualityTier(profile.qualityTier)
-        _suggestedDeviceProfile.value = null
-        if (_masterEnabled.value) {
-            // Re-attach in case the engine was sitting in transparent bypass
-            // with nothing else enabled; applyAllBands is a no-op without it.
-            attachGlobalSession()
-            applyAllBands(manualBandGains.copyOf())
-            refreshHeadroom()
-        }
-        saveSession()
-    }
-
-    /** Clears any active content-channel device correction. */
-    fun clearDeviceProfile() {
-        _activeDeviceProfileName.value = ""
-        deviceProfileCurve = null
-        if (_masterEnabled.value) {
-            // Write the bands back without the correction FIRST, then let
-            // attachGlobalSession re-evaluate — if this was the only thing
-            // active, the engine can now legitimately drop to bypass.
-            applyAllBands(manualBandGains.copyOf())
-            refreshHeadroom()
-            attachGlobalSession()
-        }
-        saveSession()
-    }
-
-    /**
-     * Resolves [_activeDeviceProfileName] against the current content into a
-     * live curve. Re-run whenever content refreshes or the name is restored, so
-     * an improved curve shipped later reaches devices already using it.
-     */
-    private fun applyDeviceProfileCurve() {
-        val name = _activeDeviceProfileName.value
-        deviceProfileCurve = if (name.isBlank()) null
-        else _remoteContent.value.headphoneProfiles.firstOrNull { it.name == name }?.curve
-    }
-
-    /** Manual "check for new content now" — used by the settings UI. */
-    fun refreshRemoteContent(onComplete: (Boolean) -> Unit = {}) {
-        serviceScope.launch {
-            val updated = contentRepository.refresh()
-            onComplete(updated)
-        }
-    }
 
     /**
      * Called whenever the active app or the per-app opt-in list changes: if
@@ -1491,13 +1405,6 @@ class JadooDspService : Service() {
         _analogBassPultecBoost.value = state.analogBassPultecBoost
         _analogBassPultecCut.value = state.analogBassPultecCut
         _analogBassPultecFreqIndex.value = state.analogBassPultecFreqIndex
-        analogBassEngine.enabled = analogBassEnabledResolved
-        analogBassEngine.drive = state.analogBassDrive
-        analogBassEngine.warmth = state.analogBassWarmth
-        analogBassEngine.drift = state.analogBassDrift
-        analogBassEngine.pultecBoost = state.analogBassPultecBoost
-        analogBassEngine.pultecCut = state.analogBassPultecCut
-        analogBassEngine.pultecFreqIndex = state.analogBassPultecFreqIndex
         // Restore Tube Warmth
         _tubeWarmthEnabled.value = state.tubeWarmthEnabled
         _tubeWarmthIntensity.value = state.tubeWarmthIntensity
@@ -1515,6 +1422,7 @@ class JadooDspService : Service() {
         deserializePeqBands(state.peqBands)
         // SBC Enhancement — only meaningful on BT profiles
         _sbcModeEnabled.value = state.sbcModeEnabled && currentDeviceKey.startsWith("bt")
+        _sbcStyle.value = SbcStyle.fromName(state.sbcStyle)
         // Restore device type + quality tier — locked to General on the phone's
         // own speaker. That route already has its own dedicated scaling
         // (Mobile Bass is hardcoded to CompactSpeaker's extension regardless
@@ -1523,21 +1431,15 @@ class JadooDspService : Service() {
         val restoredDeviceType = DeviceType.entries.firstOrNull { it.name == state.deviceType } ?: DeviceType.General
         _deviceType.value = if (currentDeviceKey == "speaker") DeviceType.General else restoredDeviceType
         _deviceQualityTier.value = state.deviceQualityTier
-        // Enforced here too, not just in the setter and hasActiveDspFeatures —
-        // an imported backup or a profile saved while a different DeviceType
-        // was selected can carry crossfeedEnabled=true for a route/DeviceType
-        // combination that no longer makes sense. See isHeadphoneRoute.
-        _crossfeedEnabled.value = state.crossfeedEnabled && isHeadphoneRoute()
-        _crossfeedStrength.value = state.crossfeedStrength
-
         // Restore Loudness Contour. The compensation array is recomputed from
         // the restored reference/amount plus the CURRENT system volume rather
         // than persisted — a stored curve would be stale the moment the user
         // changed volume while the service was dead.
         _preciseGainStaging.value = state.preciseGainStaging
         _selectedPresetName.value = state.selectedPresetName
-        _activeDeviceProfileName.value = state.deviceProfileName
-        applyDeviceProfileCurve()
+        _autoEqProfileName.value = state.autoEqProfileName
+        // An AutoEQ preamp saved before Bluetooth stopped needing one: see applyAutoEqProfile.
+        if (onBluetoothPlan() && state.autoEqProfileName.isNotBlank() && _preGainDb.value < 0f) _preGainDb.value = 0f
         _loudnessEnabled.value = state.loudnessEnabled
         _loudnessAmount.value = state.loudnessAmount.coerceIn(0f, 1f)
         _loudnessReferencePhon.value = state.loudnessReferencePhon
@@ -1554,7 +1456,7 @@ class JadooDspService : Service() {
         // "applyState triggers no rebuilds" contract above. A profile that
         // turns Loudness on or off has to start or stop the volume poll, or
         // the correction stops tracking after any profile switch.
-        updateLoudnessTracking()
+        updateVolumeTracking()
     }
 
     /** Snapshot every current setting into a [SessionState] for persistence. */
@@ -1589,18 +1491,16 @@ class JadooDspService : Service() {
         peqBands   = serializePeqBands(),
         // SBC Enhancement
         sbcModeEnabled = _sbcModeEnabled.value,
+        sbcStyle = _sbcStyle.value.name,
         deviceType = _deviceType.value.name,
         deviceQualityTier = _deviceQualityTier.value,
-        // Crossfeed
-        crossfeedEnabled = _crossfeedEnabled.value,
-        crossfeedStrength = _crossfeedStrength.value,
         // Loudness Contour
         loudnessEnabled = _loudnessEnabled.value,
         loudnessAmount = _loudnessAmount.value,
         loudnessReferencePhon = _loudnessReferencePhon.value,
         preciseGainStaging = _preciseGainStaging.value,
         selectedPresetName = _selectedPresetName.value,
-        deviceProfileName = _activeDeviceProfileName.value
+        autoEqProfileName = _autoEqProfileName.value
     )
 
     private fun saveSession() {
@@ -1854,22 +1754,15 @@ class JadooDspService : Service() {
         // no-op (currentPhon == referencePhon), and claiming otherwise would
         // hold the DynamicsProcessing effect open for nothing.
         if (_loudnessEnabled.value && loudnessCompensation.any { it != 0f }) return true
-        // Crossfeed writes a PreEQ tonal curve via writeCombinedBand (see
-        // crossfeedShape), which needs the DP attached — if this returns
-        // false, attachSession() releases the engine and the curve is never
-        // written at all. Omitting it here meant Crossfeed silently did
-        // nothing whenever it was the only feature on.
-        if (_crossfeedEnabled.value && isHeadphoneRoute()) return true
         // SBC Enhancement writes a PreEQ pre-emphasis curve (up to +7dB at
-        // 16kHz) via writeCombinedBand, which needs the DP attached. Same
-        // failure as Crossfeed: enabled alone, it was inert. Gated on the
+        // 16kHz) via writeCombinedBand, which needs the DP attached —
+        // enabled alone, it was otherwise inert. Gated on the
         // route for the same reason writeCombinedBand is — the curve is only
         // applied on Bluetooth, so off-BT it genuinely changes nothing.
         if (sbcConditioningActive()) return true
-        // Device tuning — both the content-channel model curve and the
-        // DeviceType class curve are PreEQ contributors written by
-        // writeCombinedBand (see deviceCorrectionShape), so they need the DP
-        // attached for exactly the same reason Crossfeed and SBC above do.
+        // Device tuning — the DeviceType class curve is a PreEQ contributor
+        // written by writeCombinedBand (see deviceCorrectionShape), so it
+        // needs the DP attached for exactly the same reason SBC above does.
         // Missing here, selecting a device tuning with no other feature
         // enabled released the engine and the correction was never written —
         // audibly identical to not selecting one at all.
@@ -1930,9 +1823,10 @@ class JadooDspService : Service() {
         // now stale/detached. Without forcing a re-attach here, the engine stays
         // bound to the dead old session and silently stops processing audio.
         if (forceReattach || dspEngine.dynamicsProcessing == null || _audioSessionId.value != sessionId) {
+            attachedStackScale = stackScale()
             val attached = dspEngine.attach(
                 sessionId = sessionId,
-                initialGains = manualBandGains.copyOf(),
+                initialGains = combinedInitialGains(),
                 initialPreGainDb = _preGainDb.value,
                 initialPostGainDb = _postGainDb.value,
                 hiResEnabled = _hiResUpscalerEnabled.value,
@@ -1953,16 +1847,20 @@ class JadooDspService : Service() {
                 mobileBassIntensity = _mobileBassIntensity.value,
                 harmonicExciterEnabled = _harmonicExciterEnabled.value,
                 harmonicExciterIntensity = _harmonicExciterIntensity.value,
-                bassExtension = bassExtension(),
-                trebleExtension = trebleExtension(),
+                bassExtension = featureBassExtension(),
+                trebleExtension = featureTrebleExtension(),
                 mobileBassExtension = mobileBassExtension(),
                 preEqBassPeakDb = preEqBassPeakDb(),
                 preEqTreblePeakDb = preEqTreblePeakDb(),
+                preEqLeftDb = preEqCurve(0),
+                preEqRightDb = preEqCurve(1),
+                volumeHeadroomDb = measureVolumeHeadroom(),
+                bluetoothRoute = currentOutputDeviceApiType in BLUETOOTH_OUTPUT_TYPES,
                 preciseGainStaging = _preciseGainStaging.value,
                 hdrRestorationThreshold = remoteTuning.hdrRestorationThreshold,
                 hdrRestorationKnee = remoteTuning.hdrRestorationKnee,
                 hdrRestorationExpanderRatio = remoteTuning.hdrRestorationExpanderRatio,
-                sbcConditioningEnabled = sbcConditioningActive(),
+                sbcConditioningEnabled = sbcDynamicsActive(),
                 sbcCrestCutoffHz = SbcEngine.crestBandCutoffHz(digitalFilterEngine.sampleRateHz)
             )
             if (attached) {
@@ -1984,7 +1882,7 @@ class JadooDspService : Service() {
                 // happens to toggle something.
                 Log.e(TAG, "attach() failed for session=$sessionId — falling back to a transparent passthrough")
                 dspEngine.release()
-                if (dspEngine.attach(sessionId = sessionId, initialGains = manualBandGains.copyOf())) {
+                if (dspEngine.attach(sessionId = sessionId, initialGains = combinedInitialGains())) {
                     _audioSessionId.value = sessionId
                     _activePackageName.value = packageName
                     updateNotification()
@@ -2006,6 +1904,7 @@ class JadooDspService : Service() {
 
     private fun detachSession() {
         dspEngine.release()
+        scheduleResponseRefresh()
         _audioSessionId.value = null
         _dspBypassed.value = true
     }
@@ -2049,7 +1948,7 @@ class JadooDspService : Service() {
             updateBandGains(manualBandGains.copyOf())
             detachSession()
         }
-        updateLoudnessTracking()
+        updateVolumeTracking()
         updateNotification()
         saveSession()
     }
@@ -2105,6 +2004,7 @@ class JadooDspService : Service() {
         if (_masterEnabled.value) {
             attachGlobalSession()
             dspEngine.setPreGain(_preGainDb.value)
+            scheduleResponseRefresh()
         }
         saveSession()
     }
@@ -2114,6 +2014,7 @@ class JadooDspService : Service() {
         if (_masterEnabled.value) {
             attachGlobalSession()
             dspEngine.setPostGain(_postGainDb.value)
+            scheduleResponseRefresh()
         }
         saveSession()
     }
@@ -2167,7 +2068,6 @@ class JadooDspService : Service() {
         // converges on the same rule.
         if (mode == SurroundMode.Front && _analogBassEnabled.value) {
             _analogBassEnabled.value = false
-            analogBassEngine.enabled = false
         }
         if (oldMode != SurroundMode.Off && mode == SurroundMode.Off) {
             applySurroundShaping()
@@ -2189,7 +2089,9 @@ class JadooDspService : Service() {
         // limiter's gain budget — keep it in sync live so e.g. Ultra Wide
         // stacked with Mobile Bass/DBFB/Analog Bass doesn't push past what
         // the limiter was set up to expect (see calculateHeadroomOffset).
-        if (_masterEnabled.value) refreshHeadroom()
+        if (_masterEnabled.value) {
+            refreshBluetoothPlan()
+        }
         saveSession()
     }
 
@@ -2199,7 +2101,6 @@ class JadooDspService : Service() {
     fun setAnalogBassEnabled(enabled: Boolean) {
         val resolved = enabled && _surroundMode.value != SurroundMode.Front
         _analogBassEnabled.value = resolved
-        analogBassEngine.enabled = resolved
         if (_masterEnabled.value) rebuildDspTopology()
         saveSession()
     }
@@ -2207,9 +2108,9 @@ class JadooDspService : Service() {
     fun setAnalogBassDrive(value: Float) {
         val clamped = value.coerceIn(0f, 1f)
         _analogBassDrive.value = clamped
-        analogBassEngine.drive = clamped
         if (_analogBassEnabled.value && _masterEnabled.value) {
-            dspEngine.updateAnalogBassMbc(clamped, _analogBassWarmth.value, _analogBassDrift.value, bassExtension())
+            dspEngine.updateAnalogBassMbc(clamped, _analogBassWarmth.value, _analogBassDrift.value, featureBassExtension())
+            refreshBluetoothPlan()
         }
         saveSession()
     }
@@ -2217,14 +2118,14 @@ class JadooDspService : Service() {
     fun setAnalogBassWarmth(value: Float) {
         val clamped = value.coerceIn(0f, 1f)
         _analogBassWarmth.value = clamped
-        analogBassEngine.warmth = clamped
         if (_analogBassEnabled.value && _masterEnabled.value) {
-            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, clamped, _analogBassDrift.value, bassExtension())
+            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, clamped, _analogBassDrift.value, featureBassExtension())
             // Mobile Bass owns the PostEQ layout when both features are on — skip Analog Bass
             // PostEQ update to avoid writing Pultec frequencies onto Mobile Bass's band slots.
             if (!_mobileBassEnabled.value) {
-                dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, clamped, bassExtension())
+                dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, clamped, featureBassExtension())
             }
+            refreshBluetoothPlan()
         }
         saveSession()
     }
@@ -2232,9 +2133,9 @@ class JadooDspService : Service() {
     fun setAnalogBassDrift(value: Float) {
         val clamped = value.coerceIn(0f, 1f)
         _analogBassDrift.value = clamped
-        analogBassEngine.drift = clamped
         if (_analogBassEnabled.value && _masterEnabled.value) {
-            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, _analogBassWarmth.value, clamped, bassExtension())
+            dspEngine.updateAnalogBassMbc(_analogBassDrive.value, _analogBassWarmth.value, clamped, featureBassExtension())
+            refreshBluetoothPlan()
         }
         saveSession()
     }
@@ -2242,9 +2143,9 @@ class JadooDspService : Service() {
     fun setAnalogBassPultecBoost(value: Float) {
         val clamped = value.coerceIn(0f, 1f)
         _analogBassPultecBoost.value = clamped
-        analogBassEngine.pultecBoost = clamped
         if (_analogBassEnabled.value && _masterEnabled.value && !_mobileBassEnabled.value) {
-            dspEngine.updateAnalogBassPostEq(clamped, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, _analogBassWarmth.value, bassExtension())
+            dspEngine.updateAnalogBassPostEq(clamped, _analogBassPultecCut.value, _analogBassPultecFreqIndex.value, _analogBassWarmth.value, featureBassExtension())
+            refreshBluetoothPlan()
         }
         saveSession()
     }
@@ -2252,19 +2153,19 @@ class JadooDspService : Service() {
     fun setAnalogBassPultecCut(value: Float) {
         val clamped = value.coerceIn(0f, 1f)
         _analogBassPultecCut.value = clamped
-        analogBassEngine.pultecCut = clamped
         if (_analogBassEnabled.value && _masterEnabled.value && !_mobileBassEnabled.value) {
-            dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, clamped, _analogBassPultecFreqIndex.value, _analogBassWarmth.value, bassExtension())
+            dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, clamped, _analogBassPultecFreqIndex.value, _analogBassWarmth.value, featureBassExtension())
+            refreshBluetoothPlan()
         }
         saveSession()
     }
 
     fun setAnalogBassPultecFreqIndex(index: Int) {
-        val clamped = index.coerceIn(0, AnalogBassEngine.PULTEC_FREQUENCIES.size - 1)
+        val clamped = index.coerceIn(0, PULTEC_FREQUENCIES_HZ.size - 1)
         _analogBassPultecFreqIndex.value = clamped
-        analogBassEngine.pultecFreqIndex = clamped
         if (_analogBassEnabled.value && _masterEnabled.value && !_mobileBassEnabled.value) {
-            dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, clamped, _analogBassWarmth.value, bassExtension())
+            dspEngine.updateAnalogBassPostEq(_analogBassPultecBoost.value, _analogBassPultecCut.value, clamped, _analogBassWarmth.value, featureBassExtension())
+            refreshBluetoothPlan()
         }
         saveSession()
     }
@@ -2330,7 +2231,7 @@ class JadooDspService : Service() {
                 _dbfbMode.value,
                 _mobileBassEnabled.value,
                 _hdrDynamicsEnabled.value,
-                trebleExtension()
+                featureTrebleExtension()
             )
             refreshHeadroom()
         }
@@ -2359,113 +2260,6 @@ class JadooDspService : Service() {
         // bass ceiling.
         _deviceQualityTier.value = 0.85f
         if (_masterEnabled.value) rebuildDspTopology()
-        saveSession()
-    }
-
-    // ── Crossfeed Controls ───────────────────────────────────────────────
-
-    /**
-     * True only when the output is genuinely a pair of headphones/IEMs near
-     * the ears — the one situation Crossfeed's tonal curve (see
-     * crossfeedShape) is meaningful for. It exists to soften the "hard L/R
-     * panning, everything inside your head" feeling, which is only a problem
-     * when each ear hears exactly one channel with zero natural crosstalk.
-     * Any speaker already delivers both channels to both ears acoustically,
-     * so applying the curve there isn't "less effective" — it's warming up
-     * and rolling off the treble of a signal that doesn't have the problem
-     * this curve is meant to solve.
-     *
-     * TWO things gate this, not one:
-     *  - route: the phone's own built-in speaker is never headphone-like.
-     *  - [DeviceType]: a Bluetooth or wired CONNECTION can still be an
-     *    external SPEAKER (CompactSpeaker/HomeSpeaker) rather than
-     *    headphones. Route alone can't distinguish a BT speaker from BT
-     *    headphones — only the user's DeviceType choice can. The dashboard
-     *    already hides the Crossfeed card for those two types; this makes
-     *    the engine agree, so a state left over from before a DeviceType
-     *    change (or an imported backup) can't leave the curve quietly
-     *    applied somewhere it never should be.
-     */
-    private fun isHeadphoneRoute(): Boolean {
-        if (currentDeviceKey == "speaker") return false
-        return when (_deviceType.value) {
-            DeviceType.CompactSpeaker, DeviceType.HomeSpeaker -> false
-            else -> true
-        }
-    }
-
-    fun setCrossfeedEnabled(enabled: Boolean) {
-        _crossfeedEnabled.value = enabled
-        if (_masterEnabled.value) {
-            // Just another PreEQ contributor now (see crossfeedShape) — the
-            // same cheap path every other toggle already uses. No dedicated
-            // effect to create/tear down, so no dropout risk either; this
-            // used to reconfigure a Virtualizer in place specifically to
-            // avoid a topology-rebuild dropout, which is moot now that
-            // there's no separate effect at all.
-            attachGlobalSession()
-            applyAllBands(manualBandGains.copyOf())
-            refreshHeadroom()
-        }
-        saveSession()
-    }
-
-    fun setCrossfeedStrength(value: Float) {
-        val clamped = value.coerceIn(0f, 1f)
-        _crossfeedStrength.value = clamped
-        if (_crossfeedEnabled.value && _masterEnabled.value) {
-            applyAllBands(manualBandGains.copyOf())
-            refreshHeadroom()
-        }
-        saveSession()
-    }
-
-    /**
-     * The slider is dragged in real time (unlike setDeviceType above), so a
-     * full topology rebuild per tick would click/dropout on every step —
-     * instead this re-patches only the postGain/gain values already
-     * affected by bassExtension()/trebleExtension() via each feature's
-     * existing live-update helper, then refreshes the headroom credit.
-     */
-    fun setDeviceQualityTier(value: Float) {
-        _deviceQualityTier.value = value.coerceIn(0f, 1f)
-        if (_masterEnabled.value) {
-            val bass = bassExtension()
-            val treble = trebleExtension()
-            if (_dbfbMode.value != DbfbMode.Off) {
-                dspEngine.updateDbfbGain(_dbfbMode.value, _analogBassEnabled.value, bass)
-            }
-            if (_analogBassEnabled.value) {
-                dspEngine.updateAnalogBassMbc(_analogBassDrive.value, _analogBassWarmth.value, _analogBassDrift.value, bass)
-                // Mobile Bass owns the PostEQ layout when both are on — same
-                // guard every Analog Bass slider setter already uses. Without
-                // it this path wrote Pultec cutoffs onto Mobile Bass's slots
-                // and then overwrote them again two lines later, once per
-                // frame of a quality-tier drag.
-                if (!_mobileBassEnabled.value) {
-                    dspEngine.updateAnalogBassPostEq(
-                        _analogBassPultecBoost.value, _analogBassPultecCut.value,
-                        _analogBassPultecFreqIndex.value, _analogBassWarmth.value, bass
-                    )
-                }
-            }
-            if (_mobileBassEnabled.value) {
-                dspEngine.updateMobileBassIntensity(_mobileBassIntensity.value, _analogBassEnabled.value, _dbfbMode.value)
-            }
-            if (_harmonicExciterEnabled.value) {
-                dspEngine.updateHarmonicExciterIntensity(
-                    _harmonicExciterIntensity.value, _analogBassEnabled.value, _dbfbMode.value,
-                    _mobileBassEnabled.value, _hdrDynamicsEnabled.value, treble
-                )
-            }
-            if (_hiResUpscalerEnabled.value) {
-                dspEngine.updateHiResGain(
-                    treble, _analogBassEnabled.value, _dbfbMode.value, _mobileBassEnabled.value,
-                    _hdrDynamicsEnabled.value, _harmonicExciterEnabled.value
-                )
-            }
-            refreshHeadroom()
-        }
         saveSession()
     }
 
@@ -2519,10 +2313,47 @@ class JadooDspService : Service() {
 
     /** Reset the complete 16-band bank in one batch. */
     fun resetDigitalFilterBands() {
+        _autoEqProfileName.value = ""
         for (i in 0 until DigitalFilterEngine.MAX_BANDS) {
             digitalFilterEngine.setBand(i, DigitalFilterEngine.defaultBand(i))
         }
         scheduleDigitalFilterApply()
+        saveSession()
+    }
+
+    /**
+     * Loads an AutoEQ headphone correction into the Parametric EQ bank in
+     * one batch: its filters into the first bands, the rest cleared, its
+     * preamp into pre-gain (the PEQ screen's preamp), and the PEQ switched
+     * on. Lands in the current output device's profile like any manual edit,
+     * so it stays bound to the headphone it was applied for.
+     *
+     * Not the preamp on Bluetooth. It exists to make room for the filters'
+     * boosts, and DspEngine.planBluetoothMbc does that itself; there it would
+     * only turn the whole song down, often by several dB.
+     */
+    fun applyAutoEqProfile(profile: AutoEq.Profile, name: String) {
+        _autoEqProfileName.value = name
+        for (i in 0 until DigitalFilterEngine.MAX_BANDS) {
+            digitalFilterEngine.setBand(i, profile.bands.getOrNull(i) ?: DigitalFilterEngine.defaultBand(i))
+        }
+        digitalFilterEngine.enabled = true
+        _digitalFilterEnabled.value = true
+        setPreGain(if (onBluetoothPlan()) 0f else profile.preampDb)
+        scheduleDigitalFilterApply()
+        saveSession()
+    }
+
+    /** Switches Classic/New. Band count changes with it, so this rebuilds like the toggle does. */
+    fun setSbcStyle(style: SbcStyle) {
+        if (_sbcStyle.value == style) return
+        _sbcStyle.value = style
+        if (_masterEnabled.value && sbcConditioningActive()) {
+            attachGlobalSession()
+            rebuildDspTopology()
+            applyAllBands(manualBandGains.copyOf())
+            refreshHeadroom()
+        }
         saveSession()
     }
 
@@ -2617,10 +2448,10 @@ class JadooDspService : Service() {
         }
         _dspBypassed.value = false
 
-        val currentGains = manualBandGains.copyOf()
+        attachedStackScale = stackScale()
         val attached = dspEngine.attach(
             sessionId = sessionId,
-            initialGains = currentGains,
+            initialGains = combinedInitialGains(),
             initialPreGainDb = _preGainDb.value,
             initialPostGainDb = _postGainDb.value,
             hiResEnabled = _hiResUpscalerEnabled.value,
@@ -2641,19 +2472,23 @@ class JadooDspService : Service() {
             mobileBassIntensity = _mobileBassIntensity.value,
             harmonicExciterEnabled = _harmonicExciterEnabled.value,
             harmonicExciterIntensity = _harmonicExciterIntensity.value,
-            bassExtension = bassExtension(),
-            trebleExtension = trebleExtension(),
+            bassExtension = featureBassExtension(),
+            trebleExtension = featureTrebleExtension(),
             mobileBassExtension = mobileBassExtension(),
             preEqBassPeakDb = preEqBassPeakDb(),
             preEqTreblePeakDb = preEqTreblePeakDb(),
+            preEqLeftDb = preEqCurve(0),
+            preEqRightDb = preEqCurve(1),
+            volumeHeadroomDb = measureVolumeHeadroom(),
+            bluetoothRoute = currentOutputDeviceApiType in BLUETOOTH_OUTPUT_TYPES,
             hdrRestorationThreshold = remoteTuning.hdrRestorationThreshold,
             hdrRestorationKnee = remoteTuning.hdrRestorationKnee,
             hdrRestorationExpanderRatio = remoteTuning.hdrRestorationExpanderRatio,
-            sbcConditioningEnabled = sbcConditioningActive(),
+            sbcConditioningEnabled = sbcDynamicsActive(),
             sbcCrestCutoffHz = SbcEngine.crestBandCutoffHz(digitalFilterEngine.sampleRateHz)
         )
         if (attached) {
-            applyAllBands(currentGains)
+            applyAllBands(manualBandGains.copyOf())
         }
     }
 
@@ -2844,9 +2679,10 @@ class JadooDspService : Service() {
      * mode) and [applySingleBand] (the fast path for a manual-EQ slider/drag
      * touching exactly one band).
      */
-    private fun writeCombinedBand(index: Int, graphicGain: Float, mode: SurroundMode) {
-        // Peak across this PreEQ band's real cutoff span, not sampled at one
-        // point — see DigitalFilterEngine.evaluateBandPeakDb for why a
+    /** Sum of every tonal contributor for one PreEQ band, before the L/R surround split. */
+    private fun combinedCenteredGain(index: Int, graphicGain: Float, mode: SurroundMode): Float {
+        // Gain across this PreEQ band's real cutoff span, not sampled at one
+        // point — see DigitalFilterEngine.evaluateBandGainDb for why a
         // single-point sample silently swallowed narrow (high-Q) PEQ filters
         // that didn't happen to land on one of the 15 fixed centres.
         val peqGain = parametricEqShape(index)
@@ -2899,9 +2735,6 @@ class JadooDspService : Service() {
         // ±15dB clamp below. Exactly 0dB at 1kHz by construction, and
         // all-zero whenever the feature is off — see LoudnessContour.
         val loudnessShape = loudnessCompensation.getOrElse(index) { 0f }
-        // Crossfeed's tonal-EQ curve — see crossfeedShape() for why Crossfeed
-        // is a PreEQ contributor now instead of a Virtualizer effect.
-        val crossfeedTonalShape = crossfeedShape(index)
         // Device-class tonal correction — see DeviceType.correctionDb. Applies
         // whenever a DeviceType other than General is selected, independent of
         // which features are on, which is what finally gives the Device Type
@@ -2909,9 +2742,48 @@ class JadooDspService : Service() {
         val deviceCorrection = deviceCorrectionShape(index)
 
         val baseGain = graphicGain + peqGain + hdrAirBoost + tubeWarmthShape +
-            sbcPreEmphasis + loudnessShape + crossfeedTonalShape + deviceCorrection
+            sbcPreEmphasis + loudnessShape + deviceCorrection
 
-        val centered = baseGain + surroundBandProfile(mode, index)
+        val stack = stackScale()
+        val surroundScale = if (EqBands.frequencies[index] <= DspEngine.BT_BASS_ZONE_TOP_HZ) stack.bass else stack.treble
+        return baseGain + surroundBandProfile(mode, index) * surroundScale
+    }
+
+    /**
+     * The full combined PreEQ curve (centred part), for seeding a freshly
+     * built DynamicsProcessing. Seeding with the graphic EQ alone — as attach
+     * used to be — left every other tonal feature to glide in over 60 ms
+     * after each rebuild: an audible tonal sweep on every feature toggle.
+     */
+    private fun combinedInitialGains(): FloatArray {
+        val mode = _surroundMode.value
+        return FloatArray(EqBands.count) { i ->
+            combinedCenteredGain(i, manualBandGains.getOrElse(i) { 0f }, mode).coerceIn(-15f, 15f)
+        }
+    }
+
+    private var responseJob: Job? = null
+
+    /**
+     * Re-reads the engine's real response for the dashboard curve once the
+     * writes settle — after the 60 ms PreEQ glides, and once per burst rather
+     * than per band. See DspEngine.staticResponseDb.
+     */
+    private fun scheduleResponseRefresh() {
+        responseJob?.cancel()
+        responseJob = serviceScope.launch {
+            delay(150)
+            val rate = digitalFilterEngine.sampleRateHz.toInt().takeIf { it > 0 } ?: 48_000
+            val curve = withContext(Dispatchers.Default) {
+                dspEngine.staticResponseDb(DpResponse.DISPLAY_FREQUENCIES_HZ, rate)
+            }
+            _responseCurveDb.value = curve ?: FloatArray(DpResponse.DISPLAY_FREQUENCIES_HZ.size)
+        }
+    }
+
+    private fun writeCombinedBand(index: Int, graphicGain: Float, mode: SurroundMode) {
+        val centered = combinedCenteredGain(index, graphicGain, mode)
+        scheduleResponseRefresh()
         val diff = surroundChannelDifferential(mode, index)
         if (diff == 0f) {
             dspEngine.setPreEqBandGainAllChannels(index, centered.coerceIn(-15f, 15f))
@@ -2955,6 +2827,9 @@ class JadooDspService : Service() {
             for (index in 0 until EqBands.count) {
                 writeCombinedBand(index, gains.getOrNull(index) ?: 0f, mode)
             }
+            // Any full rewrite can move the curve's level (loudness tracking,
+            // PEQ, AutoEQ, Surround, presets), so the level-match trim follows.
+            refreshHeadroom()
         } catch (e: Exception) {
             Log.w(TAG, "applyAllBands skipped: ${e.message}")
         }

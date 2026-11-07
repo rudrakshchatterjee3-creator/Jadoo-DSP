@@ -12,6 +12,17 @@ private val Context.onboardingDataStore by preferencesDataStore(name = "onboardi
 class OnboardingPreferences(private val context: Context) {
     private object Keys {
         val hasCompleted = booleanPreferencesKey("has_completed_onboarding")
+        val btHeadroomTipDismissed = booleanPreferencesKey("bt_headroom_tip_dismissed")
+    }
+
+    /** The dashboard's "turn off absolute volume" tip was dismissed. */
+    val btHeadroomTipDismissed: Flow<Boolean> = context.onboardingDataStore.data
+        .map { preferences -> preferences[Keys.btHeadroomTipDismissed] ?: false }
+
+    suspend fun dismissBtHeadroomTip() {
+        context.onboardingDataStore.edit { preferences ->
+            preferences[Keys.btHeadroomTipDismissed] = true
+        }
     }
 
     val hasCompletedOnboarding: Flow<Boolean> = context.onboardingDataStore.data

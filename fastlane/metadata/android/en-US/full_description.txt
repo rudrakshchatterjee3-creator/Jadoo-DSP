@@ -13,12 +13,11 @@ BASS
 • Mobile Bass: fuller low end on your phone's own speaker
 
 CLARITY AND SPACE
-• Hi-Res Upscaler: recovers treble detail lost to compression
+• Hi-Res Upscaler: more air and sparkle in the top octaves
 • HDR Dynamics: restores punch to loudness-war masters
 • Harmonic Exciter: presence and sparkle in the 2–8 kHz range
 • Tube Warmth: valve-amp style bloom and softened highs
 • Surround+: wider stereo image while vocals stay centred
-• Crossfeed (beta): softens the hard left/right split of headphones
 
 SMART LISTENING
 • Loudness Contour keeps tonal balance at low volume

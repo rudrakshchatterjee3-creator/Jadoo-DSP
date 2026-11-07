@@ -33,6 +33,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.jadoo.amp.audio.DbfbMode
 import com.jadoo.amp.audio.HdrMode
+import com.jadoo.amp.audio.DpResponse
 import com.jadoo.amp.audio.EqBands
 import com.jadoo.amp.audio.JadooDspService
 import com.jadoo.amp.audio.SurroundMode
@@ -389,11 +390,6 @@ class MainActivity : ComponentActivity() {
 
         // Device Type
         val deviceType by audioService?.deviceType?.collectAsState(initial = com.jadoo.amp.audio.DeviceType.General) ?: remember { mutableStateOf(com.jadoo.amp.audio.DeviceType.General) }
-        val deviceQualityTier by audioService?.deviceQualityTier?.collectAsState(initial = 0.5f) ?: remember { mutableFloatStateOf(0.5f) }
-
-        // Crossfeed (Beta)
-        val crossfeedEnabled by audioService?.crossfeedEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
-        val crossfeedStrength by audioService?.crossfeedStrength?.collectAsState(initial = 0.5f) ?: remember { mutableFloatStateOf(0.5f) }
 
         // Loudness Contour (ISO 226)
         val loudnessEnabled by audioService?.loudnessEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
@@ -405,7 +401,11 @@ class MainActivity : ComponentActivity() {
         val preciseGainStaging by audioService?.preciseGainStaging?.collectAsState(initial = true) ?: remember { mutableStateOf(true) }
         val gainBudgetDb by audioService?.gainBudgetDb?.collectAsState(initial = 0f) ?: remember { mutableFloatStateOf(0f) }
         val autoTrimDb by audioService?.autoTrimDb?.collectAsState(initial = 0f) ?: remember { mutableFloatStateOf(0f) }
+        val bluetoothFullScale by audioService?.bluetoothFullScale?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val btTipDismissed by onboardingPreferences.btHeadroomTipDismissed.collectAsState(initial = true)
         val selectedPresetName by audioService?.selectedPresetName?.collectAsState(initial = "") ?: remember { mutableStateOf("") }
+        val responseCurveDb by audioService?.responseCurveDb?.collectAsState(initial = FloatArray(DpResponse.DISPLAY_FREQUENCIES_HZ.size)) ?: remember { mutableStateOf(FloatArray(DpResponse.DISPLAY_FREQUENCIES_HZ.size)) }
+        val autoEqProfileName by audioService?.autoEqProfileName?.collectAsState(initial = "") ?: remember { mutableStateOf("") }
 
         // Per-app profiles — activePackageName above is the human-readable
         // label; the raw package is what keys a profile, so it's collected
@@ -416,8 +416,6 @@ class MainActivity : ComponentActivity() {
 
         // Remotely updatable content (Lane A)
         val remoteContent by audioService?.remoteContent?.collectAsState(initial = com.jadoo.amp.update.RemoteContent.EMPTY) ?: remember { mutableStateOf(com.jadoo.amp.update.RemoteContent.EMPTY) }
-        val suggestedDeviceProfile by audioService?.suggestedDeviceProfile?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
-        val activeDeviceProfileName by audioService?.activeDeviceProfileName?.collectAsState(initial = "") ?: remember { mutableStateOf("") }
 
         // Digital Filters
         val digitalFilterBandStates by audioService?.digitalFilterBandStates?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
@@ -425,6 +423,7 @@ class MainActivity : ComponentActivity() {
 
         // SBC Enhancement + custom profiles
         val sbcModeEnabled by audioService?.sbcModeEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val sbcStyle by audioService?.sbcStyle?.collectAsState(initial = com.jadoo.amp.audio.SbcStyle.New) ?: remember { mutableStateOf(com.jadoo.amp.audio.SbcStyle.New) }
         val customProfileNames by (audioService?.customProfileNames?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList<String>()) })
 
         // Preset packs delivered over the content channel (Lane A) appear
@@ -548,9 +547,6 @@ class MainActivity : ComponentActivity() {
             harmonicExciterEnabled = harmonicExciterEnabled,
             harmonicExciterIntensity = harmonicExciterIntensity,
             deviceType = deviceType,
-            deviceQualityTier = deviceQualityTier,
-            crossfeedEnabled = crossfeedEnabled,
-            crossfeedStrength = crossfeedStrength,
             // Loudness Contour
             loudnessEnabled = loudnessEnabled,
             loudnessAmount = loudnessAmount,
@@ -560,15 +556,18 @@ class MainActivity : ComponentActivity() {
             preciseGainStaging = preciseGainStaging,
             gainBudgetDb = gainBudgetDb,
             autoTrimDb = autoTrimDb,
+            showBluetoothHeadroomTip = bluetoothFullScale && !btTipDismissed,
+            onDismissBluetoothHeadroomTip = {
+                lifecycleScope.launch { onboardingPreferences.dismissBtHeadroomTip() }
+            },
             selectedPresetName = selectedPresetName,
+            responseCurveDb = responseCurveDb,
+            autoEqProfileName = autoEqProfileName,
             // Per-app profiles
             activeAppPackage = activeAppPackage,
             perAppProfileActive = perAppProfileActive,
             perAppProfilePackages = perAppProfilePackages,
             // Content channel
-            suggestedDeviceProfileName = suggestedDeviceProfile?.name,
-            deviceProfileNames = remoteContent.headphoneProfiles.map { it.name },
-            activeDeviceProfileName = activeDeviceProfileName,
             // Digital Filters
             digitalFilterEnabled = digitalFilterEnabled,
             digitalFilterBandStates = digitalFilterBandStates,
@@ -673,15 +672,6 @@ class MainActivity : ComponentActivity() {
             onDeviceTypeChanged = { type ->
                 audioService?.setDeviceType(type)
             },
-            onDeviceQualityTierChanged = { value ->
-                audioService?.setDeviceQualityTier(value)
-            },
-            onCrossfeedEnabledChanged = { enabled ->
-                audioService?.setCrossfeedEnabled(enabled)
-            },
-            onCrossfeedStrengthChanged = { value ->
-                audioService?.setCrossfeedStrength(value)
-            },
             onDigitalFilterEnabledChanged = { enabled ->
                 audioService?.setDigitalFilterEnabled(enabled)
             },
@@ -711,9 +701,9 @@ class MainActivity : ComponentActivity() {
                 lifecycleScope.launch { themePreferences.setTone(tone) }
                 onAppearanceChanged(origin, currentAppearance.copy(tone = tone))
             },
-            onAmoledChanged = { origin, enabled ->
-                lifecycleScope.launch { themePreferences.setAmoled(enabled) }
-                onAppearanceChanged(origin, currentAppearance.copy(amoled = enabled))
+            onBackdropChanged = { origin, backdrop ->
+                lifecycleScope.launch { themePreferences.setBackdrop(backdrop) }
+                onAppearanceChanged(origin, currentAppearance.copy(backdrop = backdrop))
             },
             onSeedColorChanged = { origin, color ->
                 lifecycleScope.launch { themePreferences.setSeedColor(color.toArgb()) }
@@ -721,6 +711,9 @@ class MainActivity : ComponentActivity() {
             },
             onResetDigitalFilterBands = {
                 audioService?.resetDigitalFilterBands()
+            },
+            onApplyAutoEq = { profile, name ->
+                audioService?.applyAutoEqProfile(profile, name)
             },
             onExportSettings = {
                 val timestamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
@@ -732,6 +725,8 @@ class MainActivity : ComponentActivity() {
             // SBC Enhancement
             sbcModeEnabled = sbcModeEnabled,
             onSbcModeEnabledChanged = { audioService?.setSbcModeEnabled(it) },
+            sbcStyle = sbcStyle,
+            onSbcStyleChanged = { audioService?.setSbcStyle(it) },
             // Custom profiles
             savedProfileNames = customProfileNames,
             onLoadProfile = { name -> audioService?.loadCustomProfile(name) },
@@ -748,10 +743,6 @@ class MainActivity : ComponentActivity() {
                 audioService?.setPerAppProfileEnabled(pkg, enabled)
             },
             // Content channel
-            onRefreshContent = { audioService?.refreshRemoteContent() },
-            onApplySuggestedDeviceProfile = { audioService?.applySuggestedDeviceProfile() },
-            onSelectDeviceProfile = { name -> audioService?.selectDeviceProfile(name) },
-            onClearDeviceProfile = { audioService?.clearDeviceProfile() },
         )
     }
 

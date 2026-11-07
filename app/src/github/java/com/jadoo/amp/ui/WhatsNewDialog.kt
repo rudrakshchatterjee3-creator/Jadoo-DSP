@@ -115,7 +115,7 @@ fun WhatsNewDialog(
                     Spacer(Modifier.height(20.dp))
                     Text(
                         "What's New",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Bold,
                         fontSize = 28.sp
                     )
@@ -173,7 +173,7 @@ fun WhatsNewDialog(
                     when (val s = state) {
                         is ApkUpdater.State.Downloading -> {
                             Text("Downloading… ${(s.progress * 100).toInt()}%",
-                                 color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f), fontSize = 13.sp)
                             Spacer(Modifier.height(8.dp))
                             LinearProgressIndicator(
                                 progress = { s.progress },
@@ -183,11 +183,11 @@ fun WhatsNewDialog(
                         }
                         ApkUpdater.State.Verifying -> {
                             Text("Verifying signature…",
-                                 color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f), fontSize = 13.sp)
                         }
                         ApkUpdater.State.Installing -> {
                             Text("Opening installer…",
-                                 color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f), fontSize = 13.sp)
                         }
                         is ApkUpdater.State.Failed -> {
                             Text(s.reason,
@@ -287,7 +287,7 @@ fun WhatsNewDialog(
                     Spacer(Modifier.height(18.dp))
                     Text(
                         "Made with Love, by Rudraksh Chatterjee (JadOO)",
-                        color = Color.White.copy(alpha = 0.45f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
                         fontSize = 11.sp,
                         textAlign = TextAlign.Center
                     )
@@ -312,7 +312,7 @@ private fun ChangelogLine(text: String) {
         )
         Text(
             text,
-            color = Color.White.copy(alpha = 0.88f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
             fontSize = 15.sp,
             lineHeight = 21.sp
         )

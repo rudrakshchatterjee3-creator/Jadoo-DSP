@@ -1,5 +1,7 @@
 package com.jadoo.amp.ui.theme
 
+import androidx.compose.runtime.staticCompositionLocalOf
+
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -10,6 +12,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+
+/** The backdrop in effect, for screens that paint their own background. */
+val LocalBackdrop = staticCompositionLocalOf { Backdrop.Dim }
 
 /**
  * The app's single theme entry point.
@@ -60,7 +65,7 @@ fun JadOOampTheme(
         }
     }
 
-    CompositionLocalProvider(LocalJadooTokens provides tokens) {
+    CompositionLocalProvider(LocalJadooTokens provides tokens, LocalBackdrop provides spec.backdrop) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = JadooTypography,

@@ -92,8 +92,6 @@ class ThemeTransitionState internal constructor(
     internal var incomingBackground by mutableStateOf(Color.Black)
 
     internal var running by mutableStateOf(false)
-
-    val isRunning: Boolean get() = running
 }
 
 @Composable

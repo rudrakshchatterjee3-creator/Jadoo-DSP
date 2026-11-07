@@ -1,12 +1,16 @@
 package com.jadoo.amp.ui.theme
 
+import androidx.compose.ui.graphics.toArgb
+import com.materialkolor.PaletteStyle
+import com.materialkolor.dynamicColorScheme
+import com.materialkolor.hct.Hct
+import com.materialkolor.palettes.TonalPalette as MkTonalPalette
+
 import android.content.Context
 import android.os.Build
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
 /** Where the app's colours come from. */
@@ -19,6 +23,25 @@ enum class ThemeMode {
 
     /** A scheme generated from a user-chosen seed colour. */
     CustomSeed
+}
+
+/**
+ * What sits behind the content in dark mode.
+ *
+ * The default dark background (Material tone 6, ≈#0F1113) read as "too dark"
+ * on a dark-room OLED: the grouped lists at tone 12 barely separated from it.
+ * Dim and Tinted lift the whole surface ramp ~5 tones so lists separate
+ * clearly while text contrast stays far above 4.5:1 (onSurface is tone 90).
+ */
+enum class Backdrop {
+    /** True black for OLED — the old Pure Black switch. */
+    Black,
+    /** Lifted neutral charcoal, background tone 11. */
+    Dim,
+    /** Dim, but the neutrals carry the accent's hue (chroma 14). */
+    Tinted,
+    /** Dim plus a slow accent glow drawn behind the main screens. */
+    Aurora
 }
 
 /** Light/dark selection. */
@@ -40,7 +63,8 @@ data class ThemeSpec(
     val mode: ThemeMode = ThemeMode.Brand,
     val tone: ToneMode = ToneMode.System,
     val amoled: Boolean = false,
-    val seed: Color = BrandPalette.Gold
+    val seed: Color = BrandPalette.Gold,
+    val backdrop: Backdrop = Backdrop.Dim
 )
 
 /**
@@ -79,7 +103,43 @@ fun buildColorScheme(
         ThemeMode.CustomSeed -> seedScheme(spec.seed, dark)
     }
 
-    return if (dark && spec.amoled) base.toAmoled() else base
+    return base.withBackdrop(spec.backdrop, dark)
+}
+
+/**
+ * Re-seats the surface ramp for [backdrop], keeping every accent role as the
+ * mode produced it. The neutrals are rebuilt from a MaterialKolor tonal
+ * palette on the accent's hue, so Dim stays a quiet near-neutral and Tinted
+ * visibly carries the accent — both at the same tones, same contrast.
+ */
+fun ColorScheme.withBackdrop(backdrop: Backdrop, dark: Boolean): ColorScheme {
+    if (backdrop == Backdrop.Black) return if (dark) toAmoled() else this
+    val hue = Hct.fromInt(primary.toArgb()).hue
+    val baseChroma = Hct.fromInt(surfaceContainer.toArgb()).chroma
+    val chroma = if (backdrop == Backdrop.Tinted) 14.0 else baseChroma.coerceIn(2.0, 6.0)
+    val n = MkTonalPalette.fromHueAndChroma(hue, chroma)
+    fun t(tone: Int) = Color(n.tone(tone))
+    return if (dark) copy(
+        background = t(11),
+        surface = t(11),
+        surfaceDim = t(9),
+        surfaceBright = t(28),
+        surfaceContainerLowest = t(8),
+        surfaceContainerLow = t(14),
+        surfaceContainer = t(17),
+        surfaceContainerHigh = t(21),
+        surfaceContainerHighest = t(25),
+        onBackground = t(92),
+        onSurface = t(92)
+    ) else if (backdrop == Backdrop.Tinted) copy(
+        background = t(96),
+        surface = t(96),
+        surfaceContainerLowest = t(99),
+        surfaceContainerLow = t(94),
+        surfaceContainer = t(92),
+        surfaceContainerHigh = t(90),
+        surfaceContainerHighest = t(87)
+    ) else this
 }
 
 /** True when [spec] resolves to a dark scheme against [systemDark]. */
@@ -90,93 +150,10 @@ fun ThemeSpec.isDark(systemDark: Boolean): Boolean = when (tone) {
 }
 
 /**
- * Generates a full scheme from a seed.
- *
- * Every role is derived from one of four tonal ramps built off the seed's own
- * hue — including the neutrals. That last part is the point: the old generator
- * hardcoded green-tinted neutral literals inside this branch, so a blue seed
- * produced a blue accent sitting on a faintly green background. There is now no
- * literal here that could be wrong.
- *
- * The tone numbers match Material's conventional role assignments, so the
- * result lands where a designer expects even though the colour space differs.
+ * Generates a full scheme from a seed with MaterialKolor — Google's own
+ * material-color-utilities (HCT colour space, Tonal Spot style), so custom
+ * seeds land exactly where Material You would put them, contrast guarantees
+ * included.
  */
-private fun seedScheme(seed: Color, dark: Boolean): ColorScheme {
-    val accent = TonalPalette.accent(seed)
-    val secondary = TonalPalette.accentRotated(seed, 20f, 0.42f)
-    val tertiary = TonalPalette.accentRotated(seed, -40f, 0.52f)
-    val neutral = TonalPalette.neutral(seed)
-    val neutralVariant = TonalPalette.neutralVariant(seed)
-
-    return if (dark) {
-        darkColorScheme(
-            primary = accent.tone(80),
-            onPrimary = accent.tone(20),
-            primaryContainer = accent.tone(30),
-            onPrimaryContainer = accent.tone(90),
-            inversePrimary = accent.tone(40),
-
-            secondary = secondary.tone(80),
-            onSecondary = secondary.tone(20),
-            secondaryContainer = secondary.tone(30),
-            onSecondaryContainer = secondary.tone(90),
-
-            tertiary = tertiary.tone(80),
-            onTertiary = tertiary.tone(20),
-            tertiaryContainer = tertiary.tone(30),
-            onTertiaryContainer = tertiary.tone(90),
-
-            background = neutral.tone(6),
-            onBackground = neutral.tone(90),
-            surface = neutral.tone(6),
-            onSurface = neutral.tone(90),
-            surfaceVariant = neutralVariant.tone(30),
-            onSurfaceVariant = neutralVariant.tone(80),
-
-            surfaceContainerLowest = neutral.tone(4),
-            surfaceContainerLow = neutral.tone(10),
-            surfaceContainer = neutral.tone(12),
-            surfaceContainerHigh = neutral.tone(17),
-            surfaceContainerHighest = neutral.tone(22),
-
-            outline = neutralVariant.tone(60),
-            outlineVariant = neutralVariant.tone(30),
-            surfaceTint = accent.tone(80)
-        )
-    } else {
-        lightColorScheme(
-            primary = accent.tone(40),
-            onPrimary = accent.tone(100),
-            primaryContainer = accent.tone(90),
-            onPrimaryContainer = accent.tone(10),
-            inversePrimary = accent.tone(80),
-
-            secondary = secondary.tone(40),
-            onSecondary = secondary.tone(100),
-            secondaryContainer = secondary.tone(90),
-            onSecondaryContainer = secondary.tone(10),
-
-            tertiary = tertiary.tone(40),
-            onTertiary = tertiary.tone(100),
-            tertiaryContainer = tertiary.tone(90),
-            onTertiaryContainer = tertiary.tone(10),
-
-            background = neutral.tone(98),
-            onBackground = neutral.tone(10),
-            surface = neutral.tone(98),
-            onSurface = neutral.tone(10),
-            surfaceVariant = neutralVariant.tone(90),
-            onSurfaceVariant = neutralVariant.tone(30),
-
-            surfaceContainerLowest = neutral.tone(100),
-            surfaceContainerLow = neutral.tone(96),
-            surfaceContainer = neutral.tone(94),
-            surfaceContainerHigh = neutral.tone(92),
-            surfaceContainerHighest = neutral.tone(90),
-
-            outline = neutralVariant.tone(50),
-            outlineVariant = neutralVariant.tone(80),
-            surfaceTint = accent.tone(40)
-        )
-    }
-}
+private fun seedScheme(seed: Color, dark: Boolean): ColorScheme =
+    dynamicColorScheme(seedColor = seed, isDark = dark, style = PaletteStyle.TonalSpot)

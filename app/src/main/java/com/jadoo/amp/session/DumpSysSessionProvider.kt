@@ -19,14 +19,23 @@ class DumpSysSessionProvider : AudioSessionProvider {
 
     private fun runDumpsys(service: String): String {
         val process = Runtime.getRuntime().exec(arrayOf("dumpsys", service))
-        val output = process.inputStream.bufferedReader().readText()
-        // 3-second hard timeout so a hung dumpsys process can't block the
-        // audio session resolver indefinitely (Dispatchers.IO thread pool).
-        if (!process.waitFor(3, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            Log.w("DumpSysSessionProvider", "dumpsys $service timed out — killed")
+        // The timeout has to fire WHILE reading: readText() only returns at
+        // end-of-stream, so checking waitFor() afterwards (as this used to)
+        // could never interrupt a dumpsys that hung mid-write. The watchdog
+        // kills it after 3 s, which closes the pipe and ends the read.
+        val watchdog = Thread {
+            try {
+                if (!process.waitFor(3, TimeUnit.SECONDS)) {
+                    process.destroyForcibly()
+                    Log.w("DumpSysSessionProvider", "dumpsys $service timed out — killed")
+                }
+            } catch (_: InterruptedException) { }
+        }.apply { isDaemon = true; start() }
+        return try {
+            process.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            watchdog.interrupt()
         }
-        return output
     }
 
     /**

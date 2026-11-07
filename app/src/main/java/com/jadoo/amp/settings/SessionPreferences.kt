@@ -46,14 +46,12 @@ data class SessionState(
     val peqBands: String = "",       // "" means all-default (not yet configured)
     // SBC Enhancement: pre-emphasis for Bluetooth SBC codec devices (not for LDAC/LHDC)
     val sbcModeEnabled: Boolean = false,
+    // SbcStyle name — "New" (1.6.4 conditioning) unless the user picked Classic.
+    val sbcStyle: String = "New",
     // Device type (see DeviceType) and budget-to-flagship quality tier for this output
     // device profile. "General" = no device-aware scaling, matches pre-existing behavior.
     val deviceType: String = "General",
     val deviceQualityTier: Float = 0.5f,
-    // Crossfeed: headphone-only tonal-EQ curve (BETA — see
-    // JadooDspService.crossfeedShape)
-    val crossfeedEnabled: Boolean = false,
-    val crossfeedStrength: Float = 0.5f,
     // Loudness Contour (ISO 226): level-tracking tonal compensation. The
     // reference level is genuinely per-output-device — the SPL your IEMs hit
     // at max volume is nothing like your phone speaker's — so it lives in the
@@ -64,7 +62,7 @@ data class SessionState(
     // Gain staging. ON pays the feature stack's gain budget across the limiter
     // threshold AND a transparent input trim; OFF dumps the whole budget on
     // the limiter threshold, which is what the app did before v1.6 and which
-    // could reach -19 dBFS on a 10:1 brickwall. See DspEngine.splitGainBudget.
+    // could reach -19 dBFS on a 10:1 brickwall. See DspEngine.levelMatchTrimDb.
     val preciseGainStaging: Boolean = true,
     // Name of the built-in or custom EQ preset last explicitly selected for
     // this device profile, so the highlighted chip / "Overwrite" target
@@ -74,12 +72,11 @@ data class SessionState(
     // preset produced already persisted before this field existed — this
     // only restores which NAME the UI should show as selected.
     val selectedPresetName: String = "",
-    // Name of the content-channel device profile applied for this output, or
-    // "" for none. Only the NAME is stored — the correction curve itself is
-    // resolved from live content on load, so a later content update that
-    // improves a curve reaches devices already using it. See
-    // JadooDspService.applyDeviceProfileCurve.
-    val deviceProfileName: String = ""
+    // AutoEQ headphone correction last applied to this output's Parametric
+    // EQ, as "Model · lab", or "" for none. Display only: the filters it
+    // produced live in peqBands like any manual PEQ edit, so editing a band
+    // afterwards keeps the name until the bank is reset or replaced.
+    val autoEqProfileName: String = ""
 )
 
 /**
@@ -121,16 +118,15 @@ class SessionPreferences(private val context: Context) {
         const val PEQ_ENABLED = "peq_enabled"
         const val PEQ_BANDS   = "peq_bands"
         const val SBC_MODE_ENABLED = "sbc_mode_enabled"
+        const val SBC_STYLE = "sbc_style"
         const val DEVICE_TYPE = "device_type"
         const val DEVICE_QUALITY_TIER = "device_quality_tier"
-        const val CROSSFEED_ENABLED = "crossfeed_enabled"
-        const val CROSSFEED_STRENGTH = "crossfeed_strength"
         const val LOUDNESS_ENABLED = "loudness_enabled"
         const val LOUDNESS_AMOUNT = "loudness_amount"
         const val LOUDNESS_REFERENCE_PHON = "loudness_reference_phon"
         const val PRECISE_GAIN_STAGING = "precise_gain_staging"
         const val SELECTED_PRESET_NAME = "selected_preset_name"
-        const val DEVICE_PROFILE_NAME = "device_profile_name"
+        const val AUTOEQ_PROFILE_NAME = "autoeq_profile_name"
     }
 
     // Legacy (pre-per-device) un-suffixed keys, kept only as a one-time
@@ -161,16 +157,15 @@ class SessionPreferences(private val context: Context) {
         val peqEnabled      = booleanPreferencesKey(KeyNames.PEQ_ENABLED)
         val peqBands        = stringPreferencesKey(KeyNames.PEQ_BANDS)
         val sbcModeEnabled  = booleanPreferencesKey(KeyNames.SBC_MODE_ENABLED)
+        val sbcStyle        = stringPreferencesKey(KeyNames.SBC_STYLE)
         val deviceType         = stringPreferencesKey(KeyNames.DEVICE_TYPE)
         val deviceQualityTier  = floatPreferencesKey(KeyNames.DEVICE_QUALITY_TIER)
-        val crossfeedEnabled   = booleanPreferencesKey(KeyNames.CROSSFEED_ENABLED)
-        val crossfeedStrength  = floatPreferencesKey(KeyNames.CROSSFEED_STRENGTH)
         val loudnessEnabled       = booleanPreferencesKey(KeyNames.LOUDNESS_ENABLED)
         val loudnessAmount        = floatPreferencesKey(KeyNames.LOUDNESS_AMOUNT)
         val loudnessReferencePhon = floatPreferencesKey(KeyNames.LOUDNESS_REFERENCE_PHON)
         val preciseGainStaging    = booleanPreferencesKey(KeyNames.PRECISE_GAIN_STAGING)
         val selectedPresetName    = stringPreferencesKey(KeyNames.SELECTED_PRESET_NAME)
-        val deviceProfileName     = stringPreferencesKey(KeyNames.DEVICE_PROFILE_NAME)
+        val autoEqProfileName     = stringPreferencesKey(KeyNames.AUTOEQ_PROFILE_NAME)
     }
 
     private val savedProfileNamesKey = stringPreferencesKey("saved_profile_names")
@@ -218,16 +213,15 @@ class SessionPreferences(private val context: Context) {
             p[boolKey(KeyNames.PEQ_ENABLED, deviceKey)] = state.peqEnabled
             p[stringKey(KeyNames.PEQ_BANDS, deviceKey)] = state.peqBands
             p[boolKey(KeyNames.SBC_MODE_ENABLED, deviceKey)] = state.sbcModeEnabled
+            p[stringKey(KeyNames.SBC_STYLE, deviceKey)] = state.sbcStyle
             p[stringKey(KeyNames.DEVICE_TYPE, deviceKey)] = state.deviceType
             p[floatKey(KeyNames.DEVICE_QUALITY_TIER, deviceKey)] = state.deviceQualityTier
-            p[boolKey(KeyNames.CROSSFEED_ENABLED, deviceKey)] = state.crossfeedEnabled
-            p[floatKey(KeyNames.CROSSFEED_STRENGTH, deviceKey)] = state.crossfeedStrength
             p[boolKey(KeyNames.LOUDNESS_ENABLED, deviceKey)] = state.loudnessEnabled
             p[floatKey(KeyNames.LOUDNESS_AMOUNT, deviceKey)] = state.loudnessAmount
             p[floatKey(KeyNames.LOUDNESS_REFERENCE_PHON, deviceKey)] = state.loudnessReferencePhon
             p[boolKey(KeyNames.PRECISE_GAIN_STAGING, deviceKey)] = state.preciseGainStaging
             p[stringKey(KeyNames.SELECTED_PRESET_NAME, deviceKey)] = state.selectedPresetName
-            p[stringKey(KeyNames.DEVICE_PROFILE_NAME, deviceKey)] = state.deviceProfileName
+            p[stringKey(KeyNames.AUTOEQ_PROFILE_NAME, deviceKey)] = state.autoEqProfileName
         }
     }
 
@@ -280,10 +274,9 @@ class SessionPreferences(private val context: Context) {
             peqEnabled     = bool(KeyNames.PEQ_ENABLED, LegacyKeys.peqEnabled, false),
             peqBands       = string(KeyNames.PEQ_BANDS, LegacyKeys.peqBands, ""),
             sbcModeEnabled = bool(KeyNames.SBC_MODE_ENABLED, LegacyKeys.sbcModeEnabled, false),
+            sbcStyle = string(KeyNames.SBC_STYLE, LegacyKeys.sbcStyle, "New"),
             deviceType = string(KeyNames.DEVICE_TYPE, LegacyKeys.deviceType, "General"),
             deviceQualityTier = float(KeyNames.DEVICE_QUALITY_TIER, LegacyKeys.deviceQualityTier, 0.5f),
-            crossfeedEnabled = bool(KeyNames.CROSSFEED_ENABLED, LegacyKeys.crossfeedEnabled, false),
-            crossfeedStrength = float(KeyNames.CROSSFEED_STRENGTH, LegacyKeys.crossfeedStrength, 0.5f),
             loudnessEnabled = bool(KeyNames.LOUDNESS_ENABLED, LegacyKeys.loudnessEnabled, false),
             loudnessAmount = float(KeyNames.LOUDNESS_AMOUNT, LegacyKeys.loudnessAmount, 0.7f),
             loudnessReferencePhon = float(
@@ -295,11 +288,11 @@ class SessionPreferences(private val context: Context) {
             preciseGainStaging = bool(
                 KeyNames.PRECISE_GAIN_STAGING, LegacyKeys.preciseGainStaging, true
             ),
-            deviceProfileName = string(
-                KeyNames.DEVICE_PROFILE_NAME, LegacyKeys.deviceProfileName, ""
-            ),
             selectedPresetName = string(
                 KeyNames.SELECTED_PRESET_NAME, LegacyKeys.selectedPresetName, ""
+            ),
+            autoEqProfileName = string(
+                KeyNames.AUTOEQ_PROFILE_NAME, LegacyKeys.autoEqProfileName, ""
             )
         )
     }
@@ -329,12 +322,6 @@ class SessionPreferences(private val context: Context) {
 
     val perAppProfilePackages: Flow<Set<String>> = context.sessionDataStore.data.map { p ->
         p[perAppPackagesKey]?.split("|")?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
-    }
-
-    suspend fun isPerAppProfileEnabled(packageName: String): Boolean {
-        val p = context.sessionDataStore.data.first()
-        val set = p[perAppPackagesKey]?.split("|")?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
-        return packageName in set
     }
 
     suspend fun setPerAppProfileEnabled(packageName: String, enabled: Boolean) {

@@ -22,6 +22,32 @@ class DigitalFilterEngineTest {
         assertEquals(20_000f, DigitalFilterEngine.defaultBand(15).frequencyHz)
     }
 
+    private fun engineWith(vararg bands: DigitalFilterEngine.FilterBand) = DigitalFilterEngine().apply {
+        enabled = true
+        bands.forEachIndexed { i, b -> setBand(i, b) }
+    }
+
+    @Test
+    fun broadShelfMapsToItsMeanNotItsPeak() {
+        // AutoEQ's typical bass shelf. Across the 100 Hz PreEQ band (79-126 Hz)
+        // the response falls from ~+4.4 to ~+2.4 dB; the peak estimator gave
+        // the whole band the top value.
+        val engine = engineWith(DigitalFilterEngine.FilterBand(true,
+            DigitalFilterEngine.FilterType.LowShelf, 105f, 6.4f, 0.7f))
+        val gain = engine.evaluateBandGainDb(79.4f, 126.5f)
+        val peak = engine.evaluateBandPeakDb(79.4f, 126.5f)
+        assertTrue("gain=$gain peak=$peak", gain < peak - 0.5f)
+        assertTrue("gain=$gain", gain in 2.5f..4.5f)
+    }
+
+    @Test
+    fun narrowNotchKeepsItsDepth() {
+        val engine = engineWith(DigitalFilterEngine.FilterBand(true,
+            DigitalFilterEngine.FilterType.Peak, 4_000f, -12f, 12f))
+        val gain = engine.evaluateBandGainDb(3_162f, 5_020f)
+        assertTrue("gain=$gain", gain < -10.5f)
+    }
+
     @Test
     fun peakGainMatchesRequestedGainAtCenter() {
         val response = DigitalFilterEngine.evaluateBandMagnitudeResponseDb(

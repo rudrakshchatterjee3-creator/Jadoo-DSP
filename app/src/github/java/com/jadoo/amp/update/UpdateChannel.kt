@@ -34,8 +34,8 @@ import kotlinx.coroutines.launch
  */
 const val REMOTE_CONTENT_ENABLED = true
 
-/** Whether per-headphone correction curves (headphoneProfiles) are offered. */
-const val DEVICE_TUNING_ENABLED = true
+/** Whether the AutoEQ headphone database (downloaded from GitHub on use) is offered. */
+const val AUTOEQ_ENABLED = true
 
 /**
  * Launch-time update check, hosted once in MainActivity.

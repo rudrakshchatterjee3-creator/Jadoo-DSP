@@ -12,6 +12,69 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+/** Analog Bass's selectable Pultec low-shelf frequencies (the UI's 20/30/60/100 Hz chips). */
+val PULTEC_FREQUENCIES_HZ = floatArrayOf(20f, 30f, 60f, 100f)
+
+/** Analog Bass's slider settings, as the Bluetooth band plan reads them (see DspEngine.planBluetoothMbc). */
+data class AnalogBassVoicing(
+    val drive: Float = 0.4f,
+    val warmth: Float = 0.7f,
+    val drift: Float = 0.2f,
+    val pultecBoost: Float = 0.5f,
+    val pultecCut: Float = 0.3f,
+    val pultecFreqIndex: Int = 2
+)
+
+/** How far each end of the spectrum's stacked boosts are scaled back; see DspEngine.bluetoothStackScale. */
+data class StackScale(val bass: Float = 1f, val treble: Float = 1f)
+
+/**
+ * One MBC band's settings, planned in plain Kotlin before being written to a
+ * DynamicsProcessing.MbcBand — so the band layout can be unit-tested for
+ * every feature combination (see MbcPlanTest). Property names match MbcBand.
+ */
+class MbcBandSpec {
+    var cutoffFrequency = 20_000f
+    var attackTime = 1f
+    var releaseTime = 60f
+    var ratio = 1f
+    var threshold = 0f
+    var kneeWidth = 0f
+    var noiseGateThreshold = -90f
+    var expanderRatio = 1f
+    var preGain = 0f
+    var postGain = 0f
+
+    fun applyTo(band: DynamicsProcessing.MbcBand) {
+        band.cutoffFrequency = cutoffFrequency
+        band.attackTime = attackTime
+        band.releaseTime = releaseTime
+        band.ratio = ratio
+        band.threshold = threshold
+        band.kneeWidth = kneeWidth
+        band.noiseGateThreshold = noiseGateThreshold
+        band.expanderRatio = expanderRatio
+        band.preGain = preGain
+        band.postGain = postGain
+    }
+
+    fun toBand() = DynamicsProcessing.MbcBand(
+        true, cutoffFrequency, attackTime, releaseTime, ratio, threshold,
+        kneeWidth, noiseGateThreshold, expanderRatio, preGain, postGain
+    )
+
+    /** True when writing [other] over this band would change nothing audible. */
+    fun sameAs(other: MbcBandSpec): Boolean {
+        fun close(a: Float, b: Float) = kotlin.math.abs(a - b) < 0.01f
+        return close(cutoffFrequency, other.cutoffFrequency) && close(threshold, other.threshold) &&
+            close(ratio, other.ratio) && close(postGain, other.postGain) &&
+            close(kneeWidth, other.kneeWidth) && close(releaseTime, other.releaseTime)
+    }
+}
+
+/** Beyond this the volume stage's room is more than any boost stack can use. */
+const val MAX_VOLUME_HEADROOM_DB = 24f
+
 class DspEngine {
     var dynamicsProcessing: DynamicsProcessing? = null
         private set
@@ -27,17 +90,33 @@ class DspEngine {
     private var baseLimiterThreshold = -0.3f
 
     /**
-     * Makeup gain (0 or positive dB) that gives back the level the gain-budget
-     * headroom offset takes off the limiter's ceiling. See [headroomMakeupDb].
-     */
-    private var limiterMakeupDb = 0f
-
-    /**
      * The automatic input attenuation the gain-staging model is currently
      * asking for (0 or negative dB). Summed with the user's pre-gain in
-     * applyInputGain(). See splitGainBudget for why this exists.
+     * applyInputGain(). See [levelMatchTrimDb].
      */
     private var autoTrimDb = 0f
+
+    /** Analog Bass's sliders as last written to the DP; the Bluetooth band plan reads them. */
+    private var analogBassVoicing = AnalogBassVoicing()
+
+    /**
+     * The attached DP runs [planBluetoothMbc] rather than [planMbc]: a
+     * Bluetooth route with precise gain staging on. Its bands are rewritten
+     * from the plan, never by index from the wired layout.
+     */
+    private var bluetoothPlanActive = false
+
+    /** The Bluetooth plan as last written, so a refresh only touches bands that moved. */
+    private var liveBluetoothPlan: List<MbcBandSpec> = emptyList()
+
+    /** SBC crest band's lower edge while it runs on the Bluetooth plan; null when off. */
+    private var bluetoothSbcCrestHz: Float? = null
+
+    /** HDR Pure on the Bluetooth plan: no level lift, its promise is transparency. */
+    private var bluetoothHdrPure = false
+
+    /** Input makeup for Tube Warmth on Bluetooth (0 or [BT_TUBE_MAKEUP_DB]). */
+    private var tubeMakeupDb = 0f
 
     /**
      * Pre-encoder headroom trim for SBC (0 or negative dB). Separate from
@@ -63,17 +142,9 @@ class DspEngine {
     // saturation character that DynamicsProcessing's bands cannot produce on their own.
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private var loudnessEnhancerSessionId: Int = -1
-
-    // Crossfeed used to be the Virtualizer (Android's vendor-implemented
-    // HRTF/virtual-surround effect) — dropped entirely. It's not a real
-    // crossfeed circuit (BS2B/Meier-style: low-passed, delayed cross-mix)
-    // and no amount of tuning made it sound like one; users correctly heard
-    // it as "muddy/smeared" regardless of mode/strength. Crossfeed is now a
-    // static tonal-EQ curve applied through the ordinary PreEQ path, the
-    // same technique JadooDspService's SurroundMode.Front already uses —
-    // see JadooDspService.crossfeedShape(). This engine has no
-    // Crossfeed-specific code left at all; it's just another PreEQ
-    // contributor like Loudness Contour or SBC pre-emphasis.
+    // Set when this device refuses a LoudnessEnhancer on the session, so
+    // attach() stops releasing the DP ahead of an insert that can't happen.
+    private var loudnessEnhancerUnavailable = false
 
     // ── PreEQ gain glide ─────────────────────────────────────────────
     // DynamicsProcessing.EqBand has no attack/release of its own (unlike
@@ -91,7 +162,7 @@ class DspEngine {
     private val currentAllChannelGain = FloatArray(EqBands.count)
     private val currentPerChannelGain = Array(2) { FloatArray(EqBands.count) }
 
-    private companion object {
+    internal companion object {
         const val GLIDE_DURATION_MS = 60L
         const val GLIDE_STEP_MS = 12L
 
@@ -110,11 +181,15 @@ class DspEngine {
          * compression artefacts. Reported, accurately, as "enabling any
          * feature makes it quieter, less clear and smeared".
          *
-         * The limiter does not need the warning. `DynamicsProcessing` is
-         * float internally, so nothing clips before the limiter, and the
-         * limiter catches overs at whatever threshold it sits at — that is
-         * the entire job. The offset only decides how EARLY it starts
-         * working, which is to say how much program material it damages.
+         * The limiter does not need the warning — but not for the reason
+         * this comment used to give ("it catches overs at whatever threshold
+         * it sits at"). It cannot catch overs at all: AOSP's limiter
+         * (DPFrequency.cpp) measures each FFT block's RMS, not its peaks, and
+         * music's RMS sits 8-14 dB under its peaks. A -2.3 dBFS threshold
+         * almost never engages, so sample peaks pass straight through. Peak
+         * safety therefore has to come from the INPUT, before the boosts —
+         * see [levelMatchTrimDb]. The offset only decides how early it
+         * starts working on genuinely dense, loud material.
          *
          * 2 dB keeps it a peak catcher: it engages in the top couple of dB
          * where a boosted transient can actually run out of room, and never
@@ -125,9 +200,24 @@ class DspEngine {
         const val MAX_HEADROOM_DB = 2.0f
 
         /**
-         * Automatic input trim — see splitGainBudget.
-         *
-         * Zero, deliberately. Trimming the input is transparent in the sense
+         * Long-term spectrum of mastered music on the 15 PreEQ bands, used to
+         * weigh each band's boost in [levelMatchTrimDb]. Pink (equal power
+         * per band) through the mids, heavier in the bass where a mix's
+         * peaks actually come from, falling away in the top octave where
+         * there is little energy to raise. Tuned offline against real
+         * masters with a model of this exact chain: with these weights the
+         * stacked features land within ~0.7 LU of bypass and sample overs
+         * drop from ~2% of samples to under 0.02%.
+         */
+        val LEVEL_MATCH_WEIGHTS = floatArrayOf(
+            1.0f, 1.4f, 1.6f, 1.5f, 1.2f, 1.0f, 1.0f, 0.9f,
+            0.9f, 0.8f, 0.7f, 0.5f, 0.35f, 0.2f, 0.08f
+        ).let { w -> val sum = w.sum(); FloatArray(w.size) { w[it] / sum } }
+
+        /**
+         * History of the old split-budget input trim, kept because the
+         * reasoning is still the right warning for anyone tempted to bring
+         * it back. It was zero, deliberately. Trimming the input is transparent in the sense
          * that it adds no dynamics artefacts, but it still pays for a
          * narrowband boost with broadband level, which is the same error as
          * above wearing a different hat. If the user wants the whole mix
@@ -143,12 +233,100 @@ class DspEngine {
          * Surround Wide: -3.5 dB), on every route. Reported, accurately, as
          * the app being quieter and less open than doing nothing at all.
          *
-         * Kept as a named constant rather than deleted because the mechanism
-         * in splitGainBudget is sound and worth having if a future feature
-         * ever adds genuinely BROADBAND gain, where paying broadband is the
-         * right answer.
+         * What that trim got wrong was its SIZE: it charged the nominal
+         * worst-case budget (a narrowband peak) as broadband level. The trim
+         * that replaced it, [levelMatchTrimDb], charges what the curve does
+         * to the level of real music, which is a fraction of the peak boost
+         * — so the mix comes out as loud as bypass rather than 10 dB under.
+         * Without any trim at all (v1.6.4) the boosts pushed loud masters
+         * up to +4 dBFS: hard clipping on Bluetooth, and earbud/phone
+         * limiters pumping the level down — the "turning on Surround or
+         * Loudness makes it quieter" reports.
          */
-        const val MAX_AUTO_TRIM_DB = 0.0f
+        const val MAX_AUTO_TRIM_DB = 12.0f
+
+        // ── Bluetooth band plan — see planBluetoothMbc ──────────────────
+        // The fixed zones, as cutoffs. 300-2000 Hz is the vocal zone, which
+        // takes no guard for a boost: see BT_VOCAL_ZONE.
+        val BT_ZONE_CUTOFFS_HZ = floatArrayOf(60f, 120f, 300f, 2000f, 5200f, 9600f, 14500f, 20000f)
+
+        // Each zone's hot level: in-band block RMS at which a boost has
+        // faded to nothing. Bass zones: the loudest of five masters' 99th
+        // percentile. Any lower and its kick hits fall under bypass and lose
+        // their punch over the voice; 3 dB higher and clipping climbs fast.
+        // Above 2 kHz: the typical 99th percentile plus 2 dB. Treble peaks are
+        // brief and masked, so any lower only costs Hi-Res its air.
+        val BT_ZONE_HOT_DB = floatArrayOf(-8f, -9f, -10f, -12f, -16f, -19f, -26f, -33f)
+        const val BT_VOCAL_ZONE = 3
+        val BT_TRIMMED_BANDS = 6..9
+        const val BT_ZONE_FLOOR_HZ = 20f
+        const val BT_BASS_ZONE_TOP_HZ = 300f
+        const val BT_ZONE_MEAN_POINTS = 16
+        const val HI_RES_SILK_TOP_HZ = 14500f
+
+        // A boost is whole up to BT_BOOST_SPAN_DB below the hot level and
+        // gone at it. Fixed span: a small boost gets a ratio near 1, so a
+        // hit beyond the hot level is barely touched. A big boost widens the
+        // span instead of passing BT_BOOST_MAX_RATIO, which is what keeps a
+        // hit from being ducked far below where the track put it.
+        const val BT_BOOST_SPAN_DB = 6f
+        const val BT_BOOST_MAX_RATIO = 3f
+        const val BT_KNEE_DB = 4f
+        const val BT_ATTACK_MS = 1f
+        const val BT_BASS_RELEASE_MS = 80f
+        const val BT_TOP_RELEASE_MS = 60f
+
+        // Under this a zone's boost is not worth a compressor.
+        const val BT_MIN_BOOST_DB = 0.05f
+
+        // Analog Bass's Drive on the bass zones' hot level: harder as it
+        // rises, neutral at its default, so Drive stays an audible control.
+        const val BT_DRIVE_NEUTRAL = 0.4f
+        const val BT_DRIVE_RANGE_DB = 6f
+        const val BT_DRIFT_KNEE_DB = 8f
+
+        /**
+         * Lift on every zone at normal levels, faded out at the hot level
+         * like any boost. Bypass is the reference every listener compares
+         * against: level-matched to it, "no louder" is heard as "quieter"
+         * (Hi-Res at -0.2 dB was reported as still lowering the volume). On
+         * the chain model +1 dB is free at streaming-normalised levels.
+         */
+        const val BT_LEVEL_LIFT_DB = 1f
+
+        /**
+         * Input gain after Tube Warmth's LoudnessEnhancer. On Bluetooth the
+         * LE sees full scale and its -8 dBFS 7:1 compressor takes more off a
+         * loud master than its own target gain puts on (-1.4 LU at intensity
+         * 0.5), which is what "Tube amp not so prominent" was. Its compressor
+         * has lowered the peaks, so this has room.
+         */
+        const val BT_TUBE_MAKEUP_DB = 1f
+
+        /**
+         * Most a feature stack may lift either end of the spectrum on
+         * Bluetooth before [bluetoothStackScale] scales it back. Tone, not
+         * level: nothing is trimmed for these, but past this the balance
+         * goes (Surround's +6 dB at 16 kHz was already reported as painful).
+         * The floor keeps a stack recognisably itself.
+         */
+        const val STACK_BASS_CAP_DB = 8f
+        const val STACK_TREBLE_CAP_DB = 7f
+        const val STACK_TREBLE_FROM_HZ = 4000f
+        const val STACK_SCALE_FLOOR = 0.6f
+        const val STACK_SCALE_STEP = 0.05f
+
+        // DBFB's sub (≤72 Hz) and punch (≤145 Hz) bands. Shared by
+        // configureMbc and stageBoostDb so the trim charges exactly what
+        // the bands do.
+        const val DBFB_SUB_THRESHOLD_DB = -20f
+        const val DBFB_SUB_RATIO = 1.3f
+        const val DBFB_SUB_KNEE_DB = 8f
+        const val DBFB_PUNCH_THRESHOLD_DB = -18f
+        const val DBFB_PUNCH_RATIO = 1.5f
+        const val DBFB_PUNCH_KNEE_DB = 6f
+        fun dbfbSubPostGainDb(normal: Boolean, bassExtension: Float) = (if (normal) 1.5f else 2.5f) * bassExtension
+        fun dbfbPunchPostGainDb(normal: Boolean, bassExtension: Float) = (if (normal) 0.8f else 1.4f) * bassExtension
     }
 
     /**
@@ -202,8 +380,10 @@ class DspEngine {
         val harmonicExciterBands = if (harmonicExciterEnabled) {
             if (hdrDynamicsEnabled) 1 else 2
         } else 0
+        // HiRes's first band must start at 5.2 kHz, so something has to end
+        // there first. Only HDR and the exciter do; DBFB ends at 260 Hz.
         val preHiResSafetyBand =
-            if (hiResEnabled && !hdrDynamicsEnabled && dbfbMode == DbfbMode.Off && !harmonicExciterEnabled) 1 else 0
+            if (hiResEnabled && !hdrDynamicsEnabled && !harmonicExciterEnabled) 1 else 0
         val hiResBands = if (hiResEnabled) 3 else 0
         // When HiRes is on, crest control rides on HiRes's own top two air
         // bands (which already split at 14.5kHz) instead of adding one — see
@@ -240,7 +420,7 @@ class DspEngine {
         harmonicExciterEnabled: Boolean = false,
         harmonicExciterIntensity: Float = 0.5f,
         // Pay the gain budget across the limiter AND the input stage rather
-        // than dumping all of it on the limiter threshold — see splitGainBudget.
+        // than dumping all of it on the limiter threshold — see levelMatchTrimDb.
         preciseGainStaging: Boolean = true,
         // How much bass/treble boost the current output device's driver can actually
         // reproduce, 0..1 (see DeviceType) — 1 reproduces every feature's original,
@@ -261,6 +441,15 @@ class DspEngine {
         // out of the same gain budget — see calculateGainBudget.
         preEqBassPeakDb: Float = 0f,
         preEqTreblePeakDb: Float = 0f,
+        // The full PreEQ curve per channel (every tonal contributor summed,
+        // Surround's L/R split included) — what levelMatchTrimDb weighs.
+        preEqLeftDb: FloatArray = initialGains,
+        preEqRightDb: FloatArray = initialGains,
+        // Digital attenuation the system volume applies before this effect —
+        // room the boosts already have. See levelMatchTrimDb.
+        volumeHeadroomDb: Float = 0f,
+        // Output is a Bluetooth route — selects planBluetoothMbc.
+        bluetoothRoute: Boolean = false,
         // HDR Restoration expander shape. Defaults reproduce the tuned-by-ear
         // values exactly; they are parameters rather than constants so the
         // content channel can retune them without an APK (see RemoteTuning).
@@ -290,6 +479,16 @@ class DspEngine {
             // folds this in, and the limiter is constructed from it.
             sbcTrimDb = if (sbcConditioningEnabled) SbcEngine.HEADROOM_TRIM_DB else 0f
 
+            // Bluetooth runs its own band plan. Precise gain staging off is
+            // the legacy A/B path, so it stays on the wired plan and limiter.
+            bluetoothPlanActive = bluetoothRoute && preciseGainStaging
+            bluetoothSbcCrestHz = if (bluetoothPlanActive && sbcConditioningEnabled) sbcCrestCutoffHz else null
+            bluetoothHdrPure = bluetoothPlanActive && hdrDynamicsEnabled && hdrMode == HdrMode.Pure
+            analogBassVoicing = AnalogBassVoicing(
+                analogBassDrive, analogBassWarmth, analogBassDrift,
+                analogBassPultecBoost, analogBassPultecCut, analogBassPultecFreqIndex
+            )
+
             // JadOO Mobile Bass now has its own MBC band (a leveler in the
             // 0-400Hz "overtone" region — see configureMbc) plus a small
             // PostEQ shelf, so it shares the PostEQ slot with Analog Bass's
@@ -308,6 +507,22 @@ class DspEngine {
             // bands only span 5.2-20kHz, so it additionally needs 1 "safety"
             // band to cover whatever's below 5.2kHz when neither DBFB nor
             // HDR already extends up that far.
+            // Tube Warmth's LoudnessEnhancer must come BEFORE the DP in the
+            // session's effect chain: its 0-4 dB is part of the gain budget the
+            // limiter below is voiced against. Effects run in the order they
+            // were added, and a DP handle created while one already exists
+            // shares that engine in place — so when the enhancer is new, the
+            // old DP is released first and the enhancer inserted ahead of the
+            // new one. Previously the enhancer landed AFTER the DP on first
+            // enable (its boost unlimited) and BEFORE it after the next
+            // rebuild, so the same setting sounded different by history.
+            if (tubeWarmthEnabled && !loudnessEnhancerUnavailable &&
+                (loudnessEnhancer == null || loudnessEnhancerSessionId != sessionId)) {
+                releaseDynamicsProcessingOnly()
+                configureTubeWarmthSaturation(sessionId, true, tubeWarmthIntensity)
+            }
+            tubeMakeupDb = if (bluetoothPlanActive && tubeWarmthEnabled && !loudnessEnhancerUnavailable) BT_TUBE_MAKEUP_DB else 0f
+
             val counts = mbcBandCounts(hiResEnabled, dbfbMode, analogBassEnabled, mobileBassEnabled, hdrDynamicsEnabled, harmonicExciterEnabled, sbcConditioningEnabled)
             // A closing band is needed unless something already reaches
             // 20000Hz on its own: HiRes's last band always does; HDR's own
@@ -328,7 +543,13 @@ class DspEngine {
             // rather than by flipping this flag.
             val hdrAloneClosesSpectrum = hdrDynamicsEnabled && !hiResEnabled && !harmonicExciterEnabled
             val needsFinalClosingBand = !hiResEnabled && !hdrAloneClosesSpectrum
-            val mbcBandCount = counts.total + (if (needsFinalClosingBand) 1 else 0)
+            val bluetoothPlan = if (bluetoothPlanActive) planBluetoothMbc(
+                hiResEnabled, dbfbMode, analogBassEnabled, analogBassVoicing,
+                harmonicExciterEnabled, harmonicExciterIntensity, bassExtension, trebleExtension,
+                preEqLeftDb, preEqRightDb, bluetoothSbcCrestHz, bluetoothHdrPure
+            ) else emptyList()
+            val mbcBandCount = if (bluetoothPlanActive) bluetoothPlan.size
+                else counts.total + (if (needsFinalClosingBand) 1 else 0)
 
             val postEqBandCount = if (postEqActive) 4 else 0
             val configBuilder = DynamicsProcessing.Config.Builder(
@@ -341,7 +562,7 @@ class DspEngine {
                 postEqActive,  // postEqInUse: enabled for Pultec-style EQ or Mobile Bass's overtone shelf
                 postEqBandCount,
                 true
-            )
+            ).setPreferredFrameDuration(DpResponse.FRAME_DURATION_MS)
 
             val preEq = DynamicsProcessing.Eq(true, true, EqBands.count)
             for (i in 0 until EqBands.count) {
@@ -359,8 +580,11 @@ class DspEngine {
             configBuilder.setPreEqAllChannelsTo(preEq)
 
             val mbc = DynamicsProcessing.Mbc(true, true, mbcBandCount)
-            configureMbc(mbc, hiResEnabled, dbfbMode, hdrDynamicsEnabled, hdrMode, analogBassEnabled, analogBassDrive, analogBassWarmth, analogBassDrift = analogBassDrift, mobileBassEnabled = mobileBassEnabled, mobileBassIntensity = mobileBassIntensity, harmonicExciterEnabled = harmonicExciterEnabled, harmonicExciterIntensity = harmonicExciterIntensity, bassExtension = bassExtension, trebleExtension = trebleExtension, mobileBassExtension = mobileBassExtension, hdrRestorationThreshold = hdrRestorationThreshold, hdrRestorationKnee = hdrRestorationKnee, hdrRestorationExpanderRatio = hdrRestorationExpanderRatio, sbcConditioningEnabled = sbcConditioningEnabled, sbcCrestCutoffHz = sbcCrestCutoffHz)
+            val mbcPlan = if (bluetoothPlanActive) bluetoothPlan else planMbc(hiResEnabled, dbfbMode, hdrDynamicsEnabled, hdrMode, analogBassEnabled, analogBassDrive, analogBassWarmth, analogBassDrift = analogBassDrift, mobileBassEnabled = mobileBassEnabled, mobileBassIntensity = mobileBassIntensity, harmonicExciterEnabled = harmonicExciterEnabled, harmonicExciterIntensity = harmonicExciterIntensity, bassExtension = bassExtension, trebleExtension = trebleExtension, mobileBassExtension = mobileBassExtension, hdrRestorationThreshold = hdrRestorationThreshold, hdrRestorationKnee = hdrRestorationKnee, hdrRestorationExpanderRatio = hdrRestorationExpanderRatio, sbcConditioningEnabled = sbcConditioningEnabled, sbcCrestCutoffHz = sbcCrestCutoffHz)
+            if (mbcPlan.size != mbcBandCount) Log.e("DspEngine", "MBC plan has ${mbcPlan.size} bands, config expects $mbcBandCount")
+            mbcPlan.take(mbcBandCount).forEachIndexed { i, spec -> spec.applyTo(mbc.getBand(i)) }
             configBuilder.setMbcAllChannelsTo(mbc)
+            liveBluetoothPlan = bluetoothPlan
 
             // ── PostEQ: Pultec-style Analog Bass curve, or Mobile Bass's
             // overtone-emphasis shelf if enabled (takes priority — see above) ──
@@ -397,11 +621,21 @@ class DspEngine {
             // else, and its glue comes from its own limiter threshold below,
             // where it is fixed and predictable.
             val usePreciseStaging = preciseGainStaging
-            val (headroomDb, trimDb) = splitGainBudget(budgetDb, usePreciseStaging)
+            val headroomDb = if (bluetoothPlanActive) 0f else limiterOffsetDb(budgetDb, usePreciseStaging)
+            val trimDb = when {
+                !usePreciseStaging -> 0f
+                bluetoothPlanActive -> bluetoothTrimDb(preEqLeftDb, preEqRightDb, volumeHeadroomDb)
+                else -> levelMatchTrimDb(
+                    preEqLeftDb, preEqRightDb,
+                    stageBoostDb(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity,
+                                 mobileBassEnabled, mobileBassIntensity, harmonicExciterEnabled, harmonicExciterIntensity,
+                                 bassExtension, trebleExtension),
+                    volumeHeadroomDb
+                )
+            }
             autoTrimDb = trimDb
             gainBudgetDb = budgetDb
             autoTrimReadoutDb = trimDb
-            limiterMakeupDb = headroomMakeupDb(headroomDb, usePreciseStaging)
 
             // Real safety limiter for all modes: a 10:1 ratio engaging only within
             // 0.3 dB of full scale. At normal program levels this never engages —
@@ -486,10 +720,14 @@ class DspEngine {
             // created on the same session, so enabled=false may throw. Use a nested
             // try-catch so that cleanup errors don't cascade to the outer catch
             // (which would release the brand-new DP and break everything).
+            // The new handle usually shares the old one's engine (same effect
+            // type, same session). Disabling the old handle first therefore
+            // switched that shared engine OFF — every feature toggle let a
+            // few ms of unprocessed audio through until the new handle turned
+            // it back on. Release without disabling, then enable the new one.
             val oldDynamicsProcessing = dynamicsProcessing
             dynamicsProcessing = newDynamicsProcessing
             try {
-                oldDynamicsProcessing?.enabled = false
                 oldDynamicsProcessing?.release()
             } catch (cleanupEx: Exception) {
                 Log.w("DspEngine", "Old DP cleanup skipped (likely auto-released by Android): ${cleanupEx.message}")
@@ -499,7 +737,7 @@ class DspEngine {
             setPreGain(preGainDb)
             setPostGain(postGainDb)
             configureTubeWarmthSaturation(sessionId, tubeWarmthEnabled, tubeWarmthIntensity)
-            Log.i("DspEngine", "Attached session=$sessionId hiRes=$hiResEnabled dbfb=$dbfbMode hdr=$hdrDynamicsEnabled surroundMode=$surroundMode analogBass=$analogBassEnabled mobileBass=$mobileBassEnabled harmonicExciter=$harmonicExciterEnabled mbcBands=$mbcBandCount sbcConditioning=$sbcConditioningEnabled bassExtension=$bassExtension trebleExtension=$trebleExtension mobileBassExtension=$mobileBassExtension")
+            Log.i("DspEngine", "Attached session=$sessionId hiRes=$hiResEnabled dbfb=$dbfbMode hdr=$hdrDynamicsEnabled surroundMode=$surroundMode analogBass=$analogBassEnabled mobileBass=$mobileBassEnabled harmonicExciter=$harmonicExciterEnabled mbcBands=$mbcBandCount sbcConditioning=$sbcConditioningEnabled bassExtension=$bassExtension trebleExtension=$trebleExtension mobileBassExtension=$mobileBassExtension budget=$budgetDb trim=$autoTrimDb btPlan=$bluetoothPlanActive")
             true
         } catch (e: Exception) {
             Log.e("DspEngine", "Failed to attach DynamicsProcessing — old DP preserved if present", e)
@@ -507,6 +745,9 @@ class DspEngine {
                 Log.w("DspEngine", "Failed to release partially-constructed DP (OEM HAL issue?): ${cleanupEx.message}")
             }
             currentLimiter = null
+            // The old DP that survives has its own layout; stop writing plans at it.
+            bluetoothPlanActive = false
+            liveBluetoothPlan = emptyList()
             false
         }
     }
@@ -544,6 +785,7 @@ class DspEngine {
                 loudnessEnhancerSessionId = -1
             }
         } catch (e: Exception) {
+            if (enabled) loudnessEnhancerUnavailable = true
             Log.e("DspEngine", "Error configuring Tube Warmth saturation", e)
         }
     }
@@ -594,72 +836,6 @@ class DspEngine {
     }
 
     /**
-     * Live-update DBFB's two bass MBC bands' postGain (sub/punch) without a
-     * full topology rebuild. Only runs when DBFB is active; its bands
-     * always sit immediately after Analog Bass's (see configureMbc).
-     */
-    fun updateDbfbGain(dbfbMode: DbfbMode, analogBassEnabled: Boolean, bassExtension: Float = 1f) = synchronized(this) {
-        val dp = dynamicsProcessing ?: return@synchronized
-        if (dbfbMode == DbfbMode.Off) return@synchronized
-        try {
-            val normal = dbfbMode == DbfbMode.Normal
-            val subPostGain = (if (normal) 1.5f else 2.5f) * bassExtension
-            val punchPostGain = (if (normal) 0.8f else 1.4f) * bassExtension
-            // DBFB's bands always sit right after Analog Bass's (see configureMbc).
-            val baseIndex = mbcBandCounts(hiResEnabled = false, dbfbMode, analogBassEnabled, mobileBassEnabled = false, hdrDynamicsEnabled = false, harmonicExciterEnabled = false).analogBass
-            val subBand = dp.getMbcByChannelIndex(0).getBand(baseIndex).apply { postGain = subPostGain }
-            dp.setMbcBandAllChannelsTo(baseIndex, subBand)
-            val punchBand = dp.getMbcByChannelIndex(0).getBand(baseIndex + 1).apply { postGain = punchPostGain }
-            dp.setMbcBandAllChannelsTo(baseIndex + 1, punchBand)
-            // The 260Hz mud-control band. It was omitted here, so after a
-            // device-quality-tier drag the first two DBFB bands were scaled by
-            // bassExtension while this one kept its attach-time value — the
-            // three bands drifted out of their intended ratio. Matches the
-            // postGain configureMbc() writes for this band.
-            val mudBand = dp.getMbcByChannelIndex(0).getBand(baseIndex + 2).apply {
-                postGain = if (normal) -0.4f else -0.6f
-            }
-            dp.setMbcBandAllChannelsTo(baseIndex + 2, mudBand)
-        } catch (e: Exception) {
-            Log.e("DspEngine", "Error updating DBFB gain", e)
-        }
-    }
-
-    /**
-     * Live-update HiRes's three treble MBC bands' postGain without a full
-     * topology rebuild. Replicates the same additive band-index counting
-     * used everywhere else in this file to locate HiRes's bands (they're
-     * always the last MBC bands, after an optional safety band — see
-     * configureMbc).
-     */
-    fun updateHiResGain(
-        trebleExtension: Float,
-        analogBassEnabled: Boolean,
-        dbfbMode: DbfbMode,
-        mobileBassEnabled: Boolean,
-        hdrDynamicsEnabled: Boolean,
-        harmonicExciterEnabled: Boolean
-    ) = synchronized(this) {
-        val dp = dynamicsProcessing ?: return@synchronized
-        try {
-            // HiRes is enabled here by construction (only runs while it's
-            // on) — its own 3 bands come right after everything else.
-            val counts = mbcBandCounts(hiResEnabled = true, dbfbMode, analogBassEnabled, mobileBassEnabled, hdrDynamicsEnabled, harmonicExciterEnabled)
-            val baseIndex = counts.analogBass + counts.dbfb + counts.mobileBass + counts.hdr +
-                counts.harmonicExciter + counts.preHiResSafety
-            val gains = floatArrayOf(2.5f, 4.0f, 5.5f)
-            for (i in gains.indices) {
-                val band = dp.getMbcByChannelIndex(0).getBand(baseIndex + i).apply {
-                    postGain = gains[i] * trebleExtension
-                }
-                dp.setMbcBandAllChannelsTo(baseIndex + i, band)
-            }
-        } catch (e: Exception) {
-            Log.e("DspEngine", "Error updating HiRes gain", e)
-        }
-    }
-
-    /**
      * Live-update the Harmonic Exciter's presence-lift MBC band (the second
      * of its two bands — the first is a transparent 0-2000Hz guard band
      * that never needs updating) without a full topology rebuild. The
@@ -680,6 +856,8 @@ class DspEngine {
     ) = synchronized(this) {
         val dp = dynamicsProcessing ?: return@synchronized
         try {
+            // The caller's refreshHeadroom rewrites the Bluetooth plan with it.
+            if (bluetoothPlanActive) return@synchronized
             val clamped = intensity.coerceIn(0f, 1f)
             // Exciter is enabled here by construction (only runs while it's
             // on) — its lift band is always the LAST of its own 1-2 bands
@@ -737,7 +915,10 @@ class DspEngine {
         mobileBassExtension: Float = 1f,
         preEqBassPeakDb: Float = 0f,
         preEqTreblePeakDb: Float = 0f,
-        preciseGainStaging: Boolean = true
+        preciseGainStaging: Boolean = true,
+        preEqLeftDb: FloatArray = FloatArray(EqBands.count),
+        preEqRightDb: FloatArray = preEqLeftDb,
+        volumeHeadroomDb: Float = 0f
     ) = synchronized(this) {
         val dp = dynamicsProcessing ?: return@synchronized
         val limiter = currentLimiter ?: return@synchronized
@@ -747,14 +928,25 @@ class DspEngine {
             // the long note there on why it is no longer excluded. If these two
             // disagree, a live refresh silently re-voices the feature.
             val usePreciseStaging = preciseGainStaging
-            val (headroomDb, trimDb) = splitGainBudget(budgetDb, usePreciseStaging)
+            val headroomDb = if (bluetoothPlanActive) 0f else limiterOffsetDb(budgetDb, usePreciseStaging)
+            val trimDb = when {
+                !usePreciseStaging -> 0f
+                bluetoothPlanActive -> bluetoothTrimDb(preEqLeftDb, preEqRightDb, volumeHeadroomDb)
+                else -> levelMatchTrimDb(
+                    preEqLeftDb, preEqRightDb,
+                    stageBoostDb(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity,
+                                 mobileBassEnabled, mobileBassIntensity, harmonicExciterEnabled, harmonicExciterIntensity,
+                                 bassExtension, trebleExtension),
+                    volumeHeadroomDb
+                )
+            }
+            if (bluetoothPlanActive) writeBluetoothPlan(dp, planBluetoothMbc(
+                hiResEnabled, dbfbMode, analogBassEnabled, analogBassVoicing,
+                harmonicExciterEnabled, harmonicExciterIntensity, bassExtension, trebleExtension,
+                preEqLeftDb, preEqRightDb, bluetoothSbcCrestHz, bluetoothHdrPure
+            ))
             gainBudgetDb = budgetDb
             limiter.threshold = baseLimiterThreshold + headroomDb
-            // The ceiling moved, so the makeup that cancels it has to move in
-            // the same write — otherwise a live refresh (every Device Quality
-            // Tier tick, every EQ band move) leaves the threshold lowered and
-            // the makeup stale, and the level sags by exactly the difference.
-            limiterMakeupDb = headroomMakeupDb(headroomDb, usePreciseStaging)
             limiter.postGain = effectivePostGainDb()
             dp.setLimiterAllChannelsTo(limiter)
             // Only re-write the input stage when the trim actually moved —
@@ -785,7 +977,7 @@ class DspEngine {
      * Deliberately no makeup gain: restoring the level would restore the
      * scale factor this band exists to lower.
      */
-    private fun configureSbcCrestBand(band: DynamicsProcessing.MbcBand, cutoffHz: Float) {
+    private fun configureSbcCrestBand(band: MbcBandSpec, cutoffHz: Float) {
         band.cutoffFrequency = cutoffHz
         band.attackTime = SbcEngine.CREST_ATTACK_MS
         band.releaseTime = SbcEngine.CREST_RELEASE_MS
@@ -798,8 +990,7 @@ class DspEngine {
         band.postGain = 0f
     }
 
-    private fun configureMbc(
-        mbc: DynamicsProcessing.Mbc,
+    internal fun planMbc(
         hiResEnabled: Boolean,
         dbfbMode: DbfbMode,
         hdrDynamicsEnabled: Boolean = false,
@@ -820,7 +1011,7 @@ class DspEngine {
         hdrRestorationExpanderRatio: Float = 1.12f,
         sbcConditioningEnabled: Boolean = false,
         sbcCrestCutoffHz: Float = 11_025f
-    ) {
+    ): List<MbcBandSpec> {
         // ═══════════════════════════════════════════════════════════════
         // DO NOT "FIX" THE ANALOG BASS + DBFB BAND ORDER. READ THIS FIRST.
         // ═══════════════════════════════════════════════════════════════
@@ -836,7 +1027,14 @@ class DspEngine {
         // It was changed once, to a correctly merged ascending layout. The
         // result sounded materially WORSE and the change was reverted.
         //
-        // The likely reason: with the array out of order, some of the two
+        // What actually happens (AOSP DPFrequency.cpp walks bins with
+        // binNext = binStop + 1, even backwards): at the 2048 frame, DBFB's
+        // 72Hz band gets no bins, and its 145/260Hz bands RE-PROCESS bins
+        // Analog Bass already compressed and boosted (93-257Hz). At the old
+        // 512 frame the accident was different again — so the voicing this
+        // comment protected changed when the frame did. See docs/DSP_SOP.md.
+        //
+        // The original theory: with the array out of order, some of the two
         // features' overlapping bands end up with degenerate bin ranges and
         // go inert. Sorting them makes Analog Bass AND DBFB both fully apply
         // across the same 60-300Hz region, and they stack into an
@@ -850,7 +1048,8 @@ class DspEngine {
         // The regression test is simply: Analog Bass + DBFB, both on, must
         // sound exactly as they do today.
         // ═══════════════════════════════════════════════════════════════
-        var index = 0
+        val bands = mutableListOf<MbcBandSpec>()
+        fun band() = MbcBandSpec().also { bands += it }
 
         // ── Analog Bass Engine: Drive-controlled saturation simulation (20-300Hz) ──
         // Drive controls preGain (0→9dB drive), warmth controls postGain and ratio.
@@ -879,7 +1078,7 @@ class DspEngine {
             // "mesmerizing" analog saturation character. Threshold range: -24 to -12 dBFS
             // (modern bass content averages -18 to -24 dBFS RMS, so this starts engaging
             // at the heart of every note rather than waiting for an occasional peak).
-            mbc.getBand(index++).apply {
+            band().apply {
                 cutoffFrequency = 60f
                 attackTime = 8f
                 releaseTime = 280f   // long release = bloom/sustain after each note
@@ -892,7 +1091,7 @@ class DspEngine {
                 postGain = warmthGain + driveGain * 0.2f
             }
             // Low bass (60-120Hz): warmth body — threshold lowered so it too rides note body
-            mbc.getBand(index++).apply {
+            band().apply {
                 cutoffFrequency = 120f
                 attackTime = 12f
                 releaseTime = 240f
@@ -905,7 +1104,7 @@ class DspEngine {
                 postGain = warmthGain * 1.5f
             }
             // Upper bass (120-300Hz): harmonic injection + mud control
-            mbc.getBand(index++).apply {
+            band().apply {
                 cutoffFrequency = 300f
                 attackTime = 16f
                 releaseTime = 200f
@@ -930,8 +1129,8 @@ class DspEngine {
             // 10:1 safety net, see attach()) was constantly squashing it,
             // which is what caused DBFB to sound distorted at high volume.
             val normal = dbfbMode == DbfbMode.Normal
-            val subPostGain = (if (normal) 1.5f else 2.5f) * bassExtension
-            val punchPostGain = (if (normal) 0.8f else 1.4f) * bassExtension
+            val subPostGain = dbfbSubPostGainDb(normal, bassExtension)
+            val punchPostGain = dbfbPunchPostGainDb(normal, bassExtension)
 
             // Attack/release slowed and ratios reduced from the original
             // 6-10ms / 90-140ms / 1.6-2.2:1 settings, which reacted to
@@ -939,31 +1138,31 @@ class DspEngine {
             // "pumping"/breathing. Slower envelopes make the bands act as a
             // gentle overall leveler instead, while postGain (the actual
             // amount of boost) is unchanged.
-            mbc.getBand(index++).apply {
+            band().apply {
                 cutoffFrequency = 72f
                 attackTime = 22f
                 releaseTime = 280f
-                ratio = 1.3f
-                threshold = -20f
-                kneeWidth = 8f
+                ratio = DBFB_SUB_RATIO
+                threshold = DBFB_SUB_THRESHOLD_DB
+                kneeWidth = DBFB_SUB_KNEE_DB
                 noiseGateThreshold = -80f
                 expanderRatio = 1.1f
                 preGain = 0f
                 postGain = subPostGain
             }
-            mbc.getBand(index++).apply {
+            band().apply {
                 cutoffFrequency = 145f
                 attackTime = 22f
                 releaseTime = 280f
-                ratio = 1.5f
-                threshold = -18f
-                kneeWidth = 6f
+                ratio = DBFB_PUNCH_RATIO
+                threshold = DBFB_PUNCH_THRESHOLD_DB
+                kneeWidth = DBFB_PUNCH_KNEE_DB
                 noiseGateThreshold = -82f
                 expanderRatio = 1.05f
                 preGain = 0f
                 postGain = punchPostGain
             }
-            mbc.getBand(index++).apply {
+            band().apply {
                 cutoffFrequency = 260f
                 attackTime = 22f
                 releaseTime = 280f
@@ -1013,7 +1212,7 @@ class DspEngine {
         if (mobileBassEnabled) {
             val clamped = mobileBassIntensity.coerceIn(0f, 1f)
             if (!analogBassEnabled && dbfbMode == DbfbMode.Off) {
-                mbc.getBand(index++).apply {
+                band().apply {
                     cutoffFrequency = 90f
                     attackTime = 5f
                     releaseTime = 65f
@@ -1031,7 +1230,7 @@ class DspEngine {
                 dbfbMode != DbfbMode.Off -> 320f    // above DBFB's 260Hz top band
                 else -> 300f                        // the actual target
             }
-            mbc.getBand(index++).apply {
+            band().apply {
                 cutoffFrequency = levelerCutoff
                 attackTime = 60f
                 releaseTime = 180f
@@ -1128,7 +1327,7 @@ class DspEngine {
                 // instead and hands the rest to the crest band, which then
                 // closes the array — the extra slot is reserved by
                 // MbcBandCounts.sbcCrest.
-                mbc.getBand(index++).apply {
+                band().apply {
                     cutoffFrequency = if (sbcConditioningEnabled) sbcCrestCutoffHz else 20000f
                     attackTime = if (isRestoration) restorationAttack else 15f
                     releaseTime = if (isRestoration) restorationRelease else 180f
@@ -1141,9 +1340,9 @@ class DspEngine {
                     postGain = 0f
                 }
                 if (sbcConditioningEnabled) {
-                    configureSbcCrestBand(mbc.getBand(index), 20000f)
+                    configureSbcCrestBand(band(), 20000f)
                 }
-                return  // fully configured: [AnalogBass?] + [DBFB?] + [MobileBass?] + HDR(1) [+ SBC crest] = done
+                return bands  // fully configured: [AnalogBass?] + [DBFB?] + [MobileBass?] + HDR(1) [+ SBC crest] = done
             }
             if (harmonicExciterEnabled) {
                 // Harmonic Exciter is on: HDR's band must stop at the
@@ -1152,7 +1351,7 @@ class DspEngine {
                 // ascending and HDR's own band doubles as the exciter's
                 // 0-2000Hz guard (no separate guard band needed — see the
                 // exciter block below).
-                mbc.getBand(index++).apply {
+                band().apply {
                     cutoffFrequency = 2000f
                     attackTime = if (isRestoration) restorationAttack else 15f
                     releaseTime = if (isRestoration) restorationRelease else 180f
@@ -1166,7 +1365,7 @@ class DspEngine {
                 }
             } else {
                 // Exciter off, HiRes on: hand off cleanly at the HiRes crossover (5.2 kHz)
-                mbc.getBand(index++).apply {
+                band().apply {
                     cutoffFrequency = 5200f
                     attackTime = if (isRestoration) restorationAttack else 15f
                     releaseTime = if (isRestoration) restorationRelease else 180f
@@ -1219,7 +1418,7 @@ class DspEngine {
             // writing it too would duplicate HDR's 2000Hz cutoff and
             // corrupt the MBC array's required ascending order.
             if (!hdrDynamicsEnabled) {
-                mbc.getBand(index++).apply {
+                band().apply {
                     cutoffFrequency = 2000f
                     attackTime = 5f
                     releaseTime = 65f
@@ -1232,7 +1431,7 @@ class DspEngine {
                     postGain = 0f
                 }
             }
-            mbc.getBand(index++).apply {
+            band().apply {
                 cutoffFrequency = if (hiResEnabled) 5200f else 8000f
                 attackTime = 20f   // slow attack preserves transient snap; instant attack caused IMD
                 releaseTime = 150f // smooth release avoids pumping on sustained presence content
@@ -1249,11 +1448,14 @@ class DspEngine {
 
         // ── HiRes: Air-band expansion (5200Hz–20kHz) ─────────────────
         if (hiResEnabled) {
-            // If neither DBFB nor HDR nor Harmonic Exciter already covers 0-5200Hz, add a safety band.
+            // Unless HDR or the exciter already ends at 5200Hz, add a 0 dB band
+            // that does. DBFB used to count here, but it ends at 260Hz: with
+            // DBFB on, HiRes's +2.5 dB presence band ran from ~280Hz to 9.6kHz
+            // — a broadband mid boost (found by MbcPlanTest).
             // Harmonic Exciter's lift band ends at 5200Hz when HiRes is on — skip the safety band
             // to avoid two consecutive bands with the same cutoff, which corrupts the MBC array.
-            if (!hdrDynamicsEnabled && dbfbMode == DbfbMode.Off && !harmonicExciterEnabled) {
-                mbc.getBand(index++).apply {
+            if (!hdrDynamicsEnabled && !harmonicExciterEnabled) {
+                band().apply {
                     cutoffFrequency = 5200f
                     attackTime = 9f
                     releaseTime = 70f
@@ -1270,7 +1472,7 @@ class DspEngine {
             // Threshold-based compression here caused the presence band to be
             // constantly squeezed on loud BT/SBC sources (which sit well above -14dBFS),
             // making HiRes sound "closed" rather than open.
-            mbc.getBand(index++).apply {
+            band().apply {
                 cutoffFrequency = 9600f
                 attackTime = 2f
                 releaseTime = 50f
@@ -1292,7 +1494,7 @@ class DspEngine {
             // move SbcEngine exists to undo, since SBC hands bits out in
             // proportion to each subband's level and the top octave is both
             // the least audible and the most expensive place to spend them.
-            mbc.getBand(index++).apply {
+            band().apply {
                 cutoffFrequency = 14500f
                 attackTime = if (sbcConditioningEnabled) SbcEngine.CREST_ATTACK_MS else 2f
                 releaseTime = if (sbcConditioningEnabled) SbcEngine.CREST_RELEASE_MS else 50f
@@ -1306,7 +1508,7 @@ class DspEngine {
                     (if (sbcConditioningEnabled) SbcEngine.AIR_SCALE_SILK else 1f)
             }
             // 14.5–20 kHz: pure air — pure linear boost
-            mbc.getBand(index).apply {
+            band().apply {
                 cutoffFrequency = 20000f
                 attackTime = if (sbcConditioningEnabled) SbcEngine.CREST_ATTACK_MS else 2f
                 releaseTime = if (sbcConditioningEnabled) SbcEngine.CREST_RELEASE_MS else 50f
@@ -1319,7 +1521,7 @@ class DspEngine {
                 postGain = 5.5f * trebleExtension *
                     (if (sbcConditioningEnabled) SbcEngine.AIR_SCALE_TOP else 1f)
             }
-            return  // fully configured: [AnalogBass?] + DBFB(opt) + [MobileBass?] + HDR(opt) + HiRes(4) = done
+            return bands  // fully configured: [AnalogBass?] + DBFB(opt) + [MobileBass?] + HDR(opt) + HiRes(4) = done
         }
 
         // ── Fallback: transparent closing band up to 20000Hz ──────────
@@ -1337,7 +1539,7 @@ class DspEngine {
         // covers 4-7 up to Nyquist. MbcBandCounts.sbcCrest reserves the slot.
         val closingAttack = if (dbfbMode == DbfbMode.Off) 5f else 6f
         val closingRelease = if (dbfbMode == DbfbMode.Off) 65f else 80f
-        mbc.getBand(index++).apply {
+        band().apply {
             cutoffFrequency = if (sbcConditioningEnabled) sbcCrestCutoffHz else 20000f
             attackTime = closingAttack
             releaseTime = closingRelease
@@ -1350,8 +1552,9 @@ class DspEngine {
             postGain = 0f
         }
         if (sbcConditioningEnabled) {
-            configureSbcCrestBand(mbc.getBand(index), 20000f)
+            configureSbcCrestBand(band(), 20000f)
         }
+        return bands
     }
 
     /**
@@ -1369,7 +1572,7 @@ class DspEngine {
         warmth: Float,
         bassExtension: Float = 1f
     ) {
-        val pultecFreqs = AnalogBassEngine.PULTEC_FREQUENCIES
+        val pultecFreqs = PULTEC_FREQUENCIES_HZ
         val pultecFreq = pultecFreqs[pultecFreqIndex.coerceIn(0, pultecFreqs.size - 1)]
         // Band 0: below/at pultec freq — the Pultec BOOST
         postEq.getBand(0).apply {
@@ -1436,7 +1639,7 @@ class DspEngine {
     ) = synchronized(this) {
         val dp = dynamicsProcessing ?: return@synchronized
         try {
-            val pultecFreqs = AnalogBassEngine.PULTEC_FREQUENCIES
+            val pultecFreqs = PULTEC_FREQUENCIES_HZ
             val pultecFreq = pultecFreqs[pultecFreqIndex.coerceIn(0, pultecFreqs.size - 1)]
             val band0 = dp.getPostEqByChannelIndex(0).getBand(0).apply {
                 cutoffFrequency = (pultecFreq * 1.5f).coerceIn(25f, 200f)
@@ -1453,6 +1656,9 @@ class DspEngine {
             dp.setPostEqBandAllChannelsTo(0, band0)
             dp.setPostEqBandAllChannelsTo(1, band1)
             dp.setPostEqBandAllChannelsTo(2, band2)
+            analogBassVoicing = analogBassVoicing.copy(
+                warmth = warmth, pultecBoost = pultecBoost, pultecCut = pultecCut, pultecFreqIndex = pultecFreqIndex
+            )
             Log.d("DspEngine", "Analog bass PostEQ updated: boost=${pultecBoost * 8f}dB cut=${-(pultecCut * 5f)}dB warmth=${warmth * 2.5f}dB")
         } catch (e: Exception) {
             Log.e("DspEngine", "Error updating analog bass PostEQ", e)
@@ -1462,6 +1668,11 @@ class DspEngine {
     /** Live-update the analog bass MBC bands (drive + warmth + drift) without full rebuild. */
     fun updateAnalogBassMbc(drive: Float, warmth: Float, drift: Float, bassExtension: Float = 1f) = synchronized(this) {
         val dp = dynamicsProcessing ?: return@synchronized
+        if (bluetoothPlanActive) {
+            // The caller's refreshHeadroom rewrites the plan from this.
+            analogBassVoicing = analogBassVoicing.copy(drive = drive, warmth = warmth, drift = drift)
+            return@synchronized
+        }
         try {
             val driveGain  = Math.pow(drive.toDouble(), 0.75).toFloat() * 9f * bassExtension
             val warmthGain = warmth * 3f * bassExtension
@@ -1491,6 +1702,7 @@ class DspEngine {
             dp.setMbcBandAllChannelsTo(0, band0)
             dp.setMbcBandAllChannelsTo(1, band1)
             dp.setMbcBandAllChannelsTo(2, band2)
+            analogBassVoicing = analogBassVoicing.copy(drive = drive, warmth = warmth, drift = drift)
             Log.d("DspEngine", "Analog bass MBC updated: drive=$drive warmth=$warmth")
         } catch (e: Exception) {
             Log.e("DspEngine", "Error updating analog bass MBC", e)
@@ -1539,10 +1751,9 @@ class DspEngine {
         // different bands' separate peaks).
         //
         // Parametric EQ and SBC pre-emphasis are NOT included here, on
-        // purpose: getting their real per-band peak needs the biquad
-        // evaluator (DigitalFilterEngine.evaluateBandPeakDb), and this
-        // function's result is recomputed on every tick of a live drag (the
-        // Device Quality Tier slider — see setDeviceQualityTier). Given
+        // purpose: getting their real per-band value needs the biquad
+        // evaluator (DigitalFilterEngine.evaluateBandGainDb), and this
+        // function's result is recomputed on every tick of a live drag. Given
         // MAX_HEADROOM_DB already clamps the credit to 2dB regardless of how
         // large the true peak is, the only case this omission changes
         // anything is "PEQ/SBC boost with nothing else active" — a real but
@@ -1681,28 +1892,441 @@ class DspEngine {
      *    they asked for.
      *
      * So: spend the first [MAX_HEADROOM_DB] on the threshold, where it is
-     * free, and take the entire remainder out of the input, where it is
-     * transparent. Neither stage is asked to do the thing it is bad at.
+     * free, and let the input pay for the rest — by [levelMatchTrimDb], not
+     * by the nominal budget, which is a narrowband peak and grossly
+     * overstates what the boosts do to broadband level.
      *
-     * Returns limiter offset (negative dB, added to the base threshold) and
-     * input trim (negative dB, summed into pre-gain).
+     * Returns the limiter offset (negative dB, added to the base threshold).
      */
-    fun splitGainBudget(budgetDb: Float, preciseGainStaging: Boolean): Pair<Float, Float> {
-        if (!preciseGainStaging) {
-            // Legacy: the entire budget goes to the threshold, uncapped, and
-            // the input is never touched. Reproduces the pre-1.2 numbers
-            // exactly — including the pathological ones.
-            return -budgetDb to 0f
+    private fun limiterOffsetDb(budgetDb: Float, preciseGainStaging: Boolean): Float =
+        // Legacy: the entire budget goes to the threshold, uncapped, and the
+        // input is never touched. Reproduces the pre-1.2 numbers exactly —
+        // including the pathological ones.
+        if (!preciseGainStaging) -budgetDb else -budgetDb.coerceIn(0f, MAX_HEADROOM_DB)
+
+    /**
+     * Per-band boost (dB, on the PreEQ band grid) that the MBC feature bands
+     * and their PostEQ shelves add after the PreEQ, placed where in the
+     * spectrum each one actually lands. Bands owned by different MBC
+     * features never overlap, so a band takes the larger of two neighbours
+     * rather than their sum.
+     *
+     * Wired and speaker routes only: they rarely run at full scale, where
+     * the volume headroom absorbs most of the trim anyway. Bluetooth does
+     * not trim for these at all — see [planBluetoothMbc].
+     */
+    internal fun stageBoostDb(
+        hiResEnabled: Boolean,
+        dbfbMode: DbfbMode,
+        analogBassEnabled: Boolean,
+        tubeWarmthEnabled: Boolean,
+        tubeWarmthIntensity: Float,
+        mobileBassEnabled: Boolean,
+        mobileBassIntensity: Float,
+        harmonicExciterEnabled: Boolean,
+        harmonicExciterIntensity: Float,
+        bassExtension: Float,
+        trebleExtension: Float
+    ): FloatArray {
+        val boost = FloatArray(EqBands.count)
+        fun lift(range: IntRange, db: Float) {
+            for (i in range) boost[i] = maxOf(boost[i], db)
         }
-        val onLimiter = budgetDb.coerceIn(0f, MAX_HEADROOM_DB)
-        val excess = (budgetDb - onLimiter).coerceIn(0f, MAX_AUTO_TRIM_DB)
-        return -onLimiter to -excess
+        // Bass: DBFB (≤260 Hz), Analog Bass (≤300 Hz) and Mobile Bass
+        // (90-300 Hz) genuinely stack in the same region — summed, as in
+        // calculateGainBudget's bass zone.
+        val bass = FloatArray(EqBands.count)
+        if (dbfbMode != DbfbMode.Off) {
+            val dbfb = (if (dbfbMode == DbfbMode.High) 3.9f else 2.3f) * bassExtension
+            for (i in 0..3) bass[i] += dbfb
+            bass[4] += dbfb / 2f
+        }
+        if (analogBassEnabled) {
+            for (i in 0..4) bass[i] += 5.0f * bassExtension
+            bass[5] += 2.5f * bassExtension
+        }
+        if (mobileBassEnabled) {
+            val mb = mobileBassIntensity.coerceIn(0f, 1f) * 4.8f
+            for (i in 3..5) bass[i] += mb
+        }
+        for (i in bass.indices) lift(i..i, bass[i])
+        if (harmonicExciterEnabled) {
+            val ex = harmonicExciterIntensity.coerceIn(0f, 1f) * 5f
+            lift(10..11, ex)
+            if (!hiResEnabled) lift(12..12, ex)
+        }
+        if (hiResEnabled) {
+            // MBC splits at 5.2 / 9.6 / 14.5 kHz (+2.5 / +4.0 / +5.5 dB);
+            // bands 13 and 14 each straddle one split.
+            lift(12..12, 2.5f * trebleExtension)
+            lift(13..13, 3.5f * trebleExtension)
+            lift(14..14, 5.0f * trebleExtension)
+        }
+        if (tubeWarmthEnabled) {
+            val tw = 0.5f + tubeWarmthIntensity.coerceIn(0f, 1f) * 1.0f
+            for (i in boost.indices) boost[i] += tw
+        }
+        return boost
+    }
+
+    /**
+     * Input trim (0 or negative dB) that keeps the processed mix as loud as
+     * the unprocessed one: the curve's gain on [LEVEL_MATCH_WEIGHTS], the
+     * long-term spectrum of real music, taken back off the input.
+     *
+     * Why the input: the limiter cannot stop peaks (see MAX_HEADROOM_DB),
+     * and DynamicsProcessing's output is converted to fixed point after the
+     * mixer — on Bluetooth, 16-bit for the encoder — so every boost a loud
+     * master has no room for hard-clips there, and earbuds or the phone's own
+     * protection then pump the level down. Trimming before the boosts gives
+     * them the room.
+     *
+     * Why this size and not the peak boost: trimming by the largest boost
+     * (what a classic EQ preamp does) makes a +5 dB air shelf cost 5 dB of
+     * everything, which is the "quieter than doing nothing" failure. The
+     * shape still changes exactly as asked; only the overall level is held.
+     * Cuts never earn gain back: a curve that is quieter than bypass stays
+     * quieter.
+     *
+     * [volumeHeadroomDb] is the room the system volume already made. On a
+     * wired or speaker route Android attenuates each stream digitally BEFORE
+     * the output-mix effect chain, so at half volume the signal reaching
+     * this DP sits 10-20 dB under full scale and the boosts fit without any
+     * trim — trimming there would only make effects-on quieter than v1.6.4
+     * for nothing. On Bluetooth with absolute volume the phone sends full
+     * scale and the earbuds turn it down, so the headroom is 0: that route
+     * trims only its vocal bands ([bluetoothTrimDb]) and pays for every other
+     * boost in [planBluetoothMbc].
+     */
+    internal fun levelMatchTrimDb(
+        preEqLeftDb: FloatArray,
+        preEqRightDb: FloatArray,
+        stageBoostDb: FloatArray,
+        volumeHeadroomDb: Float = 0f
+    ): Float {
+        var power = 0.0
+        for (i in 0 until EqBands.count) {
+            val w = LEVEL_MATCH_WEIGHTS[i]
+            val extra = stageBoostDb.getOrElse(i) { 0f }
+            val l = preEqLeftDb.getOrElse(i) { 0f } + extra
+            val r = preEqRightDb.getOrElse(i) { 0f } + extra
+            power += w * (Math.pow(10.0, l / 10.0) + Math.pow(10.0, r / 10.0)) / 2.0
+        }
+        val gainDb = (10.0 * kotlin.math.log10(power)).toFloat()
+        // 0.1 dB steps: a live EQ drag re-runs this every tick, and the input
+        // stage has no glide of its own.
+        val needed = (gainDb - volumeHeadroomDb.coerceAtLeast(0f)).coerceIn(0f, MAX_AUTO_TRIM_DB)
+        return -kotlin.math.round(needed * 10f) / 10f
+    }
+
+    /**
+     * Bluetooth's input trim: [levelMatchTrimDb] on the vocal bands alone.
+     * Every other boost is level-aware in [planBluetoothMbc] and needs no
+     * room made for it, so a smile curve costs no level at all. A boost in
+     * the vocal zone takes no guard, because ducking the voice is exactly
+     * the pumping that plan exists to remove; a small trim is the cheaper
+     * way to pay for it, and the voice still ends up louder than it was.
+     */
+    internal fun bluetoothTrimDb(
+        preEqLeftDb: FloatArray,
+        preEqRightDb: FloatArray,
+        volumeHeadroomDb: Float = 0f
+    ): Float {
+        fun vocalBands(curve: FloatArray) = FloatArray(EqBands.count) { i ->
+            if (i in BT_TRIMMED_BANDS) curve.getOrElse(i) { 0f } else 0f
+        }
+        return levelMatchTrimDb(vocalBands(preEqLeftDb), vocalBands(preEqRightDb), FloatArray(EqBands.count), volumeHeadroomDb)
+    }
+
+    /**
+     * The MBC on a Bluetooth route: fixed zones that every feature adds its
+     * gain into, and every boost made level-aware.
+     *
+     * Why Bluetooth gets its own plan. With absolute volume JadOO sees full
+     * scale at every volume step, while on a wired route the stream arrives
+     * 10-20 dB down. Two things follow, and together they were every
+     * "volume drops" report from 2026-10-25 on:
+     *
+     *  - The wired plan's compressors are voiced for that lower level. At
+     *    full scale bass hits sit at -10 dBFS in-band, far past Analog
+     *    Bass's -19 dBFS threshold: it took ~5 dB off each hit and held the
+     *    bass down for its 280 ms release, so the "bass boost" measured
+     *    below bypass on loud masters.
+     *  - A static boost has no room, so it was paid for by trimming the
+     *    whole song ([levelMatchTrimDb]). That holds peaks but costs the
+     *    voice 1.5-4 dB, which is the level the ear judges. No trim at all
+     *    (v1.6.4) hard-clips instead, to +5.6 dBFS and 3.9% of samples.
+     *
+     * What a loud master actually lacks is room on its hottest moments, not
+     * everywhere. So each zone's gain is applied by a compressor that fades
+     * it out on those moments: the boost is whole up to [BT_BOOST_SPAN_DB]
+     * below the zone's hot level and nothing at it, which leaves a hit where
+     * the track put it, the bass body lifted, the voice untouched and
+     * nothing to trim. The DP compresses on the FFT block it then applies
+     * the gain to, so at a 1 ms attack this works as a 46 ms look-ahead,
+     * which is enough for bass, where the peaks are.
+     *
+     * The zone boost is what the PreEQ, MBC post-gain and PostEQ add up to
+     * in that zone, so Graphic EQ, AutoEQ, Loudness, Surround and every
+     * feature are covered without knowing about each other. Fixed ascending
+     * zones also retire the Analog Bass + DBFB band-order accident on this
+     * route (see [planMbc]): both simply add into the same three bass zones.
+     *
+     * [analogBass]'s Drive still means harder: it moves the bass zones' hot
+     * level. Drift still means looser: it widens their knee. Warmth and
+     * Pultec set the gain. [sbcCrestHz] splits a zone at SBC's subband edge
+     * and everything above it stays [SbcEngine]'s fixed crest compression,
+     * with no lift (see its note on makeup gain). HDR's expander does
+     * nothing at any level a song reaches, so it needs no band here.
+     */
+    internal fun planBluetoothMbc(
+        hiResEnabled: Boolean,
+        dbfbMode: DbfbMode,
+        analogBassEnabled: Boolean,
+        analogBass: AnalogBassVoicing,
+        harmonicExciterEnabled: Boolean,
+        harmonicExciterIntensity: Float,
+        bassExtension: Float,
+        trebleExtension: Float,
+        preEqLeftDb: FloatArray,
+        preEqRightDb: FloatArray,
+        sbcCrestHz: Float? = null,
+        hdrPure: Boolean = false
+    ): List<MbcBandSpec> {
+        val cutoffs = (BT_ZONE_CUTOFFS_HZ.toList() + listOfNotNull(sbcCrestHz)).distinct().sorted()
+        val sbc = sbcCrestHz != null
+        var low = BT_ZONE_FLOOR_HZ
+        return cutoffs.map { high ->
+            val zone = BT_ZONE_CUTOFFS_HZ.indexOfFirst { it >= high }
+            val bassZone = high <= BT_BASS_ZONE_TOP_HZ
+            val crest = sbcCrestHz != null && low >= sbcCrestHz
+            val feature = zoneMeanDb(low, high) { hz ->
+                bluetoothFeatureGainDb(
+                    hz, hiResEnabled, dbfbMode, analogBassEnabled, analogBass,
+                    harmonicExciterEnabled, harmonicExciterIntensity, bassExtension, trebleExtension, sbc
+                )
+            }
+            val post = feature + if (crest || hdrPure) 0f else BT_LEVEL_LIFT_DB
+            val pre = zoneMeanDb(low, high) { hz -> (preEqGainAt(preEqLeftDb, hz) + preEqGainAt(preEqRightDb, hz)) / 2f }
+            val postEq = if (analogBassEnabled) zoneMeanDb(low, high) { pultecGainDb(it, analogBass, bassExtension) } else 0f
+            // The vocal zone's PreEQ is paid for by bluetoothTrimDb instead.
+            val boost = if (zone == BT_VOCAL_ZONE) post else pre + post + postEq
+            val drive = if (analogBassEnabled && bassZone) (BT_DRIVE_NEUTRAL - analogBass.drive) * BT_DRIVE_RANGE_DB else 0f
+            val hot = BT_ZONE_HOT_DB[zone] + drive
+            MbcBandSpec().apply {
+                cutoffFrequency = high
+                attackTime = BT_ATTACK_MS
+                releaseTime = if (bassZone) BT_BASS_RELEASE_MS else BT_TOP_RELEASE_MS
+                noiseGateThreshold = -90f
+                expanderRatio = 1f
+                preGain = 0f
+                postGain = post
+                when {
+                    crest -> {
+                        val silk = hiResEnabled && high <= HI_RES_SILK_TOP_HZ
+                        attackTime = SbcEngine.CREST_ATTACK_MS
+                        releaseTime = SbcEngine.CREST_RELEASE_MS
+                        ratio = if (silk) 2.4f else SbcEngine.CREST_RATIO
+                        threshold = if (silk) -24f else SbcEngine.CREST_THRESHOLD_DB
+                        kneeWidth = SbcEngine.CREST_KNEE_DB
+                    }
+                    boost > BT_MIN_BOOST_DB -> {
+                        val span = maxOf(BT_BOOST_SPAN_DB, boost / (1f - 1f / BT_BOOST_MAX_RATIO))
+                        ratio = 1f / (1f - boost / span)
+                        // The compressor measures after the PreEQ.
+                        threshold = hot + pre - span
+                        kneeWidth = BT_KNEE_DB + if (analogBassEnabled && bassZone) analogBass.drift * BT_DRIFT_KNEE_DB else 0f
+                    }
+                    else -> {
+                        ratio = 1f
+                        threshold = 0f
+                        kneeWidth = 0f
+                    }
+                }
+            }.also { low = high }
+        }
+    }
+
+    /** Writes the bands of [plan] that moved. Live: the DP keeps its envelopes unless a cutoff changes. */
+    private fun writeBluetoothPlan(dp: DynamicsProcessing, plan: List<MbcBandSpec>) {
+        if (plan.size != liveBluetoothPlan.size) return
+        plan.forEachIndexed { i, spec ->
+            if (!spec.sameAs(liveBluetoothPlan[i])) dp.setMbcBandAllChannelsTo(i, spec.toBand())
+        }
+        liveBluetoothPlan = plan
+    }
+
+    /** Mean over [lowHz]..[highHz], evenly spaced in log frequency, as the EQ bands are. */
+    private inline fun zoneMeanDb(lowHz: Float, highHz: Float, gainAt: (Float) -> Float): Float {
+        val steps = BT_ZONE_MEAN_POINTS
+        val ratio = (highHz / lowHz).toDouble()
+        var sum = 0f
+        for (i in 0 until steps) sum += gainAt(lowHz * Math.pow(ratio, (i + 0.5) / steps).toFloat())
+        return sum / steps
+    }
+
+    private fun preEqGainAt(curve: FloatArray, hz: Float): Float {
+        val band = EqBands.cutoffFrequencies.indexOfFirst { hz <= it }
+        return if (band < 0) 0f else curve.getOrElse(band) { 0f }
+    }
+
+    /** Analog Bass's PostEQ at [hz]; mirrors configureAnalogBassPostEq. */
+    private fun pultecGainDb(hz: Float, v: AnalogBassVoicing, bassExtension: Float): Float {
+        val freq = PULTEC_FREQUENCIES_HZ[v.pultecFreqIndex.coerceIn(0, PULTEC_FREQUENCIES_HZ.size - 1)]
+        return when {
+            hz <= (freq * 1.5f).coerceIn(25f, 200f) -> v.pultecBoost * 8f * bassExtension
+            hz <= (freq * 4f).coerceIn(80f, 500f) -> -(v.pultecCut * 5f)
+            hz <= 500f -> v.warmth * 2.5f * bassExtension
+            else -> 0f
+        }
+    }
+
+    /** The MBC post-gain the features ask for at [hz]; mirrors each feature's bands in [planMbc]. */
+    private fun bluetoothFeatureGainDb(
+        hz: Float,
+        hiResEnabled: Boolean,
+        dbfbMode: DbfbMode,
+        analogBassEnabled: Boolean,
+        analogBass: AnalogBassVoicing,
+        harmonicExciterEnabled: Boolean,
+        harmonicExciterIntensity: Float,
+        bassExtension: Float,
+        trebleExtension: Float,
+        sbc: Boolean
+    ): Float {
+        var gain = 0f
+        if (analogBassEnabled) {
+            val driveGain = Math.pow(analogBass.drive.toDouble(), 0.75).toFloat() * 9f * bassExtension
+            val warmthGain = analogBass.warmth * 3f * bassExtension
+            gain += when {
+                hz <= 60f -> warmthGain + driveGain * 0.2f
+                hz <= 120f -> warmthGain * 1.5f
+                hz <= 300f -> warmthGain * 0.6f
+                else -> 0f
+            }
+        }
+        if (dbfbMode != DbfbMode.Off) {
+            val normal = dbfbMode == DbfbMode.Normal
+            gain += when {
+                hz <= 72f -> dbfbSubPostGainDb(normal, bassExtension)
+                hz <= 145f -> dbfbPunchPostGainDb(normal, bassExtension)
+                hz <= 260f -> if (normal) -0.4f else -0.6f
+                else -> 0f
+            }
+        }
+        if (harmonicExciterEnabled && hz > 2000f && hz <= (if (hiResEnabled) 5200f else 8000f)) {
+            gain += harmonicExciterIntensity.coerceIn(0f, 1f) * 5f
+        }
+        if (hiResEnabled) {
+            gain += when {
+                hz <= 5200f -> 0f
+                hz <= 9600f -> 2.5f * trebleExtension
+                hz <= HI_RES_SILK_TOP_HZ -> 4.0f * trebleExtension * (if (sbc) SbcEngine.AIR_SCALE_SILK else 1f)
+                else -> 5.5f * trebleExtension * (if (sbc) SbcEngine.AIR_SCALE_TOP else 1f)
+            }
+        }
+        return gain
+    }
+
+    /**
+     * Scales (STACK_SCALE_FLOOR..1) for the feature boosts that stack on
+     * Bluetooth: Surround's centred smile, and DBFB, Analog Bass and Hi-Res
+     * through the bass/treble extensions they already take. Each end has its
+     * own, so Surround + Hi-Res running out of treble costs DBFB no bass.
+     *
+     * Nothing here is about level: [planBluetoothMbc] keeps a stack from
+     * clipping or costing the voice anything. This is tone. Stacked at full
+     * strength the bass can reach +12 dB and the top +10 dB, past where the
+     * balance holds, so the stack is scaled back to [STACK_BASS_CAP_DB] and
+     * [STACK_TREBLE_CAP_DB]. A single feature at its default sits under both.
+     *
+     * Computed from the features alone (no user EQ), so it only moves when a
+     * feature changes and never on an EQ drag. The Surround L/R differential
+     * is the width itself and is not scaled. The Exciter takes no extension,
+     * so it neither counts nor scales.
+     */
+    fun bluetoothStackScale(
+        surroundCenteredDb: FloatArray,
+        hiResEnabled: Boolean,
+        dbfbMode: DbfbMode,
+        analogBassEnabled: Boolean,
+        analogBass: AnalogBassVoicing,
+        bassExtension: Float,
+        trebleExtension: Float
+    ): StackScale {
+        var bassPeak = 0f
+        var treblePeak = 0f
+        for (i in 0 until EqBands.count) {
+            val hz = EqBands.frequencies[i]
+            val body = surroundCenteredDb.getOrElse(i) { 0f } +
+                bluetoothFeatureGainDb(hz, hiResEnabled, dbfbMode, analogBassEnabled, analogBass, false, 0f, bassExtension, trebleExtension, false) +
+                if (analogBassEnabled) pultecGainDb(hz, analogBass, bassExtension) else 0f
+            if (hz <= BT_BASS_ZONE_TOP_HZ) bassPeak = maxOf(bassPeak, body)
+            else if (hz >= STACK_TREBLE_FROM_HZ) treblePeak = maxOf(treblePeak, body)
+        }
+        // Stepped, so a slider doesn't rewrite the PreEQ on every tick.
+        fun scale(peak: Float, cap: Float) =
+            if (peak <= cap) 1f
+            else (kotlin.math.floor(cap / peak / STACK_SCALE_STEP) * STACK_SCALE_STEP).coerceAtLeast(STACK_SCALE_FLOOR)
+        return StackScale(scale(bassPeak, STACK_BASS_CAP_DB), scale(treblePeak, STACK_TREBLE_CAP_DB))
+    }
+
+    /**
+     * The engine's static response at [freqsHz], in dB, averaged over both
+     * channels: input gain, PreEQ, every MBC band's post-gain, PostEQ, the
+     * limiter's post-gain and Tube Warmth's enhancer gain, read back from the
+     * live DynamicsProcessing and applied bin by bin as DP does (see
+     * DpResponse). The quiet-signal response: compressors and expanders only
+     * move it on loud or very soft material. Null when nothing is attached.
+     */
+    fun staticResponseDb(freqsHz: FloatArray, sampleRateHz: Int): FloatArray? = synchronized(this) {
+        val dp = dynamicsProcessing ?: return@synchronized null
+        try {
+            val block = DpResponse.blockSize(sampleRateHz)
+            val broadband = (preGainDb + autoTrimDb + tubeMakeupDb).coerceIn(-12f, 12f) +
+                (currentLimiter?.takeIf { it.isEnabled }?.let { effectivePostGainDb() } ?: 0f) +
+                (loudnessEnhancer?.takeIf { it.enabled }?.let { it.targetGain / 100f } ?: 0f)
+            val sum = FloatArray(freqsHz.size)
+            for (ch in 0..1) {
+                val bins = FloatArray(block / 2 + 1) { broadband }
+                val pre = dp.getPreEqByChannelIndex(ch)
+                if (pre.isInUse && pre.isEnabled) DpResponse.addBandSteps(bins, pre.bandCount,
+                    { pre.getBand(it).cutoffFrequency }, { pre.getBand(it).gain }, { pre.getBand(it).isEnabled },
+                    block, sampleRateHz)
+                val mbc = dp.getMbcByChannelIndex(ch)
+                if (mbc.isInUse && mbc.isEnabled) DpResponse.addBandSteps(bins, mbc.bandCount,
+                    { mbc.getBand(it).cutoffFrequency }, { mbc.getBand(it).postGain }, { mbc.getBand(it).isEnabled },
+                    block, sampleRateHz)
+                val post = dp.getPostEqByChannelIndex(ch)
+                if (post.isInUse && post.isEnabled) DpResponse.addBandSteps(bins, post.bandCount,
+                    { post.getBand(it).cutoffFrequency }, { post.getBand(it).gain }, { post.getBand(it).isEnabled },
+                    block, sampleRateHz)
+                val sampled = DpResponse.sample(bins, freqsHz, block, sampleRateHz)
+                for (i in sum.indices) sum[i] += sampled[i] / 2f
+            }
+            sum
+        } catch (e: Exception) {
+            Log.w("DspEngine", "Response read-back failed: ${e.message}")
+            null
+        }
+    }
+
+    /** Releases only the DP handle (not Tube Warmth's enhancer) — see attach(). */
+    private fun releaseDynamicsProcessingOnly() {
+        try {
+            dynamicsProcessing?.release()
+        } catch (e: Exception) {
+            Log.w("DspEngine", "DP release before enhancer insert failed: ${e.message}")
+        }
+        dynamicsProcessing = null
     }
 
     fun release() = synchronized(this) {
+        tubeMakeupDb = 0f
+        bluetoothPlanActive = false
+        liveBluetoothPlan = emptyList()
         autoTrimDb = 0f
         autoTrimReadoutDb = 0f
-        limiterMakeupDb = 0f
         sbcTrimDb = 0f
         gainBudgetDb = 0f
         allChannelGlideJobs.forEachIndexed { i, job -> job?.cancel(); allChannelGlideJobs[i] = null }
@@ -1740,6 +2364,13 @@ class DspEngine {
     fun setPreEqBandGainAllChannels(bandIndex: Int, gainDb: Float) {
         if (bandIndex !in 0 until EqBands.count) return
         val target = gainDb.coerceIn(-15f, 15f)
+        // applyAllBands rewrites all 15 bands on every feature change; most
+        // haven't moved. Skipping those saves 5 binder writes per band.
+        if (allChannelGlideJobs[bandIndex]?.isActive != true &&
+            perChannelGlideJobs.none { it[bandIndex]?.isActive == true } &&
+            kotlin.math.abs(currentPerChannelGain[0][bandIndex] - target) < 0.01f &&
+            kotlin.math.abs(currentPerChannelGain[1][bandIndex] - target) < 0.01f
+        ) return
         allChannelGlideJobs[bandIndex]?.cancel()
         // A per-channel glide may still be in flight on this band from a
         // previous Surround mode (writeCombinedBand switches a band between
@@ -1770,10 +2401,11 @@ class DspEngine {
     private fun writeAllChannelGain(bandIndex: Int, gainDb: Float) = synchronized(this) {
         val dp = dynamicsProcessing ?: return@synchronized
         try {
-            val preEq = dp.getPreEqByChannelIndex(0)
-            val band = preEq.getBand(bandIndex)
-            band.gain = gainDb
-            dp.setPreEqBandAllChannelsTo(bandIndex, band)
+            // Built, not read back: the band's cutoff never changes, and
+            // getPreEqByChannelIndex fetched all 15 bands over binder on
+            // every 12 ms glide frame.
+            dp.setPreEqBandAllChannelsTo(bandIndex,
+                DynamicsProcessing.EqBand(true, EqBands.cutoffFrequencies[bandIndex], gainDb))
             currentAllChannelGain[bandIndex] = gainDb
             // Both channels genuinely hold this value now. Keeping the
             // per-channel cache in sync means a later switch INTO a
@@ -1825,9 +2457,8 @@ class DspEngine {
     private fun writePerChannelGain(channelIndex: Int, bandIndex: Int, gainDb: Float) = synchronized(this) {
         val dp = dynamicsProcessing ?: return@synchronized
         try {
-            val band = dp.getPreEqBandByChannelIndex(channelIndex, bandIndex)
-            band.gain = gainDb
-            dp.setPreEqBandByChannelIndex(channelIndex, bandIndex, band)
+            dp.setPreEqBandByChannelIndex(channelIndex, bandIndex,
+                DynamicsProcessing.EqBand(true, EqBands.cutoffFrequencies[bandIndex], gainDb))
             currentPerChannelGain[channelIndex][bandIndex] = gainDb
             // L and R now differ, so there is no single "all channel" value.
             // Cache their mean: it's what the band is perceptually centred on,
@@ -1841,42 +2472,13 @@ class DspEngine {
     }
 
     /**
-     * How much level to give back after the limiter, for a given headroom
-     * offset.
-     *
-     * Dropping the limiter's ceiling by N dB drops the OUTPUT by N dB, so
-     * without this, turning a feature on made the app quieter than leaving it
-     * off — the exact "quieter, less clear" failure MAX_HEADROOM_DB's own
-     * comment says it exists to avoid. Adding the same N dB back AFTER the
-     * limiter makes that comment's stated intent true in practice: peaks get
-     * more limiting ACTION (caught at a lower ceiling, then brought back up)
-     * while everything below the threshold keeps its original level.
-     *
-     * Two guards, both learned the hard way:
-     *
-     *  - **Precise path only.** Tube Warmth is pinned to the LEGACY split
-     *    (see splitGainBudget), whose headroom is the *entire* budget and is
-     *    uncapped. A first attempt applied makeup unconditionally and handed
-     *    Tube Warmth 5-13 dB of postGain, turning its gentle glue limiter
-     *    into a loudness maximiser — heavy gain reduction into a large boost,
-     *    with its voiced character gone. Legacy means legacy: no makeup, byte
-     *    -identical to pre-1.6.
-     *  - **Capped at [MAX_HEADROOM_DB] regardless.** The precise path already
-     *    caps headroom there, so this is a no-op today — it exists so that
-     *    changing splitGainBudget later cannot silently reintroduce an
-     *    unbounded makeup.
-     */
-    private fun headroomMakeupDb(headroomDb: Float, usePreciseStaging: Boolean): Float =
-        if (usePreciseStaging) (-headroomDb).coerceIn(0f, MAX_HEADROOM_DB) else 0f
-
-    /**
      * What actually goes into the limiter's postGain: the user's post-gain
-     * plus the headroom makeup. Single source of truth so the three places
+     * plus the SBC decoder-overshoot trim. Single source of truth so the three places
      * that write postGain — attach, updateHeadroom and setPostGain — cannot
      * disagree and silently drop or double it.
      */
     private fun effectivePostGainDb(): Float =
-        (postGainDb + limiterMakeupDb + sbcTrimDb).coerceIn(-12f, 12f)
+        (postGainDb + sbcTrimDb).coerceIn(-12f, 12f)
 
     fun setPreGain(gainDb: Float) = synchronized(this) {
         preGainDb = gainDb.coerceIn(-12f, 12f)
@@ -1896,7 +2498,7 @@ class DspEngine {
     private fun applyInputGain() {
         try {
             dynamicsProcessing?.setInputGainAllChannelsTo(
-                (preGainDb + autoTrimDb).coerceIn(-12f, 12f)
+                (preGainDb + autoTrimDb + tubeMakeupDb).coerceIn(-12f, 12f)
             )
         } catch (e: Exception) {
             Log.e("DspEngine", "Error setting pre gain", e)
@@ -1915,7 +2517,7 @@ class DspEngine {
                 // causing the postGain update to silently have no effect.
                 limiter.postGain = effectivePostGainDb()
                 dp.setLimiterAllChannelsTo(limiter)
-                Log.d("DspEngine", "Post gain set to ${postGainDb}dB (+${limiterMakeupDb}dB headroom makeup)")
+                Log.d("DspEngine", "Post gain set to ${postGainDb}dB")
             } catch (e: Exception) {
                 Log.e("DspEngine", "Error setting post gain", e)
             }

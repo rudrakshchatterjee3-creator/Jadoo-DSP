@@ -3,12 +3,6 @@ package com.jadoo.amp.ui
 import android.graphics.Paint
 import android.provider.Settings
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -17,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,7 +32,6 @@ import androidx.compose.ui.unit.sp
 import com.jadoo.amp.audio.DigitalFilterEngine
 import com.jadoo.amp.audio.EqBands
 import com.jadoo.amp.audio.LoudnessContour
-import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.sin
@@ -56,14 +49,15 @@ import kotlin.math.tanh
  *
  * ## Motion rules
  *
- * Following Apple's fluid-interface guidance, adapted for a diagram that
- * nobody touches (so no springs or velocity handoff — there's no gesture):
- *
- *  - **Eased, never linear.** [FastOutSlowInEasing] on every value that
- *    represents a physical quantity; `LinearEasing` only for things that
- *    genuinely rotate or travel at constant speed (flow dots, sweeps).
- *  - **Slow cycles (2.4-5 s).** A help dialog is read, not watched. Fast
- *    loops pull the eye off the text they exist to explain.
+ *  - **A demonstration, not a loop.** Each diagram plays its mechanism once —
+ *    feature off → on over [DEMO_MS] — then settles on its most explanatory
+ *    frame and holds still while the copy is read. They used to ping-pong
+ *    forever beside the text they exist to explain; the HIG's own words:
+ *    motion must support the experience "without overshadowing it", and
+ *    people should be able to cancel it. Tapping the diagram replays it.
+ *  - **Eased, never linear,** for values that are physical quantities;
+ *    linear only for things that travel (flow dots, sweeps), which run a
+ *    whole number of trips and land exactly on their resting frame.
  *  - **One idea per diagram.** Every diagram animates a single variable.
  *  - **Restraint in colour.** Theme roles only (primary / secondary /
  *    onSurfaceVariant), so all of it tracks Material You and both themes.
@@ -98,44 +92,39 @@ private fun rememberMotionEnabled(): Boolean {
     }
 }
 
+/** Length of one demonstration. */
+internal const val DEMO_MS = 2400
+
 /**
- * A value cycling 0→1→0 over [periodMs], or pinned to [still] when motion is
- * off. [still] is chosen per diagram to be the frame that explains the
- * feature best, usually "effect fully applied".
+ * Linear progress (0..1) through the current demonstration, supplied by the
+ * help sheet so every diagram in it shares one timeline. 1 = settled.
+ */
+internal val LocalDemoProgress = compositionLocalOf { 1f }
+
+/**
+ * A quantity moving from "off" (0) to its resting value [still] over the
+ * demonstration, eased, then holding. [still] is chosen per diagram to be the
+ * frame that explains the feature best, usually "effect fully applied".
  */
 @Composable
-private fun cycle(
-    periodMs: Int,
-    label: String,
-    still: Float = 1f,
-    easing: androidx.compose.animation.core.Easing = FastOutSlowInEasing
-): Float {
+private fun cycle(label: String, still: Float = 1f): Float {
     if (!rememberMotionEnabled()) return still
-    val transition = rememberInfiniteTransition(label = label)
-    val value by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(periodMs, easing = easing), RepeatMode.Reverse),
-        label = label
-    )
-    return value
+    val p = LocalDemoProgress.current
+    return still * FastOutSlowInEasing.transform(p)
 }
 
 /**
- * A value ramping 0→1 and restarting, for things that travel in one direction
- * (flow dots, sweeps). Pinned mid-travel when motion is off.
+ * Something that travels in one direction (flow dots, sweeps): it makes a
+ * whole number of [periodMs] trips during the demonstration and lands exactly
+ * on [still], so settling never jumps.
  */
 @Composable
 private fun ramp(periodMs: Int, label: String, still: Float = 0.5f): Float {
     if (!rememberMotionEnabled()) return still
-    val transition = rememberInfiniteTransition(label = label)
-    val value by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(periodMs, easing = LinearEasing), RepeatMode.Restart),
-        label = label
-    )
-    return value
+    val p = LocalDemoProgress.current
+    val trips = (DEMO_MS / periodMs.toFloat()).coerceAtLeast(1f)
+    val v = (still + (p - 1f) * trips) % 1f
+    return if (v < 0f) v + 1f else v
 }
 
 /**
@@ -152,11 +141,11 @@ private fun IllustrationFrame(
     val accent = MaterialTheme.colorScheme.primary
     val accentAlt = MaterialTheme.colorScheme.secondary
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val surface = MaterialTheme.colorScheme.surfaceContainer
+    val surface = MaterialTheme.colorScheme.surfaceContainerHigh
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(surface)
             .padding(horizontal = 18.dp, vertical = 16.dp)
     ) {
@@ -178,8 +167,8 @@ private fun DrawScope.caption(
     y: Float,
     color: Color,
     align: Paint.Align = Paint.Align.LEFT,
-    sizeSp: Float = 9.5f,
-    alpha: Float = 0.75f,
+    sizeSp: Float = 11f,
+    alpha: Float = 0.85f,
     pillColor: Color? = null
 ) {
     drawIntoCanvas { canvas ->
@@ -252,7 +241,7 @@ private fun DrawScope.curveThrough(points: FloatArray): Path = Path().apply {
 /** Spectrum whose top third lifts out of the noise floor as the effect engages. */
 @Composable
 internal fun HiResIllustration(modifier: Modifier = Modifier) {
-    val lift = cycle(2800, "hires_lift")
+    val lift = cycle("hires_lift")
     IllustrationFrame(modifier) { accent, accentAlt, muted, surface ->
         val bars = 30
         val gap = size.width / bars
@@ -304,7 +293,7 @@ internal fun HiResIllustration(modifier: Modifier = Modifier) {
 /** A bass note whose weight is reinforced in proportion to how hard it hits. */
 @Composable
 internal fun DbfbIllustration(modifier: Modifier = Modifier) {
-    val drive = cycle(2400, "dbfb_drive")
+    val drive = cycle("dbfb_drive")
     IllustrationFrame(modifier) { accent, _, muted, surface ->
         val mid = size.height * 0.52f
         val n = 90
@@ -337,7 +326,7 @@ internal fun DbfbIllustration(modifier: Modifier = Modifier) {
 /** Brickwalled peaks stay put; the quiet material is pushed back down, restoring range. */
 @Composable
 internal fun HdrIllustration(modifier: Modifier = Modifier) {
-    val expand = cycle(3000, "hdr_expand")
+    val expand = cycle("hdr_expand")
     IllustrationFrame(modifier) { accent, _, muted, surface ->
         val bars = 34
         val gap = size.width / bars
@@ -390,7 +379,7 @@ internal fun HdrIllustration(modifier: Modifier = Modifier) {
 /** Input-vs-output transfer curve bending away from linear as drive rises. */
 @Composable
 internal fun AnalogBassIllustration(modifier: Modifier = Modifier) {
-    val drive = cycle(3200, "analog_drive")
+    val drive = cycle("analog_drive")
     val travel = ramp(2600, "analog_travel")
     IllustrationFrame(modifier) { accent, accentAlt, muted, surface ->
         val pad = size.height * 0.1f
@@ -438,7 +427,7 @@ internal fun AnalogBassIllustration(modifier: Modifier = Modifier) {
 /** The stereo image widens outward while the centre image stays pinned. */
 @Composable
 internal fun SurroundIllustrationAnimated(modifier: Modifier = Modifier) {
-    val width = cycle(3400, "surround_width")
+    val width = cycle("surround_width")
     IllustrationFrame(modifier) { accent, accentAlt, muted, surface ->
         val cx = size.width / 2f
         val cy = size.height * 0.82f
@@ -480,7 +469,7 @@ internal fun SurroundIllustrationAnimated(modifier: Modifier = Modifier) {
 /** Low-end bloom rises and the top rolls off — the two halves of valve tone. */
 @Composable
 internal fun TubeWarmthIllustration(modifier: Modifier = Modifier) {
-    val glow = cycle(3000, "tube_glow")
+    val glow = cycle("tube_glow")
     IllustrationFrame(modifier) { accent, accentAlt, muted, surface ->
         val mid = size.height * 0.55f
         val n = 48
@@ -522,7 +511,7 @@ internal fun TubeWarmthIllustration(modifier: Modifier = Modifier) {
 /** The speaker can't move the fundamental, so its harmonics carry it instead. */
 @Composable
 internal fun MobileBassIllustration(modifier: Modifier = Modifier) {
-    val pulse = cycle(2200, "mobile_pulse")
+    val pulse = cycle("mobile_pulse")
     IllustrationFrame(modifier) { accent, _, muted, surface ->
         val baseline = size.height * 0.82f
         val slots = listOf(0.16f, 0.42f, 0.62f, 0.80f)
@@ -566,62 +555,12 @@ internal fun MobileBassIllustration(modifier: Modifier = Modifier) {
         }
     }
 }
-
-// ── 8. Crossfeed ──────────────────────────────────────────────────────────
-
-/** Each channel bleeds a little into the other, the way speakers reach both ears. */
-@Composable
-internal fun CrossfeedIllustration(modifier: Modifier = Modifier) {
-    val flow = ramp(2800, "crossfeed_flow")
-    IllustrationFrame(modifier) { accent, accentAlt, muted, surface ->
-        val leftX = size.width * 0.16f
-        val rightX = size.width * 0.84f
-        val topY = size.height * 0.26f
-        val botY = size.height * 0.74f
-        val r = size.height * 0.14f
-
-        fun bleed(fromX: Float, fromY: Float, toX: Float, toY: Float): Path = Path().apply {
-            moveTo(fromX, fromY)
-            cubicTo(
-                (fromX + toX) / 2f, fromY,
-                (fromX + toX) / 2f, toY,
-                toX, toY
-            )
-        }
-
-        val lToR = bleed(leftX, topY, rightX, botY)
-        val rToL = bleed(rightX, botY, leftX, topY)
-        drawPath(lToR, accentAlt.copy(alpha = 0.35f), style = Stroke(width = 2f))
-        drawPath(rToL, accentAlt.copy(alpha = 0.35f), style = Stroke(width = 2f))
-
-        // Travelling dots make the direction of the bleed unambiguous — a
-        // static curve between two circles reads as a connector, not a flow.
-        for (k in 0..2) {
-            val t = ((flow + k / 3f) % 1f)
-            val e = FastOutSlowInEasing.transform(t)
-            val bx = lerp(leftX, rightX, e)
-            val by = lerp(topY, botY, e * e * (3f - 2f * e))
-            drawCircle(accentAlt.copy(alpha = 0.75f * (1f - abs(t - 0.5f) * 1.2f)), 3.5f, Offset(bx, by))
-            val bx2 = lerp(rightX, leftX, e)
-            val by2 = lerp(botY, topY, e * e * (3f - 2f * e))
-            drawCircle(accentAlt.copy(alpha = 0.75f * (1f - abs(t - 0.5f) * 1.2f)), 3.5f, Offset(bx2, by2))
-        }
-
-        drawCircle(accent.copy(alpha = 0.16f), r * 1.35f, Offset(leftX, topY))
-        drawCircle(accent, r * 0.5f, Offset(leftX, topY))
-        drawCircle(accent.copy(alpha = 0.16f), r * 1.35f, Offset(rightX, botY))
-        drawCircle(accent, r * 0.5f, Offset(rightX, botY))
-        caption("L", leftX, topY - r * 1.7f, accent, Paint.Align.CENTER, alpha = 1f)
-        caption("R", rightX, botY + r * 2.2f, accent, Paint.Align.CENTER, alpha = 1f)
-    }
-}
-
-// ── 9. Harmonic Exciter ───────────────────────────────────────────────────
+// ── 8. Harmonic Exciter ───────────────────────────────────────────────────
 
 /** Presence band lifts and sparkles; everything outside it is left alone. */
 @Composable
 internal fun ExciterIllustration(modifier: Modifier = Modifier) {
-    val lift = cycle(2600, "exciter_lift")
+    val lift = cycle("exciter_lift")
     val rise = ramp(3000, "exciter_rise")
     IllustrationFrame(modifier) { accent, accentAlt, muted, surface ->
         val baseline = size.height * 0.82f
@@ -711,7 +650,7 @@ internal fun ParametricEqIllustration(modifier: Modifier = Modifier) {
 /** Bits migrating out of the bass subbands and into the starved top two. */
 @Composable
 internal fun SbcIllustration(modifier: Modifier = Modifier) {
-    val shift = cycle(2800, "sbc_shift")
+    val shift = cycle("sbc_shift")
     IllustrationFrame(modifier) { accent, _, muted, surface ->
         val bands = 8
         val baseline = size.height * 0.80f
@@ -760,7 +699,7 @@ internal fun SbcIllustration(modifier: Modifier = Modifier) {
  */
 @Composable
 internal fun LoudnessIllustration(modifier: Modifier = Modifier) {
-    val drop = cycle(4000, "loudness_drop")
+    val drop = cycle("loudness_drop")
     IllustrationFrame(modifier) { accent, accentAlt, muted, surface ->
         val reference = 80f
         val current = lerp(reference, 42f, drop)
@@ -822,7 +761,7 @@ internal fun LoudnessIllustration(modifier: Modifier = Modifier) {
 /** Two apps, two curves — the DSP follows whichever one is playing. */
 @Composable
 internal fun PerAppIllustration(modifier: Modifier = Modifier) {
-    val swap = cycle(3600, "perapp_swap")
+    val swap = cycle("perapp_swap")
     IllustrationFrame(modifier) { accent, accentAlt, muted, surface ->
         val tileH = size.height * 0.26f
         val tileW = size.width * 0.4f
@@ -875,52 +814,5 @@ internal fun PerAppIllustration(modifier: Modifier = Modifier) {
             ),
             style = Stroke(width = 3.5f)
         )
-    }
-}
-
-// ── 14. Device profiles / content channel ─────────────────────────────────
-
-/** Tuning arriving over the air and landing in the app, without a reinstall. */
-@Composable
-internal fun ContentChannelIllustration(modifier: Modifier = Modifier) {
-    val flow = ramp(3000, "content_flow")
-    IllustrationFrame(modifier) { accent, accentAlt, muted, surface ->
-        val cloudY = size.height * 0.2f
-        val deviceY = size.height * 0.78f
-        val cx = size.width * 0.5f
-
-        // Source.
-        drawCircle(accentAlt.copy(alpha = 0.14f), size.height * 0.16f, Offset(cx, cloudY))
-        drawCircle(accentAlt, 5f, Offset(cx, cloudY))
-        caption("tuning · presets · devices", cx, cloudY - size.height * 0.2f, muted, Paint.Align.CENTER)
-
-        // Packets descending one after another.
-        for (k in 0..2) {
-            val t = (flow + k / 3f) % 1f
-            val y = lerp(cloudY + size.height * 0.1f, deviceY - size.height * 0.14f, t)
-            val a = (1f - abs(t - 0.5f) * 1.3f).coerceIn(0f, 1f)
-            drawRoundRect(
-                color = accent.copy(alpha = 0.75f * a),
-                topLeft = Offset(cx - size.width * 0.035f, y),
-                size = Size(size.width * 0.07f, size.height * 0.05f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f)
-            )
-        }
-
-        // Destination — the app, unchanged. No install, no restart.
-        drawRoundRect(
-            color = accent.copy(alpha = 0.12f),
-            topLeft = Offset(cx - size.width * 0.16f, deviceY - size.height * 0.1f),
-            size = Size(size.width * 0.32f, size.height * 0.2f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height * 0.07f, size.height * 0.07f)
-        )
-        drawRoundRect(
-            color = accent.copy(alpha = 0.6f),
-            topLeft = Offset(cx - size.width * 0.16f, deviceY - size.height * 0.1f),
-            size = Size(size.width * 0.32f, size.height * 0.2f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height * 0.07f, size.height * 0.07f),
-            style = Stroke(width = 1.5f)
-        )
-        caption("no reinstall", cx, size.height, accent, Paint.Align.CENTER, alpha = 0.95f)
     }
 }

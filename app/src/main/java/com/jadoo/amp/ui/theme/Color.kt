@@ -28,15 +28,6 @@ object BrandPalette {
      */
     val GoldDeep = Color(0xFF7A5510)
 
-    /**
-     * The adaptive icon's background plate.
-     *
-     * Not pure black on purpose: against a dark launcher wallpaper a
-     * `#000000` plate has no edge at all and the mark appears to float in a
-     * void. A few points of lift keeps the silhouette legible without reading
-     * as grey.
-     */
-    val IconPlate = Color(0xFF0B0B0B)
 }
 
 /**

@@ -28,8 +28,6 @@ data class JadooShapes(
     val card: RoundedCornerShape = RoundedCornerShape(24.dp),
     /** Dialogs, sheets, full-width overlays. */
     val sheet: RoundedCornerShape = RoundedCornerShape(32.dp),
-    /** Fully round — swatches, avatars, the brand mark's bounding box. */
-    val round: RoundedCornerShape = RoundedCornerShape(percent = 50)
 )
 
 /** The M3 [Shapes] mapping, so stock components pick these up for free. */

@@ -40,13 +40,6 @@ import androidx.compose.ui.unit.IntSize
 data class JadooMotion(
     val enabled: Boolean = true
 ) {
-    /** Toggle knobs, chip selection, small state flips. */
-    val fast: FiniteAnimationSpec<Float>
-        get() = if (!enabled) snap() else spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMedium
-        )
-
     /** The default for most visible movement — card expansion, reveals. */
     val standard: FiniteAnimationSpec<Float>
         get() = if (!enabled) snap() else spring(
@@ -110,16 +103,6 @@ data class JadooMotion(
             dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessMediumLow
         )
-
-    companion object {
-        /**
-         * The theme transition, which is a one-shot the user cannot interrupt
-         * (the whole screen is covered for its duration) and therefore the one
-         * place a fixed duration is correct. See the transition overlay for
-         * the phase breakdown.
-         */
-        const val THEME_TRANSITION_MS = 620
-    }
 }
 
 /**

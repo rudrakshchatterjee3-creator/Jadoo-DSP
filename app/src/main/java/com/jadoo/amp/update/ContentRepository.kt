@@ -115,7 +115,7 @@ class ContentRepository(private val context: Context) {
             p[Keys.lastFetchMillis] = System.currentTimeMillis()
         }
         Log.i(TAG, "Content updated to v${parsed.contentVersion} " +
-            "(${parsed.presets.size} presets, ${parsed.headphoneProfiles.size} device profiles)")
+            "(${parsed.presets.size} presets)")
         isNew
     }
 

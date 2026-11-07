@@ -17,6 +17,20 @@
          audio session from `dumpsys media.audio_flinger`. -->
     <uses-permission android:name="android.permission.DUMP"
         tools:ignore="ProtectedPermissions" />
+    <!-- Android 11+ package visibility: without this every other app's
+         name/uid lookup fails, so the active player showed as nothing (the
+         Live chain source, per-app profiles, the dashboard status line).
+         Launcher apps plus media-browser services cover every music player. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.media.browse.MediaBrowserService" />
+        </intent>
+    </queries>
+
     <application
         android:name=".JadooApplication"
         android:allowBackup="true"

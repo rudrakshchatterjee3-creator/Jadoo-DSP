@@ -26,11 +26,11 @@ import androidx.compose.ui.platform.LocalContext
 const val REMOTE_CONTENT_ENABLED = false
 
 /**
- * Per-headphone correction curves are left out of the Play build: the service
- * drops the content document's headphoneProfiles, so no device suggestion,
- * picker or correction curve appears.
+ * AutoEQ downloads its database from GitHub, and the Play build has no
+ * INTERNET permission (see src/play/AndroidManifest.xml) — so it's hidden here
+ * rather than offered and always failing.
  */
-const val DEVICE_TUNING_ENABLED = false
+const val AUTOEQ_ENABLED = false
 
 /** Nothing to check at launch: the Play Store notifies and updates on its own. */
 @Composable

@@ -67,9 +67,9 @@ package com.jadoo.amp.audio
  * This is the part that addresses the watery highs at the source rather than
  * masking them with tone controls.
  *
- * [HEADROOM_TRIM_DB] — SBC reconstruction can overshoot the original peak, so
- * material mastered near 0 dBFS clips in the receiver's DAC. A small trim
- * before the encoder costs almost nothing and removes that failure mode.
+ * [HEADROOM_TRIM_DB] — a pre-encoder trim against SBC decoder overshoot.
+ * Currently zero: users heard every fraction of a dB of it as the feature
+ * making music quieter.
  *
  * ── What is deliberately not here ─────────────────────────────────────────
  *
@@ -82,16 +82,6 @@ package com.jadoo.amp.audio
  * LDAC, selecting it beats everything in this file by a wide margin.
  */
 object SbcEngine {
-
-    /** SBC's subband count in the A2DP high-quality configuration. */
-    const val SUBBAND_COUNT = 8
-
-    /** Width of one SBC subband: fs / (2 * 8). */
-    fun subbandWidthHz(sampleRateHz: Float): Float = sampleRateHz / (2f * SUBBAND_COUNT)
-
-    /** Lower edge of subband [index] (0-based), in Hz. */
-    fun subbandEdgeHz(index: Int, sampleRateHz: Float): Float =
-        subbandWidthHz(sampleRateHz) * index
 
     /**
      * Where the HF crest-control band starts: the subband 3 / subband 4
@@ -157,6 +147,38 @@ object SbcEngine {
         -6.5f  // 16 kHz
     )
 
+    /**
+     * The pre-1.6.4 SBC curve for [SbcStyle.Classic], as it was HEARD: a
+     * bit-allocation push into the top two bands plus small cuts at SBC's
+     * upper subband edges. Never overridden by remote content — the remote
+     * curve slot describes the [SbcStyle.New] conditioning curve.
+     *
+     * The old code also listed +1.2 dB at 63 Hz and +0.8 dB at 100 Hz, but
+     * at the 10 ms DP frame it was voiced on (512-sample FFT, ~90 Hz bins)
+     * those two bands owned no bins and did nothing. On the current 42 ms
+     * frame they are real, and restoring them "verbatim" added a bass lift
+     * nobody had heard — which on Bluetooth full scale is where the peaks
+     * are: 0.16% sample overs on a bright master vs 0.012% for the old
+     * sound, heard as "harsh and tinny" clipping (found 2026-10-30).
+     */
+    val classicCurveDb: FloatArray = floatArrayOf(
+        0f,    // 25 Hz
+        0f,    // 40 Hz
+        0f,    // 63 Hz: was +1.2, inaudible at the old frame (no bins)
+        0f,    // 100 Hz: was +0.8, same
+        0f,    // 160 Hz
+        0f,    // 250 Hz
+        0f,    // 400 Hz
+        0f,    // 630 Hz
+        0f,    // 1 kHz
+        -0.5f, // 1.6 kHz: dense midrange quantisation noise
+        -1.2f, // 2.5 kHz: first upper subband edge
+        -2.5f, // 4 kHz: worst subband transition
+        1.5f,  // 6.3 kHz: fills the post-cut dip
+        4.5f,  // 10 kHz: bit-allocation push
+        7.0f   // 16 kHz: maximum air push
+    )
+
     // ── HF crest control (MBC) ────────────────────────────────────────────
     // Fast enough to catch an HF transient before it sets the frame's scale
     // factor, slow enough on release not to pump. The threshold is band-local
@@ -185,6 +207,16 @@ object SbcEngine {
      * Pre-encoder trim guarding against decoder overshoot. SBC reconstruction
      * is not peak-preserving; hot masters come out of the decoder above the
      * level that went in and clip at the receiver's DAC.
+     *
+     * Zero. It was -1.0, then -0.5, and every step of it was heard: users
+     * reported SBC Enhancement as "volume drops" at -1.0 and still at -0.5
+     * (found 2026-10-30, twice). In the offline chain model the trim was the
+     * WHOLE of New's level loss — the crest band moves loudness by <0.05 LU —
+     * so it read as the feature itself making music quieter. The
+     * conditioning curve is a net cut (the -6.5 dB top band outweighs the
+     * +2 dB at 10 kHz); on a -0.1 dBFS bright master it raises peaks ~0.7 dB
+     * (0.03% sample overs), on ordinary masters nothing. The overshoot this
+     * guarded against is unmeasured; the volume loss was not.
      */
-    const val HEADROOM_TRIM_DB = -1.0f
+    const val HEADROOM_TRIM_DB = 0f
 }

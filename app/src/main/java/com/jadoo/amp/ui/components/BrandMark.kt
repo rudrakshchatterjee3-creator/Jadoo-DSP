@@ -9,7 +9,6 @@ import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import com.jadoo.amp.ui.theme.BrandPalette
 
 /**
  * The JadOO mark, drawn rather than imported.

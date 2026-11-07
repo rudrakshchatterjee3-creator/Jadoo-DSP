@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Visibility
@@ -89,6 +90,8 @@ fun ParametricEqScreen(
     onBandEnabledChanged: (Int, Boolean) -> Unit,
     onPreampChanged: (Float) -> Unit = {},
     onResetAllBands: () -> Unit,
+    autoEqProfileName: String = "",
+    onOpenAutoEq: (() -> Unit)? = null,
     onNavigateBack: () -> Unit
 ) {
     val bandColors = rememberBandColors()
@@ -117,17 +120,27 @@ fun ParametricEqScreen(
             IconButton(onClick = onNavigateBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { showResetConfirm = true }) { Text("Reset") }
+        }
+        Column(Modifier.padding(horizontal = 8.dp)) {
+            Text("Parametric EQ", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
             Text(
-                text = "Parametric EQ",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
+                "${bandStates.count { it.isEnabled }} of ${DigitalFilterEngine.MAX_BANDS} filters on · " +
+                    String.format(Locale.US, "preamp %+.1f dB", preampDb),
+                style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            OutlinedButton(
-                onClick = { showResetConfirm = true },
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-            ) {
-                Text("Reset", style = MaterialTheme.typography.labelMedium)
+        }
+        if (onOpenAutoEq != null) {
+            com.jadoo.amp.ui.components.FeatureGroup {
+                com.jadoo.amp.ui.components.NavRow(
+                    icon = Icons.Default.Headphones,
+                    title = "Headphone correction",
+                    value = autoEqProfileName.ifBlank { "Load a measured AutoEQ profile" },
+                    accent = autoEqProfileName.isNotBlank(),
+                    onClick = onOpenAutoEq
+                )
             }
         }
 
@@ -181,7 +194,7 @@ fun ParametricEqScreen(
 
             // ── Band selector ──
             Text(
-                text = "Bands",
+                text = "Filters",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -202,10 +215,8 @@ fun ParametricEqScreen(
             // ── Active band info card ──
             val bandColor = bandColors[selectedBandIndex % bandColors.size]
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                tonalElevation = 0.dp
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -222,10 +233,9 @@ fun ParametricEqScreen(
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "Band ${selectedBandIndex + 1}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
+                                text = "Filter ${selectedBandIndex + 1}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                         Surface(
@@ -235,7 +245,9 @@ fun ParametricEqScreen(
                             else MaterialTheme.colorScheme.surfaceVariant
                         ) {
                             Text(
-                                text = if (selectedBand.isEnabled) selectedBand.type.name else "BYPASS",
+                                text = if (selectedBand.isEnabled) selectedBand.type.name
+                                    .replace(Regex("(?<=[a-z])(?=[A-Z])"), " ").lowercase()
+                                    .replaceFirstChar { it.uppercase() } else "Off",
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
@@ -259,20 +271,20 @@ fun ParametricEqScreen(
 
             // ── Filter type ──
             Text(
-                text = "Filter Type",
+                text = "Filter type",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val filterChoices: List<Pair<DigitalFilterEngine.FilterType, String>?> = listOf(
-                    DigitalFilterEngine.FilterType.Peak to "PEAK",
-                    DigitalFilterEngine.FilterType.LowShelf to "LOW SHELF",
-                    DigitalFilterEngine.FilterType.HighShelf to "HIGH SHELF",
-                    DigitalFilterEngine.FilterType.LowPass to "LOW PASS",
-                    DigitalFilterEngine.FilterType.HighPass to "HIGH PASS",
-                    DigitalFilterEngine.FilterType.BandPass to "BAND PASS",
-                    DigitalFilterEngine.FilterType.Notch to "NOTCH",
+                    DigitalFilterEngine.FilterType.Peak to "Peak",
+                    DigitalFilterEngine.FilterType.LowShelf to "Low shelf",
+                    DigitalFilterEngine.FilterType.HighShelf to "High shelf",
+                    DigitalFilterEngine.FilterType.LowPass to "Low pass",
+                    DigitalFilterEngine.FilterType.HighPass to "High pass",
+                    DigitalFilterEngine.FilterType.BandPass to "Band pass",
+                    DigitalFilterEngine.FilterType.Notch to "Notch",
                     null
                 )
                 filterChoices.chunked(4).forEach { row ->
@@ -283,7 +295,7 @@ fun ParametricEqScreen(
                         row.forEach { entry ->
                             if (entry == null) {
                                 FilterTypePill(
-                                    label = "BYPASS",
+                                    label = "Off",
                                     selected = !selectedBand.isEnabled,
                                     onClick = { onBandEnabledChanged(selectedBandIndex, false) },
                                     modifier = Modifier.weight(1f)
@@ -314,10 +326,8 @@ fun ParametricEqScreen(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                    tonalElevation = 0.dp
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),

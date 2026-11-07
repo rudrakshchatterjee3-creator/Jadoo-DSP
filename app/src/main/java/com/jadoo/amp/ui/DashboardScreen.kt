@@ -34,9 +34,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -44,7 +41,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -85,26 +81,25 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.ui.draw.scale
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -115,7 +110,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
-import com.jadoo.amp.update.REMOTE_CONTENT_ENABLED
 import com.jadoo.amp.update.UpdateCheckControls
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -130,6 +124,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -151,12 +146,29 @@ import com.jadoo.amp.audio.EqBands
 import com.jadoo.amp.audio.SurroundMode
 import com.jadoo.amp.settings.SavedEqPreset
 import com.jadoo.amp.ui.components.AppearanceSection
+import com.jadoo.amp.update.AUTOEQ_ENABLED
+import com.jadoo.amp.ui.components.Entrance
+import com.jadoo.amp.ui.components.FeatureGroup
+import com.jadoo.amp.ui.components.FeatureRow
+import com.jadoo.amp.ui.components.GroupDivider
+import com.jadoo.amp.ui.components.GroupHeader
+import com.jadoo.amp.ui.components.NavRow
+import com.jadoo.amp.ui.components.PowerButton
+import com.jadoo.amp.ui.components.ResponseCurveHero
+import com.jadoo.amp.ui.components.StatusChip
+import com.jadoo.amp.ui.components.jadooBackdrop
+import com.jadoo.amp.ui.components.SettingToggleRow
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Contrast
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import com.jadoo.amp.ui.theme.JadooTheme
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.SurroundSound
-import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.text.style.TextAlign
 import kotlin.math.roundToInt
 
 private val Presets = mapOf(
@@ -180,7 +192,7 @@ private sealed class HelpContent(
 ) {
     data object HiResUpscaler : HelpContent(
         title = "Hi-Res Upscaler",
-        body = "Recovers treble detail lost to compression. Doesn't touch the EQ graph."
+        body = "Lifts the top octaves for more air and sparkle: +2.5 dB from 5 kHz, rising to +5.5 dB above 14.5 kHz.\n\nIt brightens what's there - it can't bring back detail a compressed file has already lost."
     )
 
     data object Dbfb : HelpContent(
@@ -195,7 +207,7 @@ private sealed class HelpContent(
 
     data object AnalogBass : HelpContent(
         title = "Analog Bass",
-        body = "Vintage hardware-style bass coloring.\n\n• **Drive** - adds thickness\n• **Warmth** - shapes tone\n• **Drift** - subtle analog variation\n• **Pultec EQ** - shapes the low end"
+        body = "Vintage hardware-style bass coloring, built from bass compression and EQ.\n\n• **Drive** - compresses the bass harder, for a denser low end\n• **Warmth** - adds bass level\n• **Drift** - softens how the compression eases in\n• **Pultec EQ** - shapes the low end"
     )
 
     data object SpatialSurround : HelpContent(
@@ -218,11 +230,6 @@ private sealed class HelpContent(
         body = "Adds fuller bass on your phone's own speaker. Won't go as deep as a real subwoofer, but noticeably fuller than stock.\n\nOnly shown when playing through the speaker."
     )
 
-    data object Crossfeed : HelpContent(
-        title = "Crossfeed (Beta)",
-        body = "Softens the hard left/right stereo split of headphone listening, closer to how speakers sound in a room."
-    )
-
     data object HarmonicExciter : HelpContent(
         title = "Harmonic Exciter",
         body = "Adds presence and sparkle to the 2-8kHz range. Kept gentle on purpose - push it too far on bright tracks and it can edge toward harsh.\n\nWorks on every output."
@@ -230,12 +237,12 @@ private sealed class HelpContent(
 
     data object DigitalFilters : HelpContent(
         title = "Parametric EQ",
-        body = "16-band surgical EQ for precise corrections - narrow notches, shelves, and passes, on top of the graphic EQ."
+        body = "Up to 16 filters - peaks, shelves and passes - on top of the graphic EQ.\n\nThe engine applies them through the same 15 bands as the graphic EQ, so very narrow filters come out broader than set. The curve on the home screen shows what's really applied."
     )
 
     data object SbcEnhancement : HelpContent(
         title = "SBC Enhancement",
-        body = "Conditions the signal before it reaches the SBC encoder, so the codec has an easier job.\n\nSBC hands its bits out in proportion to how loud each frequency region is, and it re-decides every 3 milliseconds. The top octave is the most expensive region to encode and the least audible, so it is rolled off - that frees bits for the range you actually hear. The 8-12kHz air is lifted slightly to buy the treble back where bits are cheap.\n\nOn top of that the highs are gently peak-controlled. That steadies SBC's bit allocation, which is what stops cymbals and sibilance breaking up into the swirling, watery sound SBC is known for.\n\nA little headroom is also reserved, because SBC decoders can overshoot the original peaks and clip.\n\nEnable only for **SBC** devices - not LDAC, LHDC, or aptX HD. If your headphones support one of those, switching to it beats anything this feature can do."
+        body = "Two versions - switch by ear.\n\n• **Classic** - the original: lifts 10-16 kHz to push SBC's bits into the treble. Brighter, more open.\n• **New** - conditions the signal for the encoder, described below. Smoother, fewer artifacts.\n\nNew conditions the signal before it reaches the SBC encoder, so the codec has an easier job.\n\nSBC hands its bits out in proportion to how loud each frequency region is, and it re-decides every 3 milliseconds. The top octave is the most expensive region to encode and the least audible, so it is rolled off - that frees bits for the range you actually hear. The 8-12kHz air is lifted slightly to buy the treble back where bits are cheap.\n\nOn top of that the highs are gently peak-controlled. That steadies SBC's bit allocation, which is what stops cymbals and sibilance breaking up into the swirling, watery sound SBC is known for.\n\nEnable only for **SBC** devices - not LDAC, LHDC, or aptX HD. If your headphones support one of those, switching to it beats anything this feature can do."
     )
 
     data object LoudnessContour : HelpContent(
@@ -243,13 +250,6 @@ private sealed class HelpContent(
         body = "Bass falls away faster than mids at low volume. This tilts the EQ back to compensate as you turn down, so the balance stays put.\n\n## Reference Level\nHow loud your gear actually gets at full volume - set it by ear against a track you know.\n\n## Amount\nScales the whole correction if full strength feels like too much."
     )
 
-    data object ContentChannel : HelpContent(
-        title = "Tuning & Presets",
-        body = if (REMOTE_CONTENT_ENABLED)
-            "Preset packs and headphone tuning arrive over the air - no app update needed.\n\n• Data only, never code\n• A bad download can't push the DSP past its normal limits"
-        else
-            "Preset packs and headphone tuning are built into the app, and new ones arrive with app updates.\n\nIf your headphones aren't matched automatically, pick them from the Device tuning list."
-    )
 
     data object PerAppProfiles : HelpContent(
         title = "Per-app profiles",
@@ -258,9 +258,69 @@ private sealed class HelpContent(
 
     data object GainStaging : HelpContent(
         title = "Precise Gain Staging",
-        body = "When several boosts stack up (bass, treble, EQ), something has to make room so the mix doesn't clip.\n\n## On\nThe volume trims down a touch instead - your boosts keep their full shape, the whole mix just sits a bit quieter.\n\n## Off\nThe safety limiter absorbs it instead - simpler, but on a heavy stack it can quietly squash the loudest parts.\n\nSafe to leave on. Turn off only to compare against how the app used to sound."
+        body = "Every boost (bass, treble, Loudness, Surround, EQ) needs room above a loud song, or its peaks clip.\n\n## On\nOn wired and speaker, the input is trimmed just enough to keep the mix as loud as with the effects off. Below full volume the phone's own volume already makes that room.\n\nBluetooth always arrives at full level, so there boosts are level-aware instead: whole at normal levels, fading out on a song's hottest moments. Nothing is turned down to make room, and turning a feature on doesn't cost volume.\n\n## Off\nNo protection. Loud songs can clip when several boosts are on.\n\nSafe to leave on. Turn off only to compare against how the app used to sound."
     )
 
+}
+
+/**
+ * Bluetooth on absolute volume hands JadOO full scale at every slider
+ * position, so the boosts only fit after the input trim. With absolute
+ * volume off the phone turns the level down BEFORE JadOO, which gives the
+ * boosts their room back below full volume — the same as a wired route.
+ * The setting lives in Developer options, which may still be locked.
+ */
+@Composable
+private fun BluetoothHeadroomTip(trimDb: Float, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
+    ) {
+        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Bluetooth, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                Spacer(Modifier.width(14.dp))
+                Text("Give Bluetooth more headroom",
+                     style = MaterialTheme.typography.titleSmall,
+                     color = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                String.format(Locale.US,
+                    "Your earbuds get full volume all the time, so JadOO lowers its input by %.1f dB " +
+                    "to keep your boosts from clipping. Turn on Disable absolute volume in Developer " +
+                    "options and reconnect: the phone's volume then makes that room instead.", -trimDb),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Not now") }
+                TextButton(onClick = { openDeveloperOptions(context) }) { Text("Open settings") }
+            }
+        }
+    }
+}
+
+private fun openDeveloperOptions(context: android.content.Context) {
+    val unlocked = android.provider.Settings.Global.getInt(context.contentResolver,
+        android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1
+    val action = if (unlocked) android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
+                 else android.provider.Settings.ACTION_DEVICE_INFO_SETTINGS
+    if (!unlocked) {
+        android.widget.Toast.makeText(context,
+            "Tap Build number 7 times to unlock Developer options, then come back",
+            android.widget.Toast.LENGTH_LONG).show()
+    }
+    try {
+        context.startActivity(android.content.Intent(action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: Exception) {
+        try {
+            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: Exception) { }
+    }
 }
 
 /** Picks a representative icon for the current output device label (see JadooDspService.computeOutputDeviceKey). */
@@ -311,9 +371,6 @@ fun DashboardScreen(
     themeSettings: com.jadoo.amp.settings.ThemeSettings,
     dumpPermissionEnabled: Boolean,
     deviceType: com.jadoo.amp.audio.DeviceType,
-    deviceQualityTier: Float,
-    crossfeedEnabled: Boolean,
-    crossfeedStrength: Float,
     // Loudness Contour (ISO 226)
     loudnessEnabled: Boolean,
     loudnessAmount: Float,
@@ -323,18 +380,22 @@ fun DashboardScreen(
     preciseGainStaging: Boolean,
     gainBudgetDb: Float,
     autoTrimDb: Float,
+    // Bluetooth on absolute volume while boosts are being trimmed — see BluetoothHeadroomTip
+    showBluetoothHeadroomTip: Boolean,
+    onDismissBluetoothHeadroomTip: () -> Unit,
     // Selected EQ preset name — persisted, see JadooDspService.selectedPresetName
     selectedPresetName: String,
+    // Live 15-band tonal response the chain is writing — the hero curve
+    responseCurveDb: FloatArray,
+    // AutoEQ correction applied to this output's PEQ, "Model · lab", or ""
+    autoEqProfileName: String,
     // Per-app profiles
     activeAppPackage: String?,
     perAppProfileActive: Boolean,
     perAppProfilePackages: Set<String>,
     // Content channel (Lane A)
-    suggestedDeviceProfileName: String?,
     // Manually selectable content-channel device tunings — see the picker in
     // SettingsScreen for why auto-matching alone is not enough.
-    deviceProfileNames: List<String>,
-    activeDeviceProfileName: String,
     onMasterPowerToggled: (Boolean) -> Unit,
     onPreGainChanged: (Float) -> Unit,
     onPostGainChanged: (Float) -> Unit,
@@ -364,9 +425,6 @@ fun DashboardScreen(
     // Harmonic Exciter callbacks
     onHarmonicExciterEnabledChanged: (Boolean) -> Unit,
     onHarmonicExciterIntensityChanged: (Float) -> Unit,
-    // Crossfeed callbacks
-    onCrossfeedEnabledChanged: (Boolean) -> Unit,
-    onCrossfeedStrengthChanged: (Float) -> Unit,
     onDigitalFilterEnabledChanged: (Boolean) -> Unit,
     onDigitalFilterBandEnabledChanged: (Int, Boolean) -> Unit,
     onDigitalFilterBandTypeChanged: (Int, DigitalFilterEngine.FilterType) -> Unit,
@@ -375,16 +433,19 @@ fun DashboardScreen(
     onDigitalFilterBandQChanged: (Int, Float) -> Unit,
     onThemeModeChanged: (Offset, String) -> Unit,
     onToneModeChanged: (Offset, String) -> Unit,
-    onAmoledChanged: (Offset, Boolean) -> Unit,
+    onBackdropChanged: (Offset, String) -> Unit,
     onSeedColorChanged: (Offset, Color) -> Unit,
     onDeviceTypeChanged: (com.jadoo.amp.audio.DeviceType) -> Unit,
-    onDeviceQualityTierChanged: (Float) -> Unit,
     onResetDigitalFilterBands: () -> Unit,
+    // AutoEQ headphone database → Parametric EQ
+    onApplyAutoEq: (com.jadoo.amp.audio.AutoEq.Profile, String) -> Unit,
     onExportSettings: () -> Unit,
     onImportSettings: () -> Unit,
     // SBC Enhancement (Bluetooth-only)
     sbcModeEnabled: Boolean,
     onSbcModeEnabledChanged: (Boolean) -> Unit,
+    sbcStyle: com.jadoo.amp.audio.SbcStyle,
+    onSbcStyleChanged: (com.jadoo.amp.audio.SbcStyle) -> Unit,
     // Custom/imported profiles
     savedProfileNames: List<String>,
     onLoadProfile: (String) -> Unit,
@@ -399,10 +460,6 @@ fun DashboardScreen(
     // Per-app profile callbacks
     onPerAppProfileToggled: (String, Boolean) -> Unit,
     // Content channel callbacks
-    onRefreshContent: () -> Unit,
-    onApplySuggestedDeviceProfile: () -> Unit,
-    onSelectDeviceProfile: (String) -> Unit,
-    onClearDeviceProfile: () -> Unit,
 ) {
     var showExpandedEq by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -479,6 +536,9 @@ fun DashboardScreen(
         }
     }
     var savedBandGainsBeforeDisable by remember { mutableStateOf<FloatArray?>(null) }
+    var showLiveChain by remember { mutableStateOf(false) }
+    var showAutoEq by remember { mutableStateOf(false) }
+    var autoEqQuery by remember { mutableStateOf("") }
     // Name of the preset (built-in or custom) the user last selected — now a
     // persisted prop (see JadooDspService.selectedPresetName), not local
     // remember state, so it survives a relaunch instead of resetting to
@@ -492,6 +552,37 @@ fun DashboardScreen(
         masterEnabled -> "Waiting for playback"
         else -> "Engine off"
     }
+
+    // Read-only summary for the pipeline inspector — the switches stay on
+    // the cards below; the inspector only names what is switched on.
+    val liveChainState = LiveChainState(
+        appLabel = activePackageName,
+        appPackage = activeAppPackage,
+        sessionId = sessionId,
+        masterEnabled = masterEnabled,
+        dspBypassed = dspBypassed,
+        preGainDb = preGainDb,
+        postGainDb = postGainDb,
+        autoTrimDb = autoTrimDb,
+        activeStages = buildList {
+            if (graphicEqEnabled) add(selectedPresetName?.let { "Graphic EQ ($it)" } ?: "Graphic EQ")
+            if (digitalFilterEnabled) add("Parametric EQ")
+            if (loudnessEnabled) add("Loudness Contour")
+            if (surroundMode != SurroundMode.Off) add("Surround+ ${surroundMode.displayName}")
+            if (tubeWarmthEnabled) add("Tube Warmth")
+            if (dbfbMode != DbfbMode.Off) add("DBFB ${dbfbMode.displayName}")
+            if (analogBassEnabled && surroundMode != SurroundMode.Front) add("Analog Bass")
+            if (hdrDynamicsEnabled) add("HDR ${hdrMode.displayName}")
+            if (hiResUpscalerEnabled) add("Hi-Res Upscaler")
+            if (harmonicExciterEnabled) add("Harmonic Exciter")
+            if (mobileBassEnabled && currentOutputDevice == "Phone Speaker") add("Mobile Bass")
+            if (sbcModeEnabled && currentOutputDevice.startsWith("Bluetooth")) add("SBC Enhancement")
+        },
+        outputLabel = currentOutputDevice,
+        sbcModeEnabled = sbcModeEnabled,
+        surroundMode = surroundMode,
+        dumpPermissionEnabled = dumpPermissionEnabled
+    )
 
     // Rendered BEFORE the showSettings branch/return below, not after it —
     // it used to sit at the very end of this function, past the early
@@ -616,14 +707,12 @@ fun DashboardScreen(
             themeSettings = themeSettings,
             onThemeModeChanged = onThemeModeChanged,
             onToneModeChanged = onToneModeChanged,
-            onAmoledChanged = onAmoledChanged,
+            onBackdropChanged = onBackdropChanged,
             onSeedColorChanged = onSeedColorChanged,
             dumpPermissionEnabled = dumpPermissionEnabled,
             currentOutputDevice = currentOutputDevice,
             deviceType = deviceType,
-            deviceQualityTier = deviceQualityTier,
             onDeviceTypeChanged = onDeviceTypeChanged,
-            onDeviceQualityTierChanged = onDeviceQualityTierChanged,
             onHelpRequested = { helpDialog = it },
             onExportSettings = onExportSettings,
             onImportSettings = onImportSettings,
@@ -634,15 +723,16 @@ fun DashboardScreen(
             activeAppLabel = activePackageName,
             perAppProfilePackages = perAppProfilePackages,
             onPerAppProfileToggled = onPerAppProfileToggled,
-            onRefreshContent = onRefreshContent,
-            deviceProfileNames = deviceProfileNames,
-            activeDeviceProfileName = activeDeviceProfileName,
-            onSelectDeviceProfile = onSelectDeviceProfile,
-            onClearDeviceProfile = onClearDeviceProfile,
             preciseGainStaging = preciseGainStaging,
             gainBudgetDb = gainBudgetDb,
             autoTrimDb = autoTrimDb,
             onPreciseGainStagingChanged = onPreciseGainStagingChanged,
+            autoEqProfileName = autoEqProfileName,
+            onOpenAutoEq = { autoEqQuery = ""; showAutoEq = true },
+            onRemoveAutoEq = {
+                onResetDigitalFilterBands()
+                onPreGainChanged(0f)
+            },
             onNavigateBack = { showSettings = false }
         )
         }
@@ -655,81 +745,78 @@ fun DashboardScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .jadooBackdrop()
             .statusBarsPadding()
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = JadooTheme.dimens.screenPadding)
-            .padding(top = JadooTheme.dimens.md, bottom = JadooTheme.dimens.xxl),
-        verticalArrangement = Arrangement.spacedBy(JadooTheme.dimens.sm)
+            .padding(top = 4.dp, bottom = 40.dp)
     ) {
-            // ── MASTER POWER ────────────────────────────────────────────
-            val powerBg by animateColorAsState(
-                targetValue = if (masterEnabled) MaterialTheme.colorScheme.primaryContainer
-                              else MaterialTheme.colorScheme.surfaceContainerHigh,
-                label = "power_bg"
-            )
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                color = powerBg,
-                tonalElevation = 2.dp
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                       verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Row(modifier = Modifier.weight(1f)
-                            .clickable { showGainControls = !showGainControls },
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.PowerSettingsNew,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(28.dp)
+            // ── Top bar: wordmark, where the sound is going, settings ──────
+            Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("JadOO", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                     modifier = Modifier.weight(1f))
+                StatusChip(
+                    icon = outputDeviceIcon(currentOutputDevice),
+                    text = currentOutputDevice.removePrefix("Bluetooth: ").removePrefix("USB: ")
+                        .let { if (perAppProfileActive) "$it · app" else it },
+                    onClick = { showLiveChain = true }
+                )
+                IconButton(onClick = { showSettings = true }) {
+                    Icon(Icons.Default.Settings, "Settings")
+                }
+            }
+
+            // ── Hero: state, power, and the live response curve ───────────
+            Entrance(0) {
+                Column(Modifier.padding(top = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                when {
+                                    !masterEnabled -> "Off"
+                                    dspBypassed || !isAttached -> "Standing by"
+                                    else -> "Processing"
+                                },
+                                style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold
                             )
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text("JadOO DSP",
-                                     fontWeight = FontWeight.Bold, fontSize = 22.sp,
-                                     color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                Text(statusText,
-                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                                     fontSize = 12.sp)
-                                Row(verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Icon(
-                                        imageVector = outputDeviceIcon(currentOutputDevice),
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Text(
-                                        // Makes it unambiguous which profile any
-                                        // edit is about to land in — without this,
-                                        // tuning while a per-app profile is active
-                                        // looks identical to tuning the shared one.
-                                        if (perAppProfileActive) "$currentOutputDevice · app profile"
-                                        else currentOutputDevice,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
-                                        fontSize = 11.sp)
-                                }
-                            }
+                            Text(
+                                when {
+                                    !masterEnabled -> "Tap power to process ${currentOutputDevice.lowercase().let { if (it == "phone speaker") "the speaker" else currentOutputDevice }}"
+                                    !isAttached -> "Waiting for playback"
+                                    dspBypassed -> "Nothing switched on"
+                                    else -> listOfNotNull(activePackageName,
+                                        "${liveChainState.activeStages.size} feature" +
+                                            if (liveChainState.activeStages.size == 1) "" else "s").joinToString(" · ")
+                                },
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            IconButton(onClick = { showSettings = true }) {
-                                Icon(Icons.Default.Settings, "Settings",
-                                     tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                            }
-                            Switch(checked = masterEnabled, onCheckedChange = onMasterPowerToggled,
-                                   colors = SwitchDefaults.colors(
-                                       checkedThumbColor = MaterialTheme.colorScheme.primary,
-                                       checkedTrackColor = MaterialTheme.colorScheme.surface,
-                                       uncheckedThumbColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                       uncheckedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)))
-                        }
+                        PowerButton(on = masterEnabled, onToggle = onMasterPowerToggled)
+                    }
+                    ResponseCurveHero(
+                        gainsDb = responseCurveDb,
+                        active = masterEnabled && !dspBypassed,
+                        modifier = Modifier.fillMaxWidth().height(176.dp).padding(top = 16.dp)
+                    )
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .clickable { showGainControls = !showGainControls }
+                            .padding(horizontal = 4.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("Tonal response", style = MaterialTheme.typography.labelLarge,
+                             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Text(
+                            String.format(Locale.US, "In %+.1f · Out %+.1f dB", preGainDb, postGainDb),
+                            style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Icon(Icons.Default.ExpandMore, if (showGainControls) "Hide gain" else "Show gain",
+                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                             modifier = Modifier.size(20.dp).graphicsLayer {
+                                 rotationZ = if (showGainControls) 180f else 0f
+                             })
                     }
                     AnimatedVisibility(visible = showGainControls,
                         enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
@@ -746,591 +833,344 @@ fun DashboardScreen(
                 }
             }
 
-                    // ── EQUALIZER ───────────────────────────────────────────────
-                    SectionLabel("EQUALIZER")
-                    Surface(modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(24.dp),
-                            color = featureCardColor(active = graphicEqEnabled), tonalElevation = 3.dp) {
-                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                            CompactToggleRow(
-                                title = "Graphic EQ",
-                                subtitle = when {
-                                    graphicEqEnabled -> "15 bands · tap graph to expand"
-                                    else -> "Manual 15-band equalizer"
-                                },
-                                checked = graphicEqEnabled, enabled = manualControlsEnabled,
-                                leadingIcon = { Icon(Icons.Default.GraphicEq, null, tint = if (manualControlsEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
-                                onCheckedChange = { enabled ->
-                                    graphicEqEnabled = enabled
-                                    if (enabled) {
-                                        showGraphicEq = true
-                                        savedBandGainsBeforeDisable?.let { onPresetSelected(it) }
-                                    } else {
-                                        showGraphicEq = false
-                                        savedBandGainsBeforeDisable = bandGains.copyOf()
-                                        onPresetSelected(FloatArray(EqBands.count))
-                                    }
-                                })
-                            AnimatedVisibility(visible = showGraphicEq && graphicEqEnabled,
-                                enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                                exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
-                                Column(modifier = Modifier.padding(bottom = 14.dp),
-                                       verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                    EqGraphWithStickyLabels(bandGains = bandGains, enabled = manualControlsEnabled,
-                                        expanded = false, onTap = { showExpandedEq = true },
-                                        onBandLevelChanged = onBandLevelChanged,
-                                        modifier = Modifier.fillMaxWidth().height(220.dp))
+            // ── Signal path ───────────────────────────────────────────────
+            Entrance(1) {
+                Column {
+                    GroupHeader("Signal path")
+                    LiveChainCard(state = liveChainState, onOpen = { showLiveChain = true })
+                }
+            }
 
-                                    if (manualControlsEnabled) {
-                                        Text("Tap to expand · drag nodes to tune",
-                                             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                                    } else {
-                                        Text("Enable master power for manual tuning",
-                                             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                                    }
+            // ── Headphone correction suggestion ──────────────────────────
+            // Offered (never applied) when a named headphone is connected and
+            // this output has no AutoEQ correction yet.
+            val connectedModel = currentOutputDevice.takeIf {
+                it.startsWith("Bluetooth: ") || it.startsWith("USB: ")
+            }?.substringAfter(": ")
+            AnimatedVisibility(
+                visible = AUTOEQ_ENABLED && masterEnabled && connectedModel != null && autoEqProfileName.isBlank(),
+                enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
+                exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)
+            ) {
+                Surface(
+                    onClick = { autoEqQuery = connectedModel ?: ""; showAutoEq = true },
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
+                ) {
+                    Row(Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Headphones, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Correct ${connectedModel ?: "your headphones"}",
+                                 style = MaterialTheme.typography.titleSmall,
+                                 color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Find its measured EQ in the AutoEQ database",
+                                 style = MaterialTheme.typography.bodyMedium,
+                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                        }
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
+                             tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = masterEnabled && showBluetoothHeadroomTip && autoTrimDb <= -1f,
+                enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
+                exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)
+            ) {
+                BluetoothHeadroomTip(trimDb = autoTrimDb, onDismiss = onDismissBluetoothHeadroomTip)
+            }
+
+            // ── Tone ──────────────────────────────────────────────────────
+            Entrance(2) {
+                Column {
+                    GroupHeader("Tone", trailing = selectedPresetName?.takeIf { graphicEqEnabled })
+                    FeatureGroup {
+                        FeatureRow(
+                            icon = Icons.Default.GraphicEq,
+                            title = "Graphic EQ",
+                            subtitle = if (graphicEqEnabled) "15 bands · tap the graph to expand" else "15-band equalizer",
+                            checked = graphicEqEnabled,
+                            enabled = manualControlsEnabled,
+                            fullWidthContent = true,
+                            onCheckedChange = { enabled ->
+                                graphicEqEnabled = enabled
+                                if (enabled) {
+                                    showGraphicEq = true
+                                    savedBandGainsBeforeDisable?.let { onPresetSelected(it) }
+                                } else {
+                                    showGraphicEq = false
+                                    savedBandGainsBeforeDisable = bandGains.copyOf()
+                                    onPresetSelected(FloatArray(EqBands.count))
                                 }
                             }
+                        ) {
+                            EqGraphWithStickyLabels(bandGains = bandGains, enabled = manualControlsEnabled,
+                                expanded = false, onTap = { showExpandedEq = true },
+                                onBandLevelChanged = onBandLevelChanged,
+                                modifier = Modifier.fillMaxWidth().height(220.dp))
                         }
-                    }
-            Spacer(Modifier.height(JadooTheme.dimens.xs))
-
-                    // ── PARAMETRIC EQ ────────────────────────────────────────────
-                    SectionLabel("PARAMETRIC EQ")
-                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-                            color = featureCardColor(active = digitalFilterEnabled), tonalElevation = 3.dp) {
-                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                            CompactToggleRow(
-                                title = "Parametric EQ",
-                                subtitle = "16-band · Q control · Filter types",
-                                checked = digitalFilterEnabled, enabled = masterEnabled,
-                                leadingIcon = { Icon(Icons.Default.Tune, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
-                                onCheckedChange = onDigitalFilterEnabledChanged,
-                                onHelpClick = { helpDialog = HelpContent.DigitalFilters }
+                        GroupDivider()
+                        FeatureRow(
+                            icon = Icons.Default.Tune,
+                            title = "Parametric EQ",
+                            subtitle = autoEqProfileName.takeIf { it.isNotBlank() }?.let { "AutoEQ · $it" }
+                                ?: "16 filters with Q and filter types",
+                            checked = digitalFilterEnabled,
+                            enabled = masterEnabled,
+                            onCheckedChange = onDigitalFilterEnabledChanged,
+                            onHelpClick = { helpDialog = HelpContent.DigitalFilters }
+                        ) {
+                            FilledTonalButton(onClick = { showParametricEq = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Edit filters")
+                            }
+                        }
+                        if (AUTOEQ_ENABLED) {
+                            GroupDivider()
+                            NavRow(
+                                icon = Icons.Default.Headphones,
+                                title = "Headphone correction",
+                                value = autoEqProfileName.ifBlank { "Search 8,000+ measured headphones" },
+                                accent = autoEqProfileName.isNotBlank() && digitalFilterEnabled,
+                                enabled = masterEnabled,
+                                onClick = { autoEqQuery = ""; showAutoEq = true }
                             )
-                            if (digitalFilterEnabled && masterEnabled) {
-                                Spacer(Modifier.height(12.dp))
-                                Button(
-                                    onClick = { showParametricEq = true },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary
-                                    )
-                                ) {
-                                    Text("Configure ${DigitalFilterEngine.MAX_BANDS} Bands")
-                                }
-                            }
                         }
                     }
+                }
+            }
 
-                    // ── ENHANCEMENT ─────────────────────────────────────────────
-                    SectionLabel("ENHANCEMENT")
-                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-                            color = featureCardColor(
-                                active = hiResUpscalerEnabled || hdrDynamicsEnabled ||
-                                    dbfbMode != DbfbMode.Off || harmonicExciterEnabled
-                            ), tonalElevation = 3.dp) {
-                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                            CompactToggleRow(
-                                title = "Hi-Res Upscaler",
-                                subtitle = if (hiResUpscalerEnabled) "Air · Silk · Presence"
-                                           else "High-frequency recovery",
-                                checked = hiResUpscalerEnabled, enabled = masterEnabled,
-                                leadingIcon = { Icon(Icons.Default.HighQuality, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
-                                onCheckedChange = onHiResUpscalerToggled,
-                                onHelpClick = { helpDialog = HelpContent.HiResUpscaler })
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            CompactToggleRow(
-                                title = "HDR Dynamics",
-                                subtitle = if (hdrDynamicsEnabled) when (hdrMode) {
-                                    HdrMode.Pure -> "Pure · near-transparent"
-                                    HdrMode.Restoration -> "Restoration · gentle expander"
-                                } else "Opens brickwall audio",
-                                checked = hdrDynamicsEnabled, enabled = masterEnabled,
-                                leadingIcon = { Icon(Icons.Default.WbSunny, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
-                                onCheckedChange = onHdrDynamicsToggled,
-                                onHelpClick = { helpDialog = HelpContent.HdrDynamics })
-                            if (hdrDynamicsEnabled && masterEnabled) {
-                                HdrModeChips(hdrMode, masterEnabled, onHdrModeChanged)
-                            }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("JadOO DBFB", fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
-                                             color = if (masterEnabled) MaterialTheme.colorScheme.onSurface
-                                                     else MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(Modifier.width(2.dp))
-                                        IconButton(onClick = { helpDialog = HelpContent.Dbfb },
-                                                   modifier = Modifier.size(24.dp)) {
-                                            Icon(Icons.Default.Info, null,
-                                                 tint = MaterialTheme.colorScheme.primary,
-                                                 modifier = Modifier.size(14.dp))
-                                        }
-                                    }
-                                    Text("Dynamic bass · ${dbfbMode.displayName}", fontSize = 12.sp,
-                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // ── Character ─────────────────────────────────────────────────
+            val analogBassBlockedByFront = surroundMode == SurroundMode.Front
+            Entrance(3) {
+                Column {
+                    GroupHeader("Character")
+                    FeatureGroup {
+                        FeatureRow(
+                            icon = Icons.Default.Radio,
+                            title = "Analog Bass",
+                            subtitle = when {
+                                analogBassBlockedByFront -> "Not available with Front Stage"
+                                analogBassEnabled -> "Drive, warmth and Pultec low end"
+                                else -> "Vintage hardware bass"
+                            },
+                            checked = analogBassEnabled && !analogBassBlockedByFront,
+                            enabled = masterEnabled && !analogBassBlockedByFront,
+                            onCheckedChange = onAnalogBassEnabledChanged,
+                            onHelpClick = { helpDialog = HelpContent.AnalogBass }
+                        ) {
+                            LabeledSlider(label = "Drive", value = analogBassDrive,
+                                valueLabel = "${String.format(Locale.US, "%.0f", analogBassDrive * 100)}%",
+                                onValueChange = onAnalogBassDriveChanged, steps = 100)
+                            LabeledSlider(label = "Warmth", value = analogBassWarmth,
+                                valueLabel = "${String.format(Locale.US, "%.0f", analogBassWarmth * 100)}%",
+                                onValueChange = onAnalogBassWarmthChanged, steps = 100)
+                            LabeledSlider(label = "Drift", value = analogBassDrift,
+                                valueLabel = "${String.format(Locale.US, "%.0f", analogBassDrift * 100)}%",
+                                onValueChange = onAnalogBassDriftChanged, steps = 100)
+                            Text(
+                                if (mobileBassEnabled) "Pultec EQ · inactive while Mobile Bass is on" else "Pultec EQ",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (mobileBassEnabled) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.onSurface
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                                listOf("20 Hz", "30 Hz", "60 Hz", "100 Hz").forEachIndexed { idx, label ->
+                                    FilterChip(selected = analogBassPultecFreqIndex == idx,
+                                               onClick = { onAnalogBassPultecFreqIndexChanged(idx) },
+                                               label = { Text(label) })
                                 }
                             }
+                            LabeledSlider(label = "Boost", value = analogBassPultecBoost,
+                                valueLabel = "+${String.format(Locale.US, "%.1f", analogBassPultecBoost * 8)} dB",
+                                onValueChange = onAnalogBassPultecBoostChanged, steps = 80)
+                            LabeledSlider(label = "Cut", value = analogBassPultecCut,
+                                valueLabel = "-${String.format(Locale.US, "%.1f", analogBassPultecCut * 5)} dB",
+                                onValueChange = onAnalogBassPultecCutChanged, steps = 40)
+                            TextButton(onClick = {
+                                onAnalogBassDriveChanged(0.4f)
+                                onAnalogBassWarmthChanged(0.7f)
+                                onAnalogBassDriftChanged(0.2f)
+                                onAnalogBassPultecBoostChanged(0.5f)
+                                onAnalogBassPultecCutChanged(0.3f)
+                                onAnalogBassPultecFreqIndexChanged(2)
+                            }) { Text("Reset to defaults") }
+                        }
+                        GroupDivider()
+                        FeatureRow(
+                            icon = Icons.Default.Whatshot,
+                            title = "Tube Warmth",
+                            subtitle = if (tubeWarmthEnabled) "Warm bloom, softened highs" else "Valve-amp tone",
+                            checked = tubeWarmthEnabled,
+                            enabled = masterEnabled,
+                            onCheckedChange = onTubeWarmthEnabledChanged,
+                            onHelpClick = { helpDialog = HelpContent.TubeWarmth }
+                        ) {
+                            LabeledSlider(label = "Intensity", value = tubeWarmthIntensity,
+                                valueLabel = "${String.format(Locale.US, "%.0f", tubeWarmthIntensity * 100)}%",
+                                onValueChange = onTubeWarmthIntensityChanged, steps = 100)
+                        }
+                        GroupDivider()
+                        FeatureRow(
+                            icon = Icons.Default.WbSunny,
+                            title = "JadOO DBFB",
+                            subtitle = if (dbfbMode == DbfbMode.Off) "Level-aware sub-bass" else "Dynamic bass · ${dbfbMode.displayName}",
+                            checked = dbfbMode != DbfbMode.Off,
+                            enabled = masterEnabled,
+                            onCheckedChange = { on -> onDbfbModeChanged(if (on) DbfbMode.Normal else DbfbMode.Off) },
+                            onHelpClick = { helpDialog = HelpContent.Dbfb }
+                        ) {
                             DbfbModeChips(dbfbMode, masterEnabled, onDbfbModeChanged)
-                            Spacer(Modifier.height(12.dp))
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            CompactToggleRow(
-                                title = "Harmonic Exciter",
-                                subtitle = if (harmonicExciterEnabled) "Adding presence sparkle"
-                                           else "Psychoacoustic clarity enhancer",
-                                checked = harmonicExciterEnabled, enabled = masterEnabled,
-                                leadingIcon = { Icon(Icons.Default.AutoAwesome, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
-                                onCheckedChange = onHarmonicExciterEnabledChanged,
-                                onHelpClick = { helpDialog = HelpContent.HarmonicExciter })
-                            AnimatedVisibility(visible = harmonicExciterEnabled && masterEnabled,
-                                enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                                exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
-                                Column(modifier = Modifier.padding(bottom = 14.dp),
-                                       verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                    LabeledSlider(
-                                        label = "Intensity",
-                                        value = harmonicExciterIntensity,
-                                        valueLabel = "${String.format(Locale.US, "%.0f", harmonicExciterIntensity * 100)}%",
-                                        onValueChange = onHarmonicExciterIntensityChanged,
-                                        steps = 100)
-                                    OutlinedButton(
-                                        onClick = { onHarmonicExciterIntensityChanged(0.5f) },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text("Reset to default")
-                                    }
-                                }
-                            }
+                        }
+                        GroupDivider()
+                        FeatureRow(
+                            icon = Icons.Default.HighQuality,
+                            title = "Hi-Res Upscaler",
+                            subtitle = if (hiResUpscalerEnabled) "Air · silk · presence" else "More air and sparkle up top",
+                            checked = hiResUpscalerEnabled,
+                            enabled = masterEnabled,
+                            onCheckedChange = onHiResUpscalerToggled,
+                            onHelpClick = { helpDialog = HelpContent.HiResUpscaler }
+                        )
+                        GroupDivider()
+                        FeatureRow(
+                            icon = Icons.Default.AutoAwesome,
+                            title = "Harmonic Exciter",
+                            subtitle = if (harmonicExciterEnabled) "Adding presence and sparkle" else "Clarity in the 2-8 kHz range",
+                            checked = harmonicExciterEnabled,
+                            enabled = masterEnabled,
+                            onCheckedChange = onHarmonicExciterEnabledChanged,
+                            onHelpClick = { helpDialog = HelpContent.HarmonicExciter }
+                        ) {
+                            LabeledSlider(label = "Intensity", value = harmonicExciterIntensity,
+                                valueLabel = "${String.format(Locale.US, "%.0f", harmonicExciterIntensity * 100)}%",
+                                onValueChange = onHarmonicExciterIntensityChanged, steps = 100)
+                        }
+                        GroupDivider()
+                        FeatureRow(
+                            icon = Icons.Default.Contrast,
+                            title = "HDR Dynamics",
+                            subtitle = if (hdrDynamicsEnabled) "${hdrMode.displayName} · restores punch" else "Opens up brickwalled masters",
+                            checked = hdrDynamicsEnabled,
+                            enabled = masterEnabled,
+                            onCheckedChange = onHdrDynamicsToggled,
+                            onHelpClick = { helpDialog = HelpContent.HdrDynamics }
+                        ) {
+                            HdrModeChips(hdrMode, masterEnabled, onHdrModeChanged)
                         }
                     }
+                }
+            }
 
-            Spacer(Modifier.height(JadooTheme.dimens.xs))
+            // ── Space ─────────────────────────────────────────────────────
+            Entrance(4) {
+                Column {
+                    GroupHeader("Space")
+                    FeatureGroup {
+                        NavRow(
+                            icon = Icons.Default.SurroundSound,
+                            title = "JadOO Surround+",
+                            value = if (surroundMode != SurroundMode.Off)
+                                "${surroundMode.displayName} · ${surroundMode.tagline}" else "Off · choose a stage",
+                            accent = surroundMode != SurroundMode.Off,
+                            enabled = masterEnabled,
+                            onClick = { showSurroundPicker = true },
+                            onHelpClick = { helpDialog = HelpContent.SpatialSurround }
+                        )
+                    }
+                }
+            }
 
-                    // ── ANALOG TWEAKS (Analog Bass + Tube Warmth) ────────────────────
-                    SectionLabel("ANALOG TWEAKS")
-                    val analogBassBlockedByFront = surroundMode == SurroundMode.Front
-                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-                            color = featureCardColor(active = analogBassEnabled && !analogBassBlockedByFront), tonalElevation = 3.dp) {
-                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                            CompactToggleRow(
-                                title = "Analog Bass",
-                                subtitle = if (analogBassBlockedByFront) "Not available with Front Stage"
-                                           else if (analogBassEnabled) "Tube warmth - Pultec EQ"
-                                           else "Vintage analog emulation",
-                                checked = analogBassEnabled && !analogBassBlockedByFront, enabled = masterEnabled && !analogBassBlockedByFront,
-                                leadingIcon = { Icon(Icons.Default.Radio, null, tint = if (masterEnabled && !analogBassBlockedByFront) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
-                                onCheckedChange = onAnalogBassEnabledChanged,
-                                onHelpClick = { helpDialog = HelpContent.AnalogBass })
-                            AnimatedVisibility(visible = analogBassEnabled && masterEnabled && !analogBassBlockedByFront,
-                                enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                                exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
-                                Column(modifier = Modifier.padding(bottom = 14.dp),
-                                       verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                    // Drive (Saturation)
-                                    LabeledSlider(
-                                        label = "Drive",
-                                        value = analogBassDrive,
-                                        valueLabel = "${String.format(Locale.US, "%.1f", analogBassDrive * 100)}%",
-                                        onValueChange = onAnalogBassDriveChanged,
-                                        steps = 100)
-                                    // Warmth (Even/Odd harmonic balance)
-                                    LabeledSlider(
-                                        label = "Warmth",
-                                        value = analogBassWarmth,
-                                        valueLabel = "${String.format(Locale.US, "%.1f", analogBassWarmth * 100)}%",
-                                        onValueChange = onAnalogBassWarmthChanged,
-                                        steps = 100)
-                                    // Drift (Thermal micro-modulation)
-                                    LabeledSlider(
-                                        label = "Drift",
-                                        value = analogBassDrift,
-                                        valueLabel = "${String.format(Locale.US, "%.1f", analogBassDrift * 100)}%",
-                                        onValueChange = onAnalogBassDriftChanged,
-                                        steps = 100)
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                                    // Pultec section
-                                    Text(
-                                        if (mobileBassEnabled) "Pultec EQ (inactive - Mobile Bass active)" else "Pultec EQ",
-                                        fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
-                                        color = if (mobileBassEnabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                                else MaterialTheme.colorScheme.onSurface
-                                    )
-                                    // Pultec frequency selector
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        val pultecFreqs = listOf("20 Hz", "30 Hz", "60 Hz", "100 Hz")
-                                        pultecFreqs.forEachIndexed { idx, label ->
-                                            val selected = analogBassPultecFreqIndex == idx
-                                            val chipBg by animateColorAsState(
-                                                if (selected) MaterialTheme.colorScheme.primaryContainer
-                                                else MaterialTheme.colorScheme.surfaceVariant, label = "pultec_$idx")
-                                            Surface(onClick = { onAnalogBassPultecFreqIndexChanged(idx) },
-                                                    shape = RoundedCornerShape(50.dp), color = chipBg) {
-                                                Text(label,
-                                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                                     fontSize = 12.sp,
-                                                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                                     color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                                                             else MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        }
-                                    }
-                                    // Pultec Boost
-                                    LabeledSlider(
-                                        label = "Boost",
-                                        value = analogBassPultecBoost,
-                                        valueLabel = "+${String.format(Locale.US, "%.2f", analogBassPultecBoost * 8)} dB",
-                                        onValueChange = onAnalogBassPultecBoostChanged,
-                                        steps = 80)
-                                    // Pultec Cut
-                                    LabeledSlider(
-                                        label = "Cut",
-                                        value = analogBassPultecCut,
-                                        valueLabel = "-${String.format(Locale.US, "%.2f", analogBassPultecCut * 5)} dB",
-                                        onValueChange = onAnalogBassPultecCutChanged,
-                                        steps = 40)
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                                    // Reset button — restores all Analog Bass sliders to default values
-                                    OutlinedButton(
-                                        onClick = {
-                                            onAnalogBassDriveChanged(0.4f)
-                                            onAnalogBassWarmthChanged(0.7f)
-                                            onAnalogBassDriftChanged(0.2f)
-                                            onAnalogBassPultecBoostChanged(0.5f)
-                                            onAnalogBassPultecCutChanged(0.3f)
-                                            onAnalogBassPultecFreqIndexChanged(2)
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text("Reset to defaults")
-                                    }
-                                }
-                            }
+            // ── Level ─────────────────────────────────────────────────────
+            Entrance(5) {
+                Column {
+                    GroupHeader("Level")
+                    FeatureGroup {
+                        val belowReference = (loudnessReferencePhon - loudnessCurrentPhon).coerceAtLeast(0f)
+                        FeatureRow(
+                            icon = Icons.AutoMirrored.Filled.VolumeUp,
+                            title = "Loudness Contour",
+                            subtitle = when {
+                                !loudnessEnabled -> "Keeps the balance at low volume"
+                                belowReference < 1f -> "At reference level · no correction"
+                                else -> "${String.format(Locale.US, "%.0f", belowReference)} dB below reference · compensating"
+                            },
+                            checked = loudnessEnabled,
+                            enabled = masterEnabled,
+                            onCheckedChange = onLoudnessEnabledChanged,
+                            onHelpClick = { helpDialog = HelpContent.LoudnessContour }
+                        ) {
+                            LabeledSlider(label = "Amount", value = loudnessAmount,
+                                valueLabel = "${String.format(Locale.US, "%.0f", loudnessAmount * 100)}%",
+                                onValueChange = onLoudnessAmountChanged, steps = 100)
+                            LabeledSlider(label = "Reference level",
+                                value = (loudnessReferencePhon - 60f) / 30f,
+                                valueLabel = "${String.format(Locale.US, "%.0f", loudnessReferencePhon)} dB SPL",
+                                onValueChange = { onLoudnessReferencePhonChanged(60f + it * 30f) }, steps = 30)
+                            Text("Set the reference to how loud your gear is at full volume. Saved per output; " +
+                                 "never boosts above the reference.",
+                                 style = MaterialTheme.typography.bodySmall,
+                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
+                }
+            }
 
-                    Spacer(Modifier.height(10.dp))
-
-                    // Tube Warmth — second card under the same "ANALOG TWEAKS" heading.
-                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-                            color = featureCardColor(active = tubeWarmthEnabled), tonalElevation = 3.dp) {
-                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                            CompactToggleRow(
-                                title = "Tube Warmth",
-                                subtitle = if (tubeWarmthEnabled) "Warm bloom, softened highs"
-                                           else "Tube amp tonal emulation",
-                                checked = tubeWarmthEnabled, enabled = masterEnabled,
-                                leadingIcon = { Icon(Icons.Default.Whatshot, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
-                                onCheckedChange = onTubeWarmthEnabledChanged,
-                                onHelpClick = { helpDialog = HelpContent.TubeWarmth })
-                            AnimatedVisibility(visible = tubeWarmthEnabled && masterEnabled,
-                                enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                                exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
-                                Column(modifier = Modifier.padding(bottom = 14.dp),
-                                       verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                    LabeledSlider(
-                                        label = "Intensity",
-                                        value = tubeWarmthIntensity,
-                                        valueLabel = "${String.format(Locale.US, "%.0f", tubeWarmthIntensity * 100)}%",
-                                        onValueChange = onTubeWarmthIntensityChanged,
-                                        steps = 100)
-                                    OutlinedButton(
-                                        onClick = { onTubeWarmthIntensityChanged(0.5f) },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text("Reset to default")
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ── LOUDNESS CONTOUR (ISO 226) ────────────────────────────────
-                    // Tracks system volume and re-tilts the EQ by however much the ear's
-                    // own response changed at that level. Shown on every output.
+            // ── Output-specific ───────────────────────────────────────────
+            val onSpeaker = currentOutputDevice == "Phone Speaker"
+            val onBt = currentOutputDevice.startsWith("Bluetooth")
+            AnimatedVisibility(visible = onSpeaker || onBt,
+                enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
+                exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
+                Entrance(6) {
                     Column {
-                        SectionLabel("LISTENING LEVEL")
-                        Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-                                color = featureCardColor(active = loudnessEnabled), tonalElevation = 3.dp) {
-                            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                                // How far below the reference we currently are — the whole
-                                // feature is driven by this one number, so showing it makes
-                                // the correction legible instead of magic.
-                                val belowReference = (loudnessReferencePhon - loudnessCurrentPhon)
-                                    .coerceAtLeast(0f)
-                                CompactToggleRow(
-                                    title = "Loudness Contour",
-                                    subtitle = when {
-                                        !loudnessEnabled -> "Keeps tonal balance at low volume"
-                                        belowReference < 1f -> "At reference level · no correction needed"
-                                        else -> "${String.format(Locale.US, "%.0f", belowReference)} dB below reference · compensating"
-                                    },
-                                    checked = loudnessEnabled, enabled = masterEnabled,
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.VolumeUp, null,
-                                        tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                                               else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                        modifier = Modifier.size(22.dp)) },
-                                    onCheckedChange = onLoudnessEnabledChanged,
-                                    onHelpClick = { helpDialog = HelpContent.LoudnessContour })
-                                AnimatedVisibility(visible = loudnessEnabled && masterEnabled,
-                                    enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                                    exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
-                                    Column(modifier = Modifier.padding(bottom = 14.dp),
-                                           verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                        LabeledSlider(
-                                            label = "Amount",
-                                            value = loudnessAmount,
-                                            valueLabel = "${String.format(Locale.US, "%.0f", loudnessAmount * 100)}%",
-                                            onValueChange = onLoudnessAmountChanged,
-                                            steps = 100)
-                                        // Reference level is a calibration, not a taste
-                                        // control — it's the SPL your gear actually hits at
-                                        // full volume, which nothing on the device can
-                                        // measure. Range matches the ISO 226 model's own
-                                        // validity (20-90 phon).
-                                        LabeledSlider(
-                                            label = "Reference level",
-                                            value = (loudnessReferencePhon - 60f) / 30f,
-                                            valueLabel = "${String.format(Locale.US, "%.0f", loudnessReferencePhon)} dB SPL",
-                                            onValueChange = { onLoudnessReferencePhonChanged(60f + it * 30f) },
-                                            steps = 30)
-                                        Text(
-                                            text = "Set Reference to how loud your gear really is at full volume, " +
-                                                "saved separately for each output device. Correction is always 0 dB " +
-                                                "at 1 kHz and never engages above the reference.",
-                                            fontSize = 11.sp,
-                                            lineHeight = 15.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                        )
-                                        OutlinedButton(
-                                            onClick = {
-                                                onLoudnessAmountChanged(0.7f)
-                                                onLoudnessReferencePhonChanged(80f)
-                                            },
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text("Reset to default")
+                        GroupHeader(if (onSpeaker) "Phone speaker" else "Bluetooth")
+                        FeatureGroup {
+                            if (onSpeaker) {
+                                FeatureRow(
+                                    icon = Icons.Default.Speaker,
+                                    title = "JadOO Mobile Bass",
+                                    subtitle = if (mobileBassEnabled) "Restoring missing low end" else "Fuller bass from the built-in speaker",
+                                    checked = mobileBassEnabled,
+                                    enabled = masterEnabled,
+                                    onCheckedChange = onMobileBassEnabledChanged,
+                                    onHelpClick = { helpDialog = HelpContent.MobileBass }
+                                ) {
+                                    LabeledSlider(label = "Amount", value = mobileBassIntensity,
+                                        valueLabel = "${String.format(Locale.US, "%.0f", mobileBassIntensity * 100)}%",
+                                        onValueChange = onMobileBassIntensityChanged, steps = 100)
+                                }
+                            }
+                            if (onBt) {
+                                FeatureRow(
+                                    icon = Icons.Default.Bluetooth,
+                                    title = "SBC Enhancement",
+                                    subtitle = if (sbcModeEnabled) "${sbcStyle.displayName} · for the SBC encoder" else "For SBC headphones only",
+                                    checked = sbcModeEnabled,
+                                    enabled = masterEnabled,
+                                    onCheckedChange = onSbcModeEnabledChanged,
+                                    onHelpClick = { helpDialog = HelpContent.SbcEnhancement }
+                                ) {
+                                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                        val styles = com.jadoo.amp.audio.SbcStyle.entries
+                                        styles.forEachIndexed { i, style ->
+                                            SegmentedButton(
+                                                selected = sbcStyle == style,
+                                                onClick = { onSbcStyleChanged(style) },
+                                                shape = SegmentedButtonDefaults.itemShape(i, styles.size)
+                                            ) { Text(style.displayName) }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-
-                    // ── SPATIAL ─────────────────────────────────────────────────
-                    SectionLabel("SPATIAL")
-                    Surface(modifier = Modifier.fillMaxWidth()
-                                .clickable(enabled = masterEnabled) { showSurroundPicker = true },
-                            shape = RoundedCornerShape(24.dp),
-                            color = featureCardColor(active = surroundMode != SurroundMode.Off), tonalElevation = 3.dp) {
-                        Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Icon(
-                                    imageVector = Icons.Default.SurroundSound,
-                                    contentDescription = null,
-                                    tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                                           else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("JadOO Surround+", fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
-                                             color = if (masterEnabled) MaterialTheme.colorScheme.onSurface
-                                                     else MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(Modifier.width(2.dp))
-                                        IconButton(onClick = { helpDialog = HelpContent.SpatialSurround },
-                                                   modifier = Modifier.size(24.dp)) {
-                                            Icon(Icons.Default.Info, null,
-                                                 tint = MaterialTheme.colorScheme.primary,
-                                                 modifier = Modifier.size(14.dp))
-                                        }
-                                    }
-                                    Text(if (surroundMode != SurroundMode.Off)
-                                             "${surroundMode.displayName} · ${surroundMode.tagline}"
-                                         else "Tap to choose a mode",
-                                         fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                            val badgeColor by animateColorAsState(
-                                if (surroundMode != SurroundMode.Off) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceVariant, label = "surround_badge")
-                            Surface(shape = RoundedCornerShape(10.dp), color = badgeColor) {
-                                Text(surroundMode.displayName,
-                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                     fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                                     color = if (surroundMode != SurroundMode.Off) MaterialTheme.colorScheme.onPrimaryContainer
-                                             else MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-
-            Spacer(Modifier.height(JadooTheme.dimens.xs))
-
-                    // ── CROSSFEED (Beta) ──────────────────────────────────────────
-                    // Headphones/earphones only — nothing to "feed across" on a single
-                    // speaker cabinet.
-                    AnimatedVisibility(
-                        visible = deviceType == com.jadoo.amp.audio.DeviceType.Iem ||
-                            deviceType == com.jadoo.amp.audio.DeviceType.OnEar ||
-                            deviceType == com.jadoo.amp.audio.DeviceType.OverEar ||
-                            deviceType == com.jadoo.amp.audio.DeviceType.General,
-                        enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                        exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)
-                    ) {
-                        Column {
-                            SectionLabel("CROSSFEED (BETA)")
-                            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-                                    color = featureCardColor(active = crossfeedEnabled), tonalElevation = 3.dp) {
-                                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                                    CompactToggleRow(
-                                        title = "Crossfeed",
-                                        subtitle = if (crossfeedEnabled) "Softer headphone stereo image"
-                                                   else "Reduces harsh hard-panned stereo",
-                                        checked = crossfeedEnabled, enabled = masterEnabled,
-                                        leadingIcon = { Icon(Icons.Default.Headset, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
-                                        onCheckedChange = onCrossfeedEnabledChanged,
-                                        onHelpClick = { helpDialog = HelpContent.Crossfeed })
-                                    AnimatedVisibility(visible = crossfeedEnabled && masterEnabled,
-                                        enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                                        exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
-                                        Column(modifier = Modifier.padding(bottom = 14.dp),
-                                               verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                            LabeledSlider(
-                                                label = "Strength",
-                                                value = crossfeedStrength,
-                                                valueLabel = "${String.format(Locale.US, "%.0f", crossfeedStrength * 100)}%",
-                                                onValueChange = onCrossfeedStrengthChanged,
-                                                steps = 100)
-                                            Text(
-                                                text = "Headphones only.",
-                                                fontSize = 11.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ── CONTENT-CHANNEL DEVICE SUGGESTION ─────────────────────────
-                    // A match from the remotely updatable device list (Lane A). Offered,
-                    // never auto-applied — the DeviceType for a route is a deliberate
-                    // user setting and a remote document shouldn't silently overwrite it.
-                    AnimatedVisibility(
-                        visible = suggestedDeviceProfileName != null,
-                        enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                        exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)
-                    ) {
-                        Column {
-                            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer, tonalElevation = 3.dp) {
-                                Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.AutoAwesome, null,
-                                         tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-                                         modifier = Modifier.size(22.dp))
-                                    Spacer(Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text("Known device", fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
-                                             color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                        Text("Tuning available for ${suggestedDeviceProfileName ?: ""}",
-                                             fontSize = 12.sp,
-                                             color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f))
-                                    }
-                                    TextButton(onClick = onApplySuggestedDeviceProfile) { Text("Apply") }
-                                }
-                            }
-                            Spacer(Modifier.height(6.dp))
-                        }
-                    }
-
-            Spacer(Modifier.height(JadooTheme.dimens.xs))
-
-                    // ── MOBILE BASS ───────────────────────────────────────────────
-                    // Only meaningful through the phone's own speaker — headphones,
-                    // Bluetooth and USB DACs already reproduce real bass, so the
-                    // section (and the toggle it controls) is hidden rather than
-                    // auto-engaged/disengaged on route changes.
-                    AnimatedVisibility(visible = currentOutputDevice == "Phone Speaker",
-                        enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                        exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
-                        Column {
-                            SectionLabel("MOBILE BASS")
-                            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-                                    color = featureCardColor(active = mobileBassEnabled), tonalElevation = 3.dp) {
-                                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                                    CompactToggleRow(
-                                        title = "JadOO Mobile Bass",
-                                        subtitle = if (mobileBassEnabled) "Restoring missing low end"
-                                                   else "Psychoacoustic bass for tiny speakers",
-                                        checked = mobileBassEnabled, enabled = masterEnabled,
-                                        leadingIcon = { Icon(Icons.Default.Speaker, null, tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(22.dp)) },
-                                        onCheckedChange = onMobileBassEnabledChanged,
-                                        onHelpClick = { helpDialog = HelpContent.MobileBass })
-                                    AnimatedVisibility(visible = mobileBassEnabled && masterEnabled,
-                                        enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                                        exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
-                                        Column(modifier = Modifier.padding(bottom = 14.dp),
-                                               verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                            LabeledSlider(
-                                                label = "Amount",
-                                                value = mobileBassIntensity,
-                                                valueLabel = "${String.format(Locale.US, "%.0f", mobileBassIntensity * 100)}%",
-                                                onValueChange = onMobileBassIntensityChanged,
-                                                steps = 100)
-                                            OutlinedButton(
-                                                onClick = { onMobileBassIntensityChanged(0.5f) },
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text("Reset to default")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-            Spacer(Modifier.height(JadooTheme.dimens.xs))
-
-                    // ── SBC ENHANCEMENT ──────────────────────────────────────────────
-                    // Only shown on Bluetooth routes. Users with SBC codec devices enable
-                    // this to get better treble detail; LDAC/LHDC users leave it off.
-                    AnimatedVisibility(visible = currentOutputDevice.startsWith("Bluetooth"),
-                        enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
-                        exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
-                        Column {
-                            SectionLabel("BLUETOOTH")
-                            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-                                    color = featureCardColor(active = sbcModeEnabled), tonalElevation = 3.dp) {
-                                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                                    CompactToggleRow(
-                                        title = "SBC Enhancement",
-                                        subtitle = if (sbcModeEnabled) "Conditioning signal for the SBC encoder"
-                                                   else "Enable for SBC devices · not for LDAC/LHDC",
-                                        checked = sbcModeEnabled, enabled = masterEnabled,
-                                        leadingIcon = { Icon(Icons.Default.Bluetooth, null,
-                                            tint = if (masterEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                            modifier = Modifier.size(22.dp)) },
-                                        onCheckedChange = onSbcModeEnabledChanged,
-                                        onHelpClick = { helpDialog = HelpContent.SbcEnhancement })
-                                }
-                            }
-                            Spacer(Modifier.height(6.dp))
-                        }
-                    }
+                }
+            }
     }
     }
 
@@ -1358,6 +1198,56 @@ fun DashboardScreen(
             },
             onDismiss = { showSurroundPicker = false }
         )
+    }
+
+    if (showAutoEq) {
+        Dialog(
+            onDismissRequest = { showAutoEq = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+                shape = RoundedCornerShape(0.dp),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                AutoEqScreen(
+                    currentOutputDevice = currentOutputDevice,
+                    initialQuery = autoEqQuery,
+                    onApply = onApplyAutoEq,
+                    onNavigateBack = { showAutoEq = false }
+                )
+            }
+        }
+    }
+
+    if (showLiveChain) {
+        Dialog(
+            onDismissRequest = { showLiveChain = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+                shape = RoundedCornerShape(0.dp),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                LiveChainScreen(
+                    state = liveChainState,
+                    onNavigateBack = { showLiveChain = false }
+                )
+            }
+        }
     }
 
     // Parametric EQ Dialog
@@ -1397,6 +1287,8 @@ fun DashboardScreen(
                     },
                     onPreampChanged = onPreGainChanged,
                     onResetAllBands = onResetDigitalFilterBands,
+                    autoEqProfileName = autoEqProfileName,
+                    onOpenAutoEq = if (AUTOEQ_ENABLED) ({ autoEqQuery = ""; showAutoEq = true }) else null,
                     onNavigateBack = { showParametricEq = false }
                 )
             }
@@ -1419,22 +1311,11 @@ private fun HdrModeChips(
     ) {
         HdrMode.entries.forEach { mode ->
             val selected = mode == selectedMode
-            AssistChip(
+            FilterChip(
+                selected = selected,
                 onClick = { onModeSelected(mode) },
                 label = { Text(mode.displayName) },
-                enabled = enabled,
-                leadingIcon = if (selected) {
-                    {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                        )
-                    }
-                } else {
-                    null
-                }
+                enabled = enabled
             )
         }
     }
@@ -1454,22 +1335,11 @@ private fun DbfbModeChips(
     ) {
         DbfbMode.entries.forEach { mode ->
             val selected = mode == selectedMode
-            AssistChip(
+            FilterChip(
+                selected = selected,
                 onClick = { onModeSelected(mode) },
                 label = { Text(mode.displayName) },
-                enabled = enabled,
-                leadingIcon = if (selected) {
-                    {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                        )
-                    }
-                } else {
-                    null
-                }
+                enabled = enabled
             )
         }
     }
@@ -1607,79 +1477,6 @@ private fun DeviceTypeCard(
 }
 
 @Composable
-private fun ToggleRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    enabled: Boolean = true,
-    onCheckedChange: (Boolean) -> Unit,
-    onTitleClick: (() -> Unit)? = null,
-    onHelpClick: (() -> Unit)? = null
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = title,
-                    // Was a raw fontSize=18.sp/Bold — every other Settings
-                    // section title (Device Type, Per-app profiles, Tuning &
-                    // Presets, Backup & Restore) uses titleMedium/SemiBold.
-                    // This row was the one visibly off-scale next to them.
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = if (onTitleClick != null) {
-                        Modifier.clickable { onTitleClick() }
-                    } else {
-                        Modifier
-                    }
-                )
-                if (onHelpClick != null) {
-                    IconButton(
-                        onClick = onHelpClick,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "$title help",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-            Text(
-                text = subtitle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp
-            )
-        }
-        // A long subtitle at the full column width could wrap its last word
-        // right up against the Switch with zero breathing room — no visual
-        // overlap, but close enough to read as "mixing into" the control.
-        Spacer(Modifier.width(12.dp))
-        Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.primary,
-                checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                // The off state used to be a near-invisible outline on a dark
-                // background — barely distinguishable from a disabled control.
-                // A faint fill on the track means on/off reads as a state
-                // change at a glance, not as "is this rendering correctly".
-                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                uncheckedBorderColor = MaterialTheme.colorScheme.outline
-            )
-        )
-    }
-}
-
-@Composable
 private fun GainControlDeck(
     preGainDb: Float,
     postGainDb: Float,
@@ -1702,9 +1499,8 @@ private fun GainControlDeck(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Gain Staging",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
+                    "Input and output gain",
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 TextButton(
@@ -1745,28 +1541,31 @@ private fun GainSlider(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(label, style = MaterialTheme.typography.bodyMedium)
             Text(
-                text = String.format(Locale.US, "%.2f dB", value),
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium,
-                fontSize = 14.sp
+                text = String.format(Locale.US, "%+.1f dB", value),
+                style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.primary
             )
         }
-        Spacer(modifier = Modifier.height(4.dp))
         Slider(
             value = value,
-            onValueChange = onValueChange,
+            // 0.1 dB resolution, without drawing 240 tick marks to get it.
+            onValueChange = { onValueChange((it * 10f).roundToInt() / 10f) },
             valueRange = valueRange,
-            steps = ((valueRange.endInclusive - valueRange.start) * 10).toInt(),
-            colors = SliderDefaults.colors(
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                thumbColor = MaterialTheme.colorScheme.primary
-            )
+            colors = jadooSliderColors()
         )
     }
 }
+
+@Composable
+private fun jadooSliderColors() = SliderDefaults.colors(
+    activeTrackColor = MaterialTheme.colorScheme.primary,
+    inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    thumbColor = MaterialTheme.colorScheme.primary,
+    activeTickColor = Color.Transparent,
+    inactiveTickColor = Color.Transparent
+)
 
 @Composable
 private fun LabeledSlider(
@@ -1785,29 +1584,47 @@ private fun LabeledSlider(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                Text(label, style = MaterialTheme.typography.bodyMedium,
                      color = MaterialTheme.colorScheme.onSurface)
                 if (subtitle != null) {
-                    Text(subtitle, fontSize = 11.sp,
-                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Text(valueLabel, fontSize = 14.sp,
-                 color = MaterialTheme.colorScheme.primary,
-                 fontWeight = FontWeight.Medium)
+            Text(valueLabel, style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                 color = MaterialTheme.colorScheme.primary)
         }
-        Spacer(modifier = Modifier.height(4.dp))
         Slider(
             value = value,
-            onValueChange = onValueChange,
+            // Snap to the same (steps + 1) positions as before, but draw a
+            // clean continuous track instead of a row of tick dots.
+            onValueChange = { raw ->
+                if (steps <= 0) onValueChange(raw) else {
+                    val span = valueRange.endInclusive - valueRange.start
+                    val t = ((raw - valueRange.start) / span * (steps + 1)).roundToInt() / (steps + 1f)
+                    onValueChange(valueRange.start + t * span)
+                }
+            },
             valueRange = valueRange,
-            steps = steps,
-            colors = SliderDefaults.colors(
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                thumbColor = MaterialTheme.colorScheme.primary
-            )
+            colors = jadooSliderColors()
         )
+    }
+}
+
+/**
+ * Base and mid tone of the recessed EQ panel. Dark themes sink it below the
+ * card (surfaceDim) so the glowing curve has contrast; light themes must NOT
+ * — surfaceDim plus a black vignette turned the panel into a dark slab on a
+ * light card. There the panel sits a step lighter than its card instead,
+ * like paper under a light, and the curve reads by its own colour.
+ */
+@Composable
+private fun eqPanelColors(): Pair<Color, Color> {
+    val scheme = MaterialTheme.colorScheme
+    return if (scheme.background.luminance() < 0.5f) {
+        scheme.surfaceDim to androidx.compose.ui.graphics.lerp(scheme.surfaceDim, scheme.surface, 0.30f)
+    } else {
+        scheme.surfaceContainerLow to scheme.surfaceContainerLowest
     }
 }
 
@@ -1843,9 +1660,7 @@ private fun EqGraphWithStickyLabels(
     // instead of the inner scrollable graph, makes the sidebar and the graph
     // read as one continuous panel instead of two separately-styled pieces.
     val panelShapeOuter = RoundedCornerShape(14.dp)
-    val sidebarBackground = androidx.compose.ui.graphics.lerp(
-        MaterialTheme.colorScheme.surfaceDim, MaterialTheme.colorScheme.surface, 0.30f
-    )
+    val sidebarBackground = eqPanelColors().second
     val bezelColorOuter = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
 
     // Full range: -15 to +15, every 1 dB step
@@ -1951,8 +1766,9 @@ fun InteractiveEqGraph(
     // this "receded, inset" role; panelMid lifts it slightly toward the
     // vertical centre (where 0dB sits) so the panel reads as gently lit
     // from its own reference line rather than uniformly flat.
-    val panelBase = MaterialTheme.colorScheme.surfaceDim
-    val panelMid = androidx.compose.ui.graphics.lerp(panelBase, MaterialTheme.colorScheme.surface, 0.30f)
+    val (panelBase, panelMid) = eqPanelColors()
+    val vignette = if (MaterialTheme.colorScheme.background.luminance() < 0.5f)
+        Color.Black.copy(alpha = 0.16f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)
     val panelBrush = remember(panelBase, panelMid) {
         Brush.verticalGradient(listOf(panelBase, panelMid, panelBase))
     }
@@ -2141,7 +1957,7 @@ fun InteractiveEqGraph(
         // reads as a lit instrument panel rather than a plain rectangle.
         drawRect(
             brush = Brush.radialGradient(
-                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.16f)),
+                colors = listOf(Color.Transparent, vignette),
                 center = Offset(w / 2f, plotTop + plotHeight / 2f),
                 radius = kotlin.math.hypot(w / 2f, plotHeight / 2f) * 1.15f
             ),
@@ -2662,14 +2478,15 @@ private fun SettingsCard(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        tonalElevation = 3.dp
+        // Same container as the grouped lists (FeatureGroup) so the Updates
+        // block reads as one more group, not a different kind of card.
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(horizontal = 20.dp, vertical = 18.dp),
             verticalArrangement = verticalArrangement,
             content = content
         )
@@ -2693,14 +2510,12 @@ private fun SettingsScreen(
     themeSettings: com.jadoo.amp.settings.ThemeSettings,
     onThemeModeChanged: (Offset, String) -> Unit,
     onToneModeChanged: (Offset, String) -> Unit,
-    onAmoledChanged: (Offset, Boolean) -> Unit,
+    onBackdropChanged: (Offset, String) -> Unit,
     onSeedColorChanged: (Offset, Color) -> Unit,
     dumpPermissionEnabled: Boolean,
     currentOutputDevice: String,
     deviceType: com.jadoo.amp.audio.DeviceType,
-    deviceQualityTier: Float,
     onDeviceTypeChanged: (com.jadoo.amp.audio.DeviceType) -> Unit,
-    onDeviceQualityTierChanged: (Float) -> Unit,
     onHelpRequested: (HelpContent) -> Unit,
     onExportSettings: () -> Unit,
     onImportSettings: () -> Unit,
@@ -2711,15 +2526,13 @@ private fun SettingsScreen(
     activeAppLabel: String?,
     perAppProfilePackages: Set<String>,
     onPerAppProfileToggled: (String, Boolean) -> Unit,
-    onRefreshContent: () -> Unit,
-    deviceProfileNames: List<String>,
-    activeDeviceProfileName: String,
-    onSelectDeviceProfile: (String) -> Unit,
-    onClearDeviceProfile: () -> Unit,
     preciseGainStaging: Boolean,
     gainBudgetDb: Float,
     autoTrimDb: Float,
     onPreciseGainStagingChanged: (Boolean) -> Unit,
+    autoEqProfileName: String,
+    onOpenAutoEq: () -> Unit,
+    onRemoveAutoEq: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
     // Back handling for this screen is owned by the PredictiveBackHandler at
@@ -2728,554 +2541,333 @@ private fun SettingsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .jadooBackdrop()
             .statusBarsPadding()
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = JadooTheme.dimens.screenPadding)
-            .padding(top = JadooTheme.dimens.md, bottom = JadooTheme.dimens.xxl),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+            .padding(top = 4.dp, bottom = 40.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onNavigateBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back"
-                )
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
-            Spacer(Modifier.width(4.dp))
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold
-            )
+        }
+        Text("Settings", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold,
+             modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp))
+
+        // ── Headphone correction (AutoEQ) ─────────────────────────────────
+        if (AUTOEQ_ENABLED) Entrance(0) {
+            Column {
+                GroupHeader("Headphone correction")
+                FeatureGroup {
+                    NavRow(
+                        icon = Icons.Default.Headphones,
+                        title = if (autoEqProfileName.isBlank()) "Find your headphone" else autoEqProfileName,
+                        value = if (autoEqProfileName.isBlank())
+                            "8,000+ measured headphones and IEMs · AutoEQ"
+                        else "Applied to $currentOutputDevice · tap to change",
+                        accent = autoEqProfileName.isNotBlank(),
+                        onClick = onOpenAutoEq
+                    )
+                    if (autoEqProfileName.isNotBlank()) {
+                        GroupDivider()
+                        TextButton(onClick = onRemoveAutoEq,
+                                   modifier = Modifier.padding(start = 56.dp, bottom = 4.dp)) {
+                            Text("Remove correction")
+                        }
+                    }
+                }
+                Text("Corrections are saved per output device and load into the Parametric EQ, " +
+                     "where you can fine-tune them.",
+                     style = MaterialTheme.typography.bodySmall,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                     modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp))
+            }
         }
 
-        PermissionStatusRow(
-                    title = "DUMP fallback",
-                    description = "Optional ADB grant for deeper system audio scanning.",
-                    enabled = dumpPermissionEnabled,
-                    actionLabel = "Command",
-                    onAction = { onHelpRequested(HelpContent.DumpPermission) },
-                    onHelp = { onHelpRequested(HelpContent.DumpPermission) }
-                )
+        // ── Driver type ───────────────────────────────────────────────────
+        Entrance(1) {
+            Column {
+                GroupHeader("Driver type")
+                FeatureGroup {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = if (currentOutputDevice == "Phone Speaker")
+                                "Locked to General on the phone speaker. Mobile Bass already scales for it."
+                            else
+                                "Scales bass and treble features to what your driver can reproduce.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        DeviceTypePicker(
+                            selected = deviceType,
+                            onSelected = onDeviceTypeChanged,
+                            enabled = currentOutputDevice != "Phone Speaker"
+                        )
+                    }
+                }
+            }
+        }
 
-                AppearanceSection(
-                    settings = themeSettings,
-                    onModeChanged = onThemeModeChanged,
-                    onToneChanged = onToneModeChanged,
-                    onAmoledChanged = onAmoledChanged,
-                    onSeedChanged = onSeedColorChanged
-                )
-
-                SettingsCard(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ToggleRow(
+        // ── Sound ─────────────────────────────────────────────────────────
+        Entrance(2) {
+            Column {
+                GroupHeader("Sound")
+                FeatureGroup {
+                    SettingToggleRow(
                         title = "Precise gain staging",
-                        subtitle = if (preciseGainStaging)
-                            "Limiter stays a peak catcher, boosts keep their level"
-                        else
-                            "Legacy: limiter ceiling drops by the full boost amount",
+                        subtitle = when {
+                            preciseGainStaging && autoTrimDb < -0.05f -> String.format(Locale.US,
+                                "Input %.1f dB to keep boosts from clipping", autoTrimDb)
+                            preciseGainStaging -> "Boosts get room so loud songs don't clip"
+                            gainBudgetDb > 0.05f -> String.format(Locale.US,
+                                "Legacy: limiter ceiling %.1f dB, no clip protection", -gainBudgetDb)
+                            else -> "Legacy: the limiter ceiling drops by the full boost"
+                        },
                         checked = preciseGainStaging,
                         onCheckedChange = onPreciseGainStagingChanged,
                         onHelpClick = { onHelpRequested(HelpContent.GainStaging) }
                     )
-                    if (gainBudgetDb > 0.05f) {
-                        Text(
-                            text = if (preciseGainStaging)
-                                "Active boost ${"%.1f".format(gainBudgetDb)} dB · limiter ceiling " +
-                                    "${"%.1f".format(-minOf(gainBudgetDb, 2f))} dB"
-                            else
-                                "Active boost ${"%.1f".format(gainBudgetDb)} dB · limiter ceiling " +
-                                    "${"%.1f".format(-gainBudgetDb)} dB",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-
-                SettingsCard {
-                    Text(
-                        text = "Device Type (Beta)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = if (currentOutputDevice == "Phone Speaker")
-                            "Locked to General on the phone's own speaker. Mobile Bass already scales for it."
-                        else
-                            "Scales bass/treble features to your driver. Pick General to keep the old behavior.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
-                    )
-                    DeviceTypePicker(
-                        selected = deviceType,
-                        onSelected = onDeviceTypeChanged,
-                        enabled = currentOutputDevice != "Phone Speaker"
-                    )
-                }
-
-                // ── Per-app profiles ──────────────────────────────────────
-                SettingsCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Per-app profiles",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        IconButton(
-                            onClick = { onHelpRequested(HelpContent.PerAppProfiles) },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.Info, "Per-app profiles help",
-                                 tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
+                    GroupDivider(inset = false)
                     if (activeAppPackage == null) {
-                        Text(
-                            text = "Start playing something to give that app its own settings.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp
-                        )
+                        Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
+                            Text("Per-app profiles", style = MaterialTheme.typography.bodyLarge,
+                                 fontWeight = FontWeight.Medium)
+                            Text("Play something to give that app its own settings.",
+                                 style = MaterialTheme.typography.bodyMedium,
+                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     } else {
-                        ToggleRow(
-                            title = activeAppLabel ?: activeAppPackage,
+                        SettingToggleRow(
+                            title = "Own profile for ${activeAppLabel ?: activeAppPackage}",
                             subtitle = if (activeAppPackage in perAppProfilePackages)
-                                "Has its own profile on every output"
-                            else
-                                "Uses the shared profile for this output",
+                                "Its own settings on every output" else "Uses this output's shared settings",
                             checked = activeAppPackage in perAppProfilePackages,
-                            onCheckedChange = { onPerAppProfileToggled(activeAppPackage, it) }
+                            onCheckedChange = { onPerAppProfileToggled(activeAppPackage, it) },
+                            onHelpClick = { onHelpRequested(HelpContent.PerAppProfiles) }
                         )
                     }
                     // Apps opted in but not currently playing — the only place
                     // to turn one back off without switching to it first.
-                    val others = perAppProfilePackages.filter { it != activeAppPackage }.sorted()
-                    if (others.isNotEmpty()) {
-                        Text(
-                            text = "Other apps with their own profile",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp
-                        )
-                        others.forEach { pkg ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(pkg, modifier = Modifier.weight(1f),
-                                     style = MaterialTheme.typography.bodyMedium)
-                                TextButton(onClick = { onPerAppProfileToggled(pkg, false) }) {
-                                    Text("Remove")
-                                }
-                            }
+                    perAppProfilePackages.filter { it != activeAppPackage }.sorted().forEach { pkg ->
+                        GroupDivider(inset = false)
+                        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(pkg, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { onPerAppProfileToggled(pkg, false) }) { Text("Remove") }
                         }
                     }
                 }
-
-                // ── Content channel (Lane A) ──────────────────────────────
-                // Hidden when there is nothing to refresh and no device
-                // tuning to pick (the Play build).
-                if (REMOTE_CONTENT_ENABLED || deviceProfileNames.isNotEmpty())
-                SettingsCard(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Tuning & Presets",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        IconButton(
-                            onClick = { onHelpRequested(HelpContent.ContentChannel) },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.Info, "Tuning and presets help",
-                                 tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                    Text(
-                        text = if (REMOTE_CONTENT_ENABLED)
-                            "Preset packs, known-device tuning and DSP constants update on " +
-                                "their own, no app reinstall needed."
-                        else
-                            "Preset packs and known-device tuning are built in. New ones " +
-                                "arrive with app updates.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
-                    )
-                    if (REMOTE_CONTENT_ENABLED) {
-                        OutlinedButton(
-                            onClick = onRefreshContent,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Check for new tuning")
-                        }
-                    }
-
-                    // ── Manual device tuning picker ───────────────────────
-                    // Auto-matching only works where the phone can actually
-                    // see the transducer — headphones report their own name,
-                    // but anything reached through an intermediary (a PC over
-                    // Bluetooth, a receiver, a DAC feeding passive speakers)
-                    // reports the intermediary instead. For those, no match
-                    // string can ever be right, so the tuning has to be
-                    // selectable by hand or it is unreachable.
-                    if (deviceProfileNames.isNotEmpty()) {
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                        )
-                        Text(
-                            text = "Device tuning",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = if (activeDeviceProfileName.isBlank())
-                                "None applied. Pick your output device if it's listed."
-                            else
-                                "Applied: $activeDeviceProfileName",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            deviceProfileNames.forEach { profileName ->
-                                val selected = profileName == activeDeviceProfileName
-                                OutlinedButton(
-                                    onClick = {
-                                        if (selected) onClearDeviceProfile()
-                                        else onSelectDeviceProfile(profileName)
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = if (selected) {
-                                        ButtonDefaults.outlinedButtonColors(
-                                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                    } else ButtonDefaults.outlinedButtonColors()
-                                ) {
-                                    Text(
-                                        text = profileName,
-                                        modifier = Modifier.weight(1f),
-                                        textAlign = TextAlign.Start
-                                    )
-                                    if (selected) {
-                                        Icon(
-                                            Icons.Default.Close,
-                                            contentDescription = "Remove $profileName",
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                UpdatesCard()
-
-                SettingsCard {
-                    Text(
-                        text = "Backup & Restore",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "Save every setting - including the manual 15-band EQ and all saved presets - to a file, or restore from one.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onExportSettings,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Export")
-                        }
-                        OutlinedButton(
-                            onClick = onImportSettings,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Import")
-                        }
-                    }
-                }
-
-                if (savedProfileNames.isNotEmpty()) {
-                    SettingsCard(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = "Saved Profiles",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "Profiles imported from backups. Tap Load to apply to the current output device.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp
-                        )
-                        savedProfileNames.forEach { name ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(name, modifier = Modifier.weight(1f),
-                                     style = MaterialTheme.typography.bodyMedium)
-                                Row {
-                                    TextButton(onClick = { onLoadProfile(name) }) { Text("Load") }
-                                    TextButton(onClick = { onDeleteProfile(name) }) { Text("Delete") }
-                                }
-                            }
-                        }
-                    }
-                }
-    }
-}
-
-@Composable
-private fun PermissionStatusRow(
-    title: String,
-    description: String,
-    enabled: Boolean,
-    actionLabel: String,
-    onAction: () -> Unit,
-    onHelp: () -> Unit
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        tonalElevation = 3.dp
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = title,
-                        fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    IconButton(
-                        onClick = onHelp,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "$title help",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Text(
-                        text = if (enabled) "Enabled" else "Disabled",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        color = if (enabled) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-            Text(
-                text = description,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp
-            )
-            TextButton(onClick = onAction) {
-                Text(actionLabel)
             }
         }
-    }
-}
 
-@Composable
-private fun HelpDialog(
-    content: HelpContent,
-    onDismiss: () -> Unit
-) {
-    val maxDialogHeight = with(LocalDensity.current) {
-        LocalWindowInfo.current.containerSize.height.toDp() * 0.78f
-    }
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .wrapContentHeight()
-                .heightIn(max = maxDialogHeight),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            )
-        ) {
-            Column(modifier = Modifier.wrapContentHeight()) {
-                // ── Clean header ──────────────────────────────────────
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = content.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+        // ── Appearance ────────────────────────────────────────────────────
+        Entrance(3) {
+            Column {
+                GroupHeader("Appearance")
+                AppearanceSection(
+                    settings = themeSettings,
+                    onModeChanged = onThemeModeChanged,
+                    onToneChanged = onToneModeChanged,
+                    onBackdropChanged = onBackdropChanged,
+                    onSeedChanged = onSeedColorChanged
                 )
+            }
+        }
 
-                // ── Scrollable body ──────────────────────────────────────
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    // Animated mechanism diagram for the feature being
-                    // explained. Lives above the copy because the picture is
-                    // what most people will actually read — see
-                    // HelpIllustrations.kt. DumpPermission has none on
-                    // purpose: it's an ADB instruction, not a DSP feature,
-                    // and there's no mechanism to draw.
-                    val illustration: (@Composable (Modifier) -> Unit)? = when (content) {
-                        HelpContent.HiResUpscaler   -> { m -> HiResIllustration(m) }
-                        HelpContent.Dbfb            -> { m -> DbfbIllustration(m) }
-                        HelpContent.HdrDynamics     -> { m -> HdrIllustration(m) }
-                        HelpContent.AnalogBass      -> { m -> AnalogBassIllustration(m) }
-                        HelpContent.SpatialSurround -> { m -> SurroundIllustrationAnimated(m) }
-                        HelpContent.TubeWarmth      -> { m -> TubeWarmthIllustration(m) }
-                        HelpContent.MobileBass      -> { m -> MobileBassIllustration(m) }
-                        HelpContent.Crossfeed       -> { m -> CrossfeedIllustration(m) }
-                        HelpContent.HarmonicExciter -> { m -> ExciterIllustration(m) }
-                        HelpContent.DigitalFilters  -> { m -> ParametricEqIllustration(m) }
-                        HelpContent.SbcEnhancement  -> { m -> SbcIllustration(m) }
-                        HelpContent.LoudnessContour -> { m -> LoudnessIllustration(m) }
-                        HelpContent.PerAppProfiles  -> { m -> PerAppIllustration(m) }
-                        // Its animation shows content arriving over the air,
-                        // which the Play build doesn't do.
-                        HelpContent.ContentChannel  ->
-                            if (REMOTE_CONTENT_ENABLED) { m -> ContentChannelIllustration(m) } else null
-                        HelpContent.GainStaging     -> null
-                        HelpContent.DumpPermission  -> null
+        // ── Backup ────────────────────────────────────────────────────────
+        Entrance(4) {
+            Column {
+                GroupHeader("Backup")
+                FeatureGroup {
+                    NavRow(Icons.Default.Save, "Export settings",
+                           "Every setting and preset to one file", onClick = onExportSettings)
+                    GroupDivider()
+                    NavRow(Icons.Default.Download, "Import settings",
+                           "Restore from a backup file", onClick = onImportSettings)
+                    savedProfileNames.forEach { name ->
+                        GroupDivider(inset = false)
+                        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { onLoadProfile(name) }) { Text("Load") }
+                            TextButton(onClick = { onDeleteProfile(name) }) { Text("Delete") }
+                        }
                     }
-                    if (illustration != null) {
-                        illustration(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(156.dp)
-                        )
-                        Spacer(modifier = Modifier.height(18.dp))
-                    }
-                    HelpBodyText(body = content.body)
                 }
+            }
+        }
+
+        // ── System ────────────────────────────────────────────────────────
+        Entrance(5) {
+            Column {
+                GroupHeader("System")
+                FeatureGroup {
+                    NavRow(
+                        icon = Icons.Default.Info,
+                        title = "Live stream data",
+                        value = if (dumpPermissionEnabled) "DUMP granted · full signal path"
+                                else "Optional DUMP grant over adb",
+                        accent = dumpPermissionEnabled,
+                        onClick = { onHelpRequested(HelpContent.DumpPermission) }
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                UpdatesCard()
             }
         }
     }
 }
 
 /**
- * Renders help copy with a small in-house markup instead of one flat
- * paragraph: blank lines break into visually separate paragraphs, lines
- * starting with "•" become a real bulleted list, lines starting with "## "
- * become a small section label (for a body with a few distinct sub-topics,
- * e.g. Loudness Contour's Reference Level / Amount), and "**word**" inside
- * any line renders bold inline — so the one term that matters in a sentence
- * can stand out instead of everything reading at the same weight.
+ * A feature's explainer, as a bottom sheet: grab handle, swipe or tap the
+ * scrim to dismiss, and a Done button so the way out is never only a
+ * gesture. The diagram leads — it is what most people actually read — and
+ * plays its mechanism once, then holds still under the text (see
+ * HelpIllustrations.kt). Tapping it, or Replay, runs it again.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun HelpDialog(
+    content: HelpContent,
+    onDismiss: () -> Unit
+) {
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val illustration: (@Composable (Modifier) -> Unit)? = when (content) {
+        HelpContent.HiResUpscaler   -> { m -> HiResIllustration(m) }
+        HelpContent.Dbfb            -> { m -> DbfbIllustration(m) }
+        HelpContent.HdrDynamics     -> { m -> HdrIllustration(m) }
+        HelpContent.AnalogBass      -> { m -> AnalogBassIllustration(m) }
+        HelpContent.SpatialSurround -> { m -> SurroundIllustrationAnimated(m) }
+        HelpContent.TubeWarmth      -> { m -> TubeWarmthIllustration(m) }
+        HelpContent.MobileBass      -> { m -> MobileBassIllustration(m) }
+        HelpContent.HarmonicExciter -> { m -> ExciterIllustration(m) }
+        HelpContent.DigitalFilters  -> { m -> ParametricEqIllustration(m) }
+        HelpContent.SbcEnhancement  -> { m -> SbcIllustration(m) }
+        HelpContent.LoudnessContour -> { m -> LoudnessIllustration(m) }
+        HelpContent.PerAppProfiles  -> { m -> PerAppIllustration(m) }
+        // Not DSP features: an ADB instruction and a limiter policy have no
+        // mechanism worth drawing.
+        HelpContent.GainStaging     -> null
+        HelpContent.DumpPermission  -> null
+    }
+    // One shared demonstration timeline; bumping replayKey restarts it.
+    val demo = remember { Animatable(0f) }
+    var replayKey by remember { mutableIntStateOf(0) }
+    LaunchedEffect(replayKey) {
+        demo.snapTo(0f)
+        kotlinx.coroutines.delay(280) // let the sheet finish rising first
+        demo.animateTo(1f, tween(DEMO_MS, easing = LinearEasing))
+    }
+    val (summary, rest) = remember(content) {
+        val paragraphs = content.body.split("\n\n", limit = 2)
+        paragraphs[0] to paragraphs.getOrNull(1)
+    }
+
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            if (illustration != null) {
+                Box {
+                    CompositionLocalProvider(LocalDemoProgress provides demo.value) {
+                        illustration(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(184.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .clickable(onClickLabel = "Replay animation") { replayKey++ }
+                        )
+                    }
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = demo.value >= 1f,
+                        enter = fadeIn(JadooTheme.motion.fade),
+                        exit = fadeOut(JadooTheme.motion.fade),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                    ) {
+                        Surface(
+                            onClick = { replayKey++ },
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f)
+                        ) {
+                            Row(Modifier.heightIn(min = 32.dp).padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Replay, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Replay", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(20.dp))
+            }
+            Text(content.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = parseInlineBold(summary.trim(), MaterialTheme.colorScheme.onSurface),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            rest?.let {
+                Spacer(Modifier.height(12.dp))
+                HelpBodyText(body = it)
+            }
+            Spacer(Modifier.height(24.dp))
+            FilledTonalButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                Text("Done")
+            }
+        }
+    }
+}
+
+/**
+ * The rest of a help body after its summary line, in the app's quiet voice:
+ * blank lines separate paragraphs, "## " starts a sentence-case sub-heading,
+ * "•" lines become a list, and "**term**" bolds the one word that matters.
+ * Colour stays neutral — the accent is for state, not for bullets.
  */
 @Composable
 private fun HelpBodyText(body: String) {
-    val primary = MaterialTheme.colorScheme.primary
     val onSurface = MaterialTheme.colorScheme.onSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-
-    val lines = body.split("\n")
-    var i = 0
-    while (i < lines.size) {
-        val line = lines[i]
-        when {
-            line.isBlank() -> {
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-            line.trimStart().startsWith("## ") -> {
-                Text(
-                    text = line.trimStart().removePrefix("## ").trim().uppercase(),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = primary,
-                    letterSpacing = 0.6.sp,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        body.split("\n").forEach { line ->
+            val trimmed = line.trim()
+            when {
+                trimmed.isEmpty() -> Spacer(Modifier.height(10.dp))
+                trimmed.startsWith("## ") -> Text(
+                    text = trimmed.removePrefix("## "),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = onSurface,
+                    modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
                 )
-            }
-            line.trimStart().startsWith("•") -> {
-                val bulletText = line.trimStart().removePrefix("•").trim()
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .padding(top = 6.dp, end = 10.dp)
-                            .size(6.dp)
-                            .background(primary, shape = RoundedCornerShape(50))
-                    )
+                trimmed.startsWith("•") -> Row(Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                              verticalAlignment = Alignment.Top) {
+                    Box(Modifier.padding(top = 9.dp, end = 12.dp).size(5.dp)
+                        .background(onSurfaceVariant, CircleShape))
                     Text(
-                        text = parseInlineBold(bulletText, onSurface),
+                        text = parseInlineBold(trimmed.removePrefix("•").trim(), onSurface),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = onSurface,
-                        lineHeight = 21.sp
+                        color = onSurfaceVariant
                     )
                 }
-            }
-            else -> {
-                Text(
-                    text = parseInlineBold(line.trim(), onSurface),
+                else -> Text(
+                    text = parseInlineBold(trimmed, onSurface),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = onSurfaceVariant,
-                    lineHeight = 21.sp
+                    color = onSurfaceVariant
                 )
             }
         }
-        i++
     }
 }
 
@@ -3543,157 +3135,6 @@ private fun SurroundIllustration(
             }
             else -> {}
         }
-    }
-}
-
-/**
- * The container colour for a feature card, tinted toward `primaryContainer`
- * when [active].
- *
- * Every card in this screen used the identical flat `surfaceContainerHigh`
- * whether it held a live feature or an idle one — Tube Warmth ON looked
- * exactly as "important" as Hi-Res OFF, so the only way to tell what was
- * actually doing something was to read every switch individually. A light
- * lerp toward the accent gives the same information at a glance, before any
- * text is read.
- *
- * A card that groups several independently-toggleable features (Enhancement:
- * Hi-Res/HDR/DBFB/Exciter) is tinted when ANY of them is on — it says "look
- * here", the per-row switch still says "specifically this one".
- */
-@Composable
-private fun featureCardColor(active: Boolean): Color =
-    if (active) {
-        androidx.compose.ui.graphics.lerp(
-            MaterialTheme.colorScheme.surfaceContainerHigh,
-            MaterialTheme.colorScheme.primaryContainer,
-            0.22f
-        )
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerHigh
-    }
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 6.dp, top = 2.dp, bottom = 1.dp),
-        letterSpacing = 1.2.sp
-    )
-}
-
-@Composable
-private fun CompactToggleRow(
-    title: String,
-    subtitle: String? = null,
-    checked: Boolean,
-    enabled: Boolean = true,
-    leadingIcon: @Composable (() -> Unit)? = null,
-    onCheckedChange: (Boolean) -> Unit,
-    onHelpClick: (() -> Unit)? = null
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            if (leadingIcon != null) {
-                // A flat 22dp glyph directly on the card background barely
-                // registers as a scannable anchor — compare to iOS Settings'
-                // colored rounded-square icon tiles. The tile's own tint
-                // doubles as a state cue: filled and warm when the feature is
-                // engaged, faint and neutral when it's off, gone entirely
-                // when the whole card is disabled — so the same 36dp square
-                // that anchors the row also tells you, before you read a
-                // word, whether this one is doing anything.
-                //
-                // Both the colour flip and the little scale pop are animated
-                // now — this used to snap instantly, which made "a feature
-                // turned on" a silent event instead of a felt one. Colour
-                // uses fastSpec (this project's "chip selection/small state
-                // flip" token); the pop uses expressiveSpec, the same
-                // slight-overshoot token the power toggle uses, reserved for
-                // moments meant to feel physical — turning a feature on is
-                // exactly that, not just a recolour.
-                val tileColor by animateColorAsState(
-                    targetValue = when {
-                        !enabled -> Color.Transparent
-                        checked -> MaterialTheme.colorScheme.primary.copy(alpha = JadooTheme.alpha.subtle)
-                        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                    },
-                    animationSpec = JadooTheme.motion.fastSpec(),
-                    label = "toggle_icon_tile_color"
-                )
-                val tileScale by animateFloatAsState(
-                    targetValue = if (checked) 1f else 0.9f,
-                    animationSpec = JadooTheme.motion.expressive,
-                    label = "toggle_icon_tile_scale"
-                )
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .scale(tileScale)
-                        .clip(JadooTheme.shapes.chip)
-                        .background(tileColor),
-                    contentAlignment = Alignment.Center
-                ) {
-                    leadingIcon.invoke()
-                }
-                Spacer(Modifier.width(12.dp))
-            }
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = title,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        lineHeight = 20.sp,
-                        color = if (enabled) MaterialTheme.colorScheme.onSurface
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (onHelpClick != null) {
-                        Spacer(Modifier.width(2.dp))
-                        IconButton(onClick = onHelpClick, modifier = Modifier.size(24.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-                }
-                if (subtitle != null) {
-                    Text(
-                        text = subtitle,
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-        Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.primary,
-                checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                // The off state used to be a near-invisible outline on a dark
-                // background — barely distinguishable from a disabled control.
-                // A faint fill on the track means on/off reads as a state
-                // change at a glance, not as "is this rendering correctly".
-                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                uncheckedBorderColor = MaterialTheme.colorScheme.outline
-            )
-        )
     }
 }
 

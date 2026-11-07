@@ -27,7 +27,6 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -52,6 +51,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jadoo.amp.settings.ThemeSettings
+import com.jadoo.amp.settings.effectiveBackdrop
+import com.jadoo.amp.settings.toSpec
+import androidx.compose.ui.draw.alpha
 import com.jadoo.amp.ui.theme.BrandScheme
 import com.jadoo.amp.ui.theme.JadooTheme
 import com.jadoo.amp.ui.theme.SeedSwatches
@@ -76,8 +78,9 @@ import com.jadoo.amp.ui.theme.buildColorScheme
  *    does want it, they want it badly. The collapsed row resolves the live
  *    state in its subtitle ("Follows system · Dark now") so the information is
  *    never hidden, only the controls are.
- *  - **Pure Black** is disabled unless the effective tone is dark, because a
- *    pure-black light theme is not a thing.
+ *  - **Background** shows each backdrop as a live preview of its real
+ *    surfaces. Black is inert in light mode: a pure-black light theme is
+ *    not a thing.
  */
 @Composable
 fun AppearanceSection(
@@ -89,7 +92,7 @@ fun AppearanceSection(
     // that keyboard and accessibility activation get a sensible origin too.
     onModeChanged: (Offset, String) -> Unit,
     onToneChanged: (Offset, String) -> Unit,
-    onAmoledChanged: (Offset, Boolean) -> Unit,
+    onBackdropChanged: (Offset, String) -> Unit,
     onSeedChanged: (Offset, Color) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -110,7 +113,7 @@ fun AppearanceSection(
     var modeRowCentre by remember { mutableStateOf(Offset.Zero) }
     var swatchRowCentre by remember { mutableStateOf(Offset.Zero) }
     var toneRowCentre by remember { mutableStateOf(Offset.Zero) }
-    var amoledRowCentre by remember { mutableStateOf(Offset.Zero) }
+    var backdropRowCentre by remember { mutableStateOf(Offset.Zero) }
 
     // surfaceContainerHighest, not surfaceContainerHigh — this card lives
     // inside SettingsDialog, whose own Card is already surfaceContainerHigh;
@@ -118,9 +121,8 @@ fun AppearanceSection(
     // token one level down doesn't read as a distinct card.
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = JadooTheme.shapes.card,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        tonalElevation = 3.dp
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer
     ) {
     Column(
         modifier = Modifier
@@ -128,12 +130,6 @@ fun AppearanceSection(
             .padding(horizontal = dimens.lg, vertical = dimens.lg),
         verticalArrangement = Arrangement.spacedBy(dimens.md)
     ) {
-        Text(
-            text = "Appearance",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-
         // ── Mode: live colour previews, not a text control ────────────────
         val context = androidx.compose.ui.platform.LocalContext.current
         val modes = listOf("Brand" to "Brand", "MaterialYou" to "You", "CustomSeed" to "Custom")
@@ -281,39 +277,92 @@ fun AppearanceSection(
             }
         }
 
-        // ── Pure Black ────────────────────────────────────────────────────
+        // ── Background: live previews of each backdrop ────────────────────
+        Text("Background", style = MaterialTheme.typography.bodyLarge)
+        val backdrops = listOf("Dim" to "Dim", "Tinted" to "Tinted", "Aurora" to "Aurora", "Black" to "Black")
+        val current = settings.effectiveBackdrop
+        val previewContext = androidx.compose.ui.platform.LocalContext.current
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .onGloballyPositioned { amoledRowCentre = it.centreInRoot() },
-            verticalAlignment = Alignment.CenterVertically
+                .onGloballyPositioned { backdropRowCentre = it.centreInRoot() }
+                .selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(dimens.sm)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Pure Black",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(
-                        alpha = if (effectiveDark) alpha.full else alpha.disabled
+            backdrops.forEach { (key, label) ->
+                // Black only exists in dark mode; in light mode it is shown
+                // but inert, with the reason in its label.
+                val available = key != "Black" || effectiveDark
+                val preview = remember(key, effectiveDark, settings.mode, settings.seedColor) {
+                    buildColorScheme(
+                        settings.copy(backdrop = key, tone = if (effectiveDark) "Dark" else "Light").toSpec(),
+                        effectiveDark, previewContext
                     )
-                )
-                Text(
-                    text = if (effectiveDark)
-                        "True black backgrounds for OLED screens"
-                    else
-                        "Available in dark mode",
-                    style = JadooTheme.text.bodyCompact,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                        alpha = if (effectiveDark) alpha.full else alpha.disabled
-                    )
+                }
+                BackdropPreviewTile(
+                    label = if (available) label else "Black (dark)",
+                    scheme = preview,
+                    aurora = key == "Aurora",
+                    selected = current == key && available,
+                    modifier = Modifier
+                        .weight(1f)
+                        .alpha(if (available) 1f else 0.4f)
+                        .selectable(
+                            selected = current == key,
+                            enabled = available,
+                            role = Role.RadioButton,
+                            onClick = { onBackdropChanged(backdropRowCentre, key) }
+                        )
                 )
             }
-            Switch(
-                checked = settings.amoled && effectiveDark,
-                onCheckedChange = { onAmoledChanged(amoledRowCentre, it) },
-                enabled = effectiveDark
-            )
         }
     }
+    }
+}
+
+/** A backdrop option: its real background with a grouped-list chip on top. */
+@Composable
+private fun BackdropPreviewTile(
+    label: String,
+    scheme: androidx.compose.material3.ColorScheme,
+    aurora: Boolean,
+    selected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val dimens = JadooTheme.dimens
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(dimens.xs)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .clip(JadooTheme.shapes.control)
+                .background(scheme.background)
+                .then(if (aurora) Modifier.background(
+                    androidx.compose.ui.graphics.Brush.radialGradient(
+                        listOf(scheme.primary.copy(alpha = 0.35f), Color.Transparent))) else Modifier)
+                .border(
+                    width = if (selected) 2.dp else 1.dp,
+                    color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant,
+                    shape = JadooTheme.shapes.control
+                )
+                .padding(8.dp),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Box(Modifier.fillMaxWidth().height(18.dp).clip(CircleShape).background(scheme.surfaceContainer))
+        }
+        Text(
+            text = label,
+            style = JadooTheme.text.bodyCompact,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
     }
 }
 

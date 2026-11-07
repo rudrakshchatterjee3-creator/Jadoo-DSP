@@ -49,6 +49,11 @@ class DigitalFilterEngine {
         const val MAX_Q = 18f
         const val DEFAULT_SAMPLE_RATE_HZ = 48_000f
 
+        /** Peak-to-mean separation above which a band holds a narrow feature. */
+        const val NARROW_FEATURE_DB = 1.5f
+        /** Extra separation over which the band blends fully to the peak. */
+        const val NARROW_BLEND_DB = 3f
+
         /**
          * Useful starting points spread logarithmically over the audible range.
          * Existing 8-band profiles retain their first eight serialized bands;
@@ -396,9 +401,46 @@ class DigitalFilterEngine {
     }
 
     /**
+     * The flat gain one PreEQ band spanning [loHz, hiHz] should apply to
+     * best reproduce the parametric response across that span.
+     *
+     * Hybrid of the two estimators below. The mean in dB is the least-squares
+     * fit for a flat band, and right for anything broad — shelves, wide bells,
+     * AutoEQ's overlapping corrections. The peak alone (the previous
+     * behaviour) overstated every broad shape: a Q 0.7 low shelf of +6.4 dB at
+     * 105 Hz is ~+3 dB at the 100 Hz band's centre but its top edge sits
+     * inside the band, so the band got ~+5 dB. Summed over a 10-filter AutoEQ
+     * profile that is a heavier correction than measured, and more limiting.
+     *
+     * A narrow filter shows up as a peak far from the mean (a Q 12 notch:
+     * mean -2.85 dB, peak -12 dB). Past [NARROW_FEATURE_DB] of separation the
+     * result blends toward the peak, reaching it fully [NARROW_BLEND_DB]
+     * later, so surgical notches keep their depth exactly as before.
+     */
+    fun evaluateBandGainDb(loHz: Float, hiHz: Float, samples: Int = 13): Float {
+        if (!enabled) return 0f
+        val lo = loHz.coerceAtLeast(1f)
+        val hi = hiHz.coerceAtLeast(lo + 1f)
+        val logLo = ln(lo.toDouble())
+        val logHi = ln(hi.toDouble())
+        var sum = 0.0
+        var peak = 0f
+        for (s in 0 until samples) {
+            val t = if (samples <= 1) 0.5 else s.toDouble() / (samples - 1)
+            val v = evaluateMagnitudeResponseDb(exp(logLo + (logHi - logLo) * t).toFloat())
+            sum += v
+            if (kotlin.math.abs(v) > kotlin.math.abs(peak)) peak = v
+        }
+        val mean = (sum / samples).toFloat()
+        val w = ((kotlin.math.abs(peak - mean) - NARROW_FEATURE_DB) / NARROW_BLEND_DB).coerceIn(0f, 1f)
+        return mean + (peak - mean) * w
+    }
+
+    /**
      * Combined magnitude response for a PreEQ band spanning [loHz, hiHz]:
      * the single most extreme (largest |dB|) sample found anywhere in that
-     * span, not the response at one fixed point.
+     * span, not the response at one fixed point. Kept for reference and the
+     * tests; the DSP path uses [evaluateBandGainDb].
      *
      * A DynamicsProcessing.Eq PreEQ band applies ONE flat gain across its
      * whole cutoff span (see EqBands.cutoffFrequencies) — [evaluateMagnitudeResponseDb]

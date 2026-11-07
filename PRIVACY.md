@@ -14,7 +14,7 @@ Everything below stays on your device unless you choose to share it yourself.
 
 - **Your settings.** Equalizer curves, presets, effect settings and per-app / per-device profiles are stored in the app's private storage.
 - **Which app is playing audio.** To apply per-app profiles and attach its effects to the right audio stream, the app reads the package name of the app currently playing audio (for example, your music player). This is used only on the device and is not stored anywhere except alongside the profile you created for that app.
-- **Connected audio device names.** The name of your connected headphones or speaker is used to keep separate settings for each device and, in the GitHub version, to suggest matching headphone tuning. It is not sent anywhere.
+- **Connected audio device names.** The name of your connected headphones or speaker is used to keep separate settings for each device and, in the GitHub version, to suggest searching the AutoEQ database for that model. It is not sent anywhere — the search runs on your device.
 - **Crash reports.** If the app crashes, a report containing the app version, device model, Android version and a technical stack trace is saved in the app's private storage. It is only sent anywhere if you tap "Share crash report" and pick where to send it yourself.
 - **Settings backups.** "Backup & Restore" writes your settings to a file you choose, and reads files you choose to import. The app does not upload these files.
 - **Optional DUMP permission.** If you grant this permission yourself via ADB, the app reads system audio-session information on the device to find the active audio stream. That information is not stored or transmitted.
@@ -23,7 +23,7 @@ Everything below stays on your device unless you choose to share it yourself.
 
 **Google Play version:** the app does not request internet access and makes no network connections.
 
-**GitHub version** (downloaded from the project's GitHub Releases page): the app connects to GitHub to check for new app versions (`api.github.com`), download updates you choose to install, and download updated tuning presets (`raw.githubusercontent.com`). These requests contain no personal information, but as with any web request GitHub receives your IP address and device's network details; GitHub's handling of that is covered by the [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
+**GitHub version** (downloaded from the project's GitHub Releases page): the app connects to GitHub to check for new app versions (`api.github.com`), download updates you choose to install, download updated tuning presets (`raw.githubusercontent.com`), and — only when you open Headphone correction — download the public AutoEQ headphone list and the profile you pick (`raw.githubusercontent.com/jaakkopasanen/AutoEq`). Searching happens on your device; your search text is never sent. These requests contain no personal information, but as with any web request GitHub receives your IP address and device's network details; GitHub's handling of that is covered by the [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
 
 ## Permissions
 

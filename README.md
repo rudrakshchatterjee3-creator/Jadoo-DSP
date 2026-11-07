@@ -66,7 +66,7 @@ A vintage-console-style bass character module — built entirely from Android's 
 
 | Band | Range | What it does |
 |------|-------|--------------|
-| Sub-bass | 20–60 Hz | Drive-controlled saturation/compression (ratio scales from 1.8:1 to 5:1 with the Drive slider) |
+| Sub-bass | 20–60 Hz | Drive-controlled compression (ratio scales from 1.8:1 to 5:1 with the Drive slider) |
 | Low bass | 60–120 Hz | Warmth body boost — gain and ratio scale with the Warmth slider |
 | Upper bass | 120–300 Hz | Mud control, with a Pultec-style gain dip |
 
@@ -79,7 +79,7 @@ A vintage-console-style bass character module — built entirely from Android's 
 | **Pultec frequency** | 20 / 30 / 60 / 100 Hz — where the boost/cut pair is centered |
 
 ### 🌟 Hi-Res Upscaler
-Recovers treble detail that lossy compression throws away — without moving a single slider on your EQ graph. Three MBC bands spanning **5.2 kHz to 20 kHz** apply gentle makeup gain (+2.5 dB, +4.0 dB and +5.5 dB, scaled down on drivers that can't reproduce it) to the air/presence region, with fast attack times (0.6–1.5 ms) so cymbals, room ambience and "sparkle" come through without also dragging up hiss and noise floor. The bands are level-linear (1:1) — the lift is makeup gain, not expansion, which is what keeps it from also pulling up the noise floor. Transparent on already-bright material, noticeably airier on well-recorded tracks.
+Lifts the top octaves for more air and sparkle — without moving a single slider on your EQ graph. It brightens what is there; it cannot restore detail a lossy file has already discarded. Three MBC bands spanning **5.2 kHz to 20 kHz** apply gentle makeup gain (+2.5 dB, +4.0 dB and +5.5 dB, scaled down on drivers that can't reproduce it) to the air/presence region, with fast attack times (0.6–1.5 ms) so cymbals, room ambience and "sparkle" come through without also dragging up hiss and noise floor. The bands are level-linear (1:1) — the lift is makeup gain, not expansion, which is what keeps it from also pulling up the noise floor. Transparent on already-bright material, noticeably airier on well-recorded tracks.
 
 ### 🎬 HDR Dynamics
 Two ways to push back against the "loudness war":
@@ -160,13 +160,15 @@ A full-screen editor with:
 JadOO never sees raw PCM samples. Instead, it attaches a single `DynamicsProcessing` effect to Android's **global audio session** — the shared mix bus that every app's audio passes through after the OS sums it. That one effect instance has up to four stages, and every feature you toggle is translated into gain/ratio/threshold numbers for one or more bands inside it:
 
 1. **Pre-EQ** (15 bands) — your manual Graphic EQ and Surround+'s left/right treble swap, all summed per band
-2. **Multiband Compressor (MBC)** — up to 10 bands allocated dynamically across Analog Bass saturation, DBFB bass reinforcement, HDR Dynamics, and the Hi-Res air bands, each running on its own frequency range
+2. **Multiband Compressor (MBC)** — up to 10 bands allocated dynamically across Analog Bass compression, DBFB bass reinforcement, HDR Dynamics, and the Hi-Res air bands, each running on its own frequency range. Bluetooth uses a fixed layout instead (see below)
 3. **Post-EQ** — Pultec-style boost/cut bands for Analog Bass
-4. **Limiter** — a safety ceiling whose threshold is recalculated from a "headroom budget" every time a gain-adding feature is toggled, so stacking features doesn't silently start clipping
+4. **Limiter** — a safety ceiling whose threshold follows a "headroom budget" on wired and speaker routes. It measures average level, so it can't stop clipping on its own: an input trim does that there, and level-aware boosts do it on Bluetooth
 
 Tube Warmth runs as a separate `LoudnessEnhancer` effect alongside this chain and never touches the DynamicsProcessing topology directly.
 
 Because every feature shares one effect instance, turning any module on or off rebuilds the whole topology in one atomic step — there's no "stack of independent effects" to get out of sync.
+
+**On Bluetooth** the phone sends full level at every volume step, so there is no spare room for a boost and compressors voiced for a turned-down signal work far too hard. That route gets its own MBC plan: fixed frequency zones that every feature adds its gain into, each with a compressor set so the boost is whole at normal levels and fades to nothing on a song's hottest moments. The voice is not turned down to make room for bass, hits stay where the track put them, and a small level lift means switching a feature on is never heard as a drop.
 
 ---
 
@@ -212,7 +214,7 @@ For debug builds with logging:
 
 - **Sample rate aware**: the engine detects the actual device sample rate via `AudioManager` on startup and reconfigures `DigitalFilterEngine`'s biquad coefficients accordingly. No hardcoded 48 kHz assumptions.
 - **Thread safety**: parameters shared between the UI thread and the DSP thread are `@Volatile` or guarded by a mutex/synchronized block. Compound changes (e.g. moving the Pultec frequency) are applied atomically so you never hear a boost at the new frequency paired with a cut from the old one.
-- **Headroom budgeting**: every feature that adds gain (Analog Bass drive, Tube Warmth, DBFB, Hi-Res) reports its worst-case contribution, and the Limiter's ceiling is recalculated from that total whenever a feature or its intensity changes.
+- **Headroom budgeting**: on wired and speaker routes every feature that adds gain (Analog Bass drive, Tube Warmth, DBFB, Hi-Res) reports its worst-case contribution, and the Limiter's ceiling is recalculated from that total whenever a feature or its intensity changes. On Bluetooth the same boosts are made level-aware instead.
 - **Per-channel EQ**: almost every feature writes identical left/right gains. The one exception is Surround+'s Traditional/Ultra Wide treble swap, which writes independent left/right gains for a handful of bands to create real, balanced stereo width.
 
 ---

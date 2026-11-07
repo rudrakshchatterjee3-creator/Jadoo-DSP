@@ -43,10 +43,9 @@ object BackupCodec {
         s.put("peqEnabled", state.peqEnabled)
         s.put("peqBands", state.peqBands)
         s.put("sbcModeEnabled", state.sbcModeEnabled)
+        s.put("sbcStyle", state.sbcStyle)
         s.put("deviceType", state.deviceType)
         s.put("deviceQualityTier", state.deviceQualityTier)
-        s.put("crossfeedEnabled", state.crossfeedEnabled)
-        s.put("crossfeedStrength", state.crossfeedStrength)
         root.put("sessionState", s)
 
         val presetsArray = JSONArray()
@@ -100,10 +99,9 @@ object BackupCodec {
             peqEnabled = s.optBoolean("peqEnabled", false),
             peqBands = s.optString("peqBands", ""),
             sbcModeEnabled = s.optBoolean("sbcModeEnabled", false),
+            sbcStyle = s.optString("sbcStyle", "New"),
             deviceType = s.optString("deviceType", "General"),
-            deviceQualityTier = s.optDouble("deviceQualityTier", 0.5).toFloat(),
-            crossfeedEnabled = s.optBoolean("crossfeedEnabled", false),
-            crossfeedStrength = s.optDouble("crossfeedStrength", 0.5).toFloat()
+            deviceQualityTier = s.optDouble("deviceQualityTier", 0.5).toFloat()
         )
 
         val presetsArray = root.optJSONArray("eqPresets") ?: JSONArray()

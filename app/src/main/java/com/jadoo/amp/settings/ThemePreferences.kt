@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.compose.ui.graphics.Color
 import androidx.datastore.preferences.preferencesDataStore
+import com.jadoo.amp.ui.theme.Backdrop
 import com.jadoo.amp.ui.theme.ThemeMode
 import com.jadoo.amp.ui.theme.ThemeSpec
 import com.jadoo.amp.ui.theme.ToneMode
@@ -27,7 +28,12 @@ data class ThemeSettings(
     /** "System" | "Light" | "Dark" */
     val tone: String = "System",
     val amoled: Boolean = false,
-    val seedColor: Int = 0xFFE1A730.toInt()
+    val seedColor: Int = 0xFFE1A730.toInt(),
+    /**
+     * "Black" | "Dim" | "Tinted" | "Aurora", or "" when never chosen — then it
+     * follows the legacy Pure Black switch (on → Black, off → Dim).
+     */
+    val backdrop: String = ""
 )
 
 /**
@@ -49,8 +55,19 @@ fun ThemeSettings.toSpec(): ThemeSpec = ThemeSpec(
         else -> ToneMode.System
     },
     amoled = amoled,
-    seed = Color(seedColor)
+    seed = Color(seedColor),
+    backdrop = when (backdrop) {
+        "Black" -> Backdrop.Black
+        "Dim" -> Backdrop.Dim
+        "Tinted" -> Backdrop.Tinted
+        "Aurora" -> Backdrop.Aurora
+        else -> if (amoled) Backdrop.Black else Backdrop.Dim
+    }
 )
+
+/** The backdrop actually in effect, legacy Pure Black resolved. */
+val ThemeSettings.effectiveBackdrop: String
+    get() = backdrop.ifBlank { if (amoled) "Black" else "Dim" }
 
 class ThemePreferences(private val context: Context) {
     private object Keys {
@@ -58,6 +75,7 @@ class ThemePreferences(private val context: Context) {
         val tone = stringPreferencesKey("tone_mode")
         val amoled = booleanPreferencesKey("amoled")
         val seedColor = intPreferencesKey("seed_color")
+        val backdrop = stringPreferencesKey("backdrop")
     }
 
     /**
@@ -126,7 +144,8 @@ class ThemePreferences(private val context: Context) {
             // No legacy equivalent — there was never a tone override.
             tone = p[Keys.tone] ?: "System",
             amoled = p[Keys.amoled] ?: false,
-            seedColor = p[Keys.seedColor] ?: legacySeed ?: 0xFFE1A730.toInt()
+            seedColor = p[Keys.seedColor] ?: legacySeed ?: 0xFFE1A730.toInt(),
+            backdrop = p[Keys.backdrop] ?: ""
         )
     }
 
@@ -138,8 +157,8 @@ class ThemePreferences(private val context: Context) {
         context.themeDataStore.edit { it[Keys.tone] = tone }
     }
 
-    suspend fun setAmoled(enabled: Boolean) {
-        context.themeDataStore.edit { it[Keys.amoled] = enabled }
+    suspend fun setBackdrop(backdrop: String) {
+        context.themeDataStore.edit { it[Keys.backdrop] = backdrop }
     }
 
     suspend fun setSeedColor(color: Int) {

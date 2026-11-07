@@ -60,6 +60,10 @@ object BrandScheme {
         surfaceContainer = Color(0xFF221E17),
         surfaceContainerHigh = Color(0xFF2D2821),
         surfaceContainerHighest = Color(0xFF38332B),
+        // Set explicitly: left unset, lightColorScheme/darkColorScheme fall
+        // back to Material's baseline purple-grey, which the EQ panels use.
+        surfaceDim = Color(0xFF110E0A),
+        surfaceBright = Color(0xFF3D3830),
 
         outline = Color(0xFF988F7F),
         outlineVariant = Color(0xFF4C4539),
@@ -105,6 +109,8 @@ object BrandScheme {
         surfaceContainer = Color(0xFFF7ECE0),
         surfaceContainerHigh = Color(0xFFF1E6DA),
         surfaceContainerHighest = Color(0xFFEBE0D5),
+        surfaceDim = Color(0xFFE3D9CC),
+        surfaceBright = Color(0xFFFFF8EF),
 
         outline = Color(0xFF7F7667),
         outlineVariant = Color(0xFFD0C5B4),
