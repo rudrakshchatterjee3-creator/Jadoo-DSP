@@ -78,6 +78,39 @@ object DpResponse {
             binsDb[lo] + (binsDb[hi] - binsDb[lo]) * t
         }
 
+    /** Gaussian width of the display smoothing, in octaves (one standard deviation). */
+    const val SMOOTH_OCTAVES = 0.18f
+
+    /**
+     * Fractional-octave smoothing for the dashboard curve. Every DP band is a
+     * flat step over a run of bins, so the raw read-back is a staircase with a
+     * corner at every cutoff; the real response never has those corners, since
+     * the analysis window smears each bin into its neighbours. A Gaussian in
+     * log frequency (the way audio analysers smooth) rounds the stairs
+     * while keeping the shape: broad shelves and bumps survive, one-bin
+     * spikes flatten. [freqsHz] must be ascending. Display only — never
+     * feed this back into the engine.
+     */
+    fun smoothed(valuesDb: FloatArray, freqsHz: FloatArray, sigmaOctaves: Float = SMOOTH_OCTAVES): FloatArray {
+        val n = valuesDb.size
+        if (n == 0 || sigmaOctaves <= 0f) return valuesDb.copyOf()
+        val octaves = FloatArray(n) { (kotlin.math.ln(freqsHz[it]) / kotlin.math.ln(2f)) }
+        return FloatArray(n) { i ->
+            var sum = 0f
+            var weights = 0f
+            for (j in 0 until n) {
+                val d = (octaves[j] - octaves[i]) / sigmaOctaves
+                if (d > 3f || d < -3f) continue
+                val w = kotlin.math.exp(-0.5f * d * d)
+                sum += w * valuesDb[j]
+                weights += w
+            }
+            // At the ends the window is one-sided; dividing by the weights
+            // actually used keeps a flat curve flat there.
+            sum / weights
+        }
+    }
+
     /** Bin index DP gives [frequencyHz] — for tests and diagnostics. */
     fun binOf(frequencyHz: Float, blockSize: Int, sampleRateHz: Int): Int =
         (frequencyHz * blockSize / sampleRateHz).roundToInt()

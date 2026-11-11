@@ -17,8 +17,11 @@ android {
         applicationId = "com.jadoo.amp"
         minSdk = 28
         targetSdk = 36
-        versionCode = 15
-        versionName = "1.6.9"
+        versionCode = 16
+        // "-r1" is what UpdateChecker.parseVersion understands as a revision
+        // after 1.6.9; a "-hotfix" suffix would parse equal to 1.6.9 and never
+        // be offered. The release is titled "v1.6.9-hotfix".
+        versionName = "1.6.9-r1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

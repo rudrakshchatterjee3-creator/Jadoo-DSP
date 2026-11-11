@@ -2286,8 +2286,10 @@ class DspEngine {
      * channels: input gain, PreEQ, every MBC band's post-gain, PostEQ, the
      * limiter's post-gain and Tube Warmth's enhancer gain, read back from the
      * live DynamicsProcessing and applied bin by bin as DP does (see
-     * DpResponse). The quiet-signal response: compressors and expanders only
-     * move it on loud or very soft material. Null when nothing is attached.
+     * DpResponse), then smoothed in log frequency for display
+     * ([DpResponse.smoothed]; the raw read-back is a staircase). The
+     * quiet-signal response: compressors and expanders only move it on loud
+     * or very soft material. Null when nothing is attached.
      */
     fun staticResponseDb(freqsHz: FloatArray, sampleRateHz: Int): FloatArray? = synchronized(this) {
         val dp = dynamicsProcessing ?: return@synchronized null
@@ -2314,7 +2316,7 @@ class DspEngine {
                 val sampled = DpResponse.sample(bins, freqsHz, block, sampleRateHz)
                 for (i in sum.indices) sum[i] += sampled[i] / 2f
             }
-            sum
+            DpResponse.smoothed(sum, freqsHz)
         } catch (e: Exception) {
             Log.w("DspEngine", "Response read-back failed: ${e.message}")
             null
