@@ -7,7 +7,6 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.jadoo.amp.R
 
@@ -60,21 +59,21 @@ private fun style(
  * these styles with `fontFeatureSettings = "tnum"` at the call site.
  */
 val JadooTypography = Typography(
-    displayLarge = style(44, 52, FontWeight.SemiBold, (-0.03).em),
-    displayMedium = style(36, 44, FontWeight.SemiBold, (-0.025).em),
-    displaySmall = style(30, 36, FontWeight.SemiBold, (-0.02).em),
-    headlineLarge = style(28, 34, FontWeight.SemiBold, (-0.02).em),
-    headlineMedium = style(25, 31, FontWeight.SemiBold, (-0.015).em),
-    headlineSmall = style(22, 28, FontWeight.SemiBold, (-0.012).em),
-    titleLarge = style(19, 24, FontWeight.SemiBold, (-0.01).em),
+    displayLarge = style(44, 52, FontWeight.SemiBold, (-1.3).sp),
+    displayMedium = style(36, 44, FontWeight.SemiBold, (-0.9).sp),
+    displaySmall = style(30, 36, FontWeight.SemiBold, (-0.6).sp),
+    headlineLarge = style(28, 34, FontWeight.SemiBold, (-0.55).sp),
+    headlineMedium = style(25, 31, FontWeight.SemiBold, (-0.4).sp),
+    headlineSmall = style(22, 28, FontWeight.SemiBold, (-0.25).sp),
+    titleLarge = style(19, 24, FontWeight.SemiBold, (-0.2).sp),
     titleMedium = style(15, 20, FontWeight.Medium),
     titleSmall = style(13, 18, FontWeight.SemiBold),
     bodyLarge = style(16, 22, FontWeight.Normal),
     bodyMedium = style(13, 18, FontWeight.Normal),
-    bodySmall = style(11, 15, FontWeight.Normal, 0.01.em),
+    bodySmall = style(11, 15, FontWeight.Normal, 0.1.sp),
     labelLarge = style(13, 18, FontWeight.Medium),
-    labelMedium = style(10, 14, FontWeight.Medium, 0.03.em),
-    labelSmall = style(10, 14, FontWeight.Medium, 0.04.em)
+    labelMedium = style(10, 14, FontWeight.Medium, 0.3.sp),
+    labelSmall = style(10, 14, FontWeight.Medium, 0.4.sp)
 )
 
 @Immutable
