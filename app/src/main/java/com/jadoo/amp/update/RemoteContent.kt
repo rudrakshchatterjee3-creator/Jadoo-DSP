@@ -8,9 +8,9 @@ import org.json.JSONObject
  * Lane A of the update system: content that ships WITHOUT reinstalling the app.
  *
  * Android has no legitimate way to swap compiled code at runtime — downloading
- * and class-loading a dex is a Play policy violation and exactly the kind of
- * thing Play Protect flags (this project already dropped Shizuku over Play
- * Protect). So Lane A is strictly data: no code, no reflection, no eval. What
+ * and class-loading a dex is exactly the kind of thing Google Play Protect
+ * flags (this project already dropped Shizuku over Play Protect). So Lane A is
+ * strictly data: no code, no reflection, no eval. What
  * it does carry is most of what actually changes between releases of a DSP app
  * — preset curves, per-headphone corrections, and the tuning constants that get
  * retuned by ear every version.

@@ -422,6 +422,9 @@ class DspEngine {
         // Pay the gain budget across the limiter AND the input stage rather
         // than dumping all of it on the limiter threshold — see levelMatchTrimDb.
         preciseGainStaging: Boolean = true,
+        // Wired/speaker only: skip the input trim (the volume drop at full
+        // phone volume) and keep the capped limiter. Bluetooth ignores it.
+        keepFullLoudness: Boolean = false,
         // How much bass/treble boost the current output device's driver can actually
         // reproduce, 0..1 (see DeviceType) — 1 reproduces every feature's original,
         // pre-device-aware behavior exactly (the "General" device type).
@@ -625,6 +628,9 @@ class DspEngine {
             val trimDb = when {
                 !usePreciseStaging -> 0f
                 bluetoothPlanActive -> bluetoothTrimDb(preEqLeftDb, preEqRightDb, volumeHeadroomDb)
+                // "Keep full loudness": no input trim on wired, DAC and speaker.
+                // Boosts on a hot master can clip; that is the user's trade.
+                keepFullLoudness -> 0f
                 else -> levelMatchTrimDb(
                     preEqLeftDb, preEqRightDb,
                     stageBoostDb(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity,
@@ -916,6 +922,7 @@ class DspEngine {
         preEqBassPeakDb: Float = 0f,
         preEqTreblePeakDb: Float = 0f,
         preciseGainStaging: Boolean = true,
+        keepFullLoudness: Boolean = false,
         preEqLeftDb: FloatArray = FloatArray(EqBands.count),
         preEqRightDb: FloatArray = preEqLeftDb,
         volumeHeadroomDb: Float = 0f
@@ -932,6 +939,9 @@ class DspEngine {
             val trimDb = when {
                 !usePreciseStaging -> 0f
                 bluetoothPlanActive -> bluetoothTrimDb(preEqLeftDb, preEqRightDb, volumeHeadroomDb)
+                // "Keep full loudness": no input trim on wired, DAC and speaker.
+                // Boosts on a hot master can clip; that is the user's trade.
+                keepFullLoudness -> 0f
                 else -> levelMatchTrimDb(
                     preEqLeftDb, preEqRightDb,
                     stageBoostDb(hiResEnabled, dbfbMode, analogBassEnabled, tubeWarmthEnabled, tubeWarmthIntensity,

@@ -79,6 +79,15 @@ import androidx.compose.runtime.setValue
 import com.jadoo.amp.ui.theme.JadooTheme
 import com.jadoo.amp.ui.theme.LocalBackdrop
 import com.jadoo.amp.ui.theme.Backdrop
+import com.jadoo.amp.ui.theme.GLASS_GLOW_PRIMARY_ALPHA
+import com.jadoo.amp.ui.theme.GLASS_GLOW_SECONDARY_ALPHA
+import com.jadoo.amp.ui.theme.GLASS_GLOW_TERTIARY_ALPHA
+import com.jadoo.amp.ui.theme.GLASS_LIGHT_STRENGTH
+import com.jadoo.amp.ui.theme.GlassLevel
+import com.jadoo.amp.ui.theme.LocalUiStyle
+import com.jadoo.amp.ui.theme.UiStyle
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -113,11 +122,7 @@ fun GroupHeader(text: String, modifier: Modifier = Modifier, trailing: String? =
 /** One rounded container holding a group's rows, separated by inset hairlines. */
 @Composable
 fun FeatureGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer
-    ) {
+    GlassAwareSurface(modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(vertical = 4.dp), content = content)
     }
 }
@@ -133,7 +138,7 @@ fun GroupDivider(inset: Boolean = true) {
 
 /** The rounded icon tile that leads each row; filled with the accent while its feature is on. */
 @Composable
-fun IconTile(icon: ImageVector, on: Boolean, enabled: Boolean = true) {
+fun IconTile(icon: ImageVector, on: Boolean, enabled: Boolean = true, glyph: FeatureGlyph? = null) {
     val container by animateColorAsState(
         when {
             !enabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
@@ -149,7 +154,8 @@ fun IconTile(icon: ImageVector, on: Boolean, enabled: Boolean = true) {
     val pop by animateFloatAsState(if (on) 1f else 0.92f, JadooTheme.motion.expressive, label = "tile_pop")
     Box(Modifier.size(36.dp).scale(pop).clip(RoundedCornerShape(11.dp)).background(container),
         contentAlignment = Alignment.Center) {
-        Icon(icon, null, tint = content, modifier = Modifier.size(20.dp))
+        if (glyph != null) AnimatedFeatureIcon(glyph, on = on, tint = content)
+        else Icon(icon, null, tint = content, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -179,6 +185,10 @@ fun FeatureRow(
     onHelpClick: (() -> Unit)? = null,
     /** Full-width expanded content (graphs) instead of aligning under the title. */
     fullWidthContent: Boolean = false,
+    /** Liquid Glass only: an AA contrast tint under the title (see glassLabelTint). */
+    titleContrastTint: Boolean = false,
+    /** Animated stand-in for [icon] while the feature is on. */
+    glyph: FeatureGlyph? = null,
     expandedContent: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     Column(Modifier.fillMaxWidth()) {
@@ -190,13 +200,14 @@ fun FeatureRow(
                 .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconTile(icon, on = checked && enabled, enabled = enabled)
+            IconTile(icon, on = checked && enabled, enabled = enabled, glyph = glyph)
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
+                    Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
                          color = if (enabled) MaterialTheme.colorScheme.onSurface
-                                 else MaterialTheme.colorScheme.onSurfaceVariant)
+                                 else MaterialTheme.colorScheme.onSurfaceVariant,
+                         modifier = if (titleContrastTint) Modifier.glassLabelTint() else Modifier)
                     if (onHelpClick != null) {
                         IconButton(onClick = onHelpClick, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.Info, "About $title", modifier = Modifier.size(16.dp),
@@ -238,7 +249,8 @@ fun NavRow(
     onClick: () -> Unit,
     accent: Boolean = false,
     enabled: Boolean = true,
-    onHelpClick: (() -> Unit)? = null
+    onHelpClick: (() -> Unit)? = null,
+    glyph: FeatureGlyph? = null
 ) {
     Row(
         Modifier
@@ -248,11 +260,11 @@ fun NavRow(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconTile(icon, on = accent, enabled = enabled)
+        IconTile(icon, on = accent, enabled = enabled, glyph = glyph)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 if (onHelpClick != null) {
                     IconButton(onClick = onHelpClick, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Info, "About $title", modifier = Modifier.size(16.dp),
@@ -316,11 +328,25 @@ fun SettingToggleRow(
 @Composable
 fun Modifier.jadooBackdrop(): Modifier {
     val bg = MaterialTheme.colorScheme.background
+    val glass = LocalUiStyle.current == UiStyle.LiquidGlass
+    if (glass) {
+        // Liquid Glass: a static orb backdrop in its own layer, which the
+        // screen's glass surfaces sample (see LiquidGlass.kt). Always painted:
+        // glass over a flat colour would read as a lighter card.
+        val scheme = MaterialTheme.colorScheme
+        val k = if (bg.luminance() < 0.5f) 1f else GLASS_LIGHT_STRENGTH
+        return this.then(GlassBackdropElement(
+            bg,
+            scheme.primary.copy(alpha = GLASS_GLOW_PRIMARY_ALPHA * k),
+            scheme.tertiary.copy(alpha = GLASS_GLOW_TERTIARY_ALPHA * k),
+            scheme.secondary.copy(alpha = GLASS_GLOW_SECONDARY_ALPHA * k)
+        ))
+    }
     if (LocalBackdrop.current != Backdrop.Aurora) return this.background(bg)
     val a = MaterialTheme.colorScheme.primary
     val b = MaterialTheme.colorScheme.tertiary
     val dark = bg.luminance() < 0.5f
-    val strength = if (dark) 1f else 0.6f
+    val strength = if (dark) 1f else AURORA_LIGHT_STRENGTH
     val drift = if (JadooTheme.motion.enabled) {
         rememberInfiniteTransition(label = "aurora").animateFloat(
             0f, 1f, infiniteRepeatable(tween(16_000, easing = LinearEasing), RepeatMode.Reverse),
@@ -332,13 +358,35 @@ fun Modifier.jadooBackdrop(): Modifier {
         val h = size.height
         val r1 = w * 1.05f
         val c1 = Offset(w * (0.1f + 0.35f * drift), h * 0.1f)
-        drawCircle(Brush.radialGradient(listOf(a.copy(alpha = 0.22f * strength), Color.Transparent),
+        drawCircle(Brush.radialGradient(listOf(a.copy(alpha = AURORA_PRIMARY_ALPHA * strength), Color.Transparent),
                                         center = c1, radius = r1), radius = r1, center = c1)
         val r2 = w * 0.9f
         val c2 = Offset(w * (0.95f - 0.3f * drift), h * (0.3f + 0.06f * drift))
-        drawCircle(Brush.radialGradient(listOf(b.copy(alpha = 0.16f * strength), Color.Transparent),
+        drawCircle(Brush.radialGradient(listOf(b.copy(alpha = AURORA_TERTIARY_ALPHA * strength), Color.Transparent),
                                         center = c2, radius = r2), radius = r2, center = c2)
     }
+}
+
+// Standard's Aurora backdrop, exactly as it was before Liquid Glass existed.
+private const val AURORA_PRIMARY_ALPHA = 0.22f
+private const val AURORA_TERTIARY_ALPHA = 0.16f
+private const val AURORA_LIGHT_STRENGTH = 0.6f
+
+// ── Liquid Glass surfaces ──────────────────────────────────────────────
+
+/**
+ * A card container: an opaque surfaceContainer card, 28 dp, in Standard. Liquid
+ * Glass: the same card as lens glass over the backdrop. The glass lives on the
+ * navigation and control layer (see LiquidGlass.kt).
+ */
+@Composable
+fun GlassAwareSurface(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(28.dp),
+    content: @Composable () -> Unit
+) {
+    JadooSurface(modifier = modifier, shape = shape, color = MaterialTheme.colorScheme.surfaceContainer,
+                 content = content)
 }
 
 // ── Staggered entrance ──────────────────────────────────────────────────
@@ -505,24 +553,29 @@ fun PowerButton(on: Boolean, onToggle: (Boolean) -> Unit, modifier: Modifier = M
     val container by animateColorAsState(
         if (on) accent else MaterialTheme.colorScheme.surfaceContainerHighest, tween(300), label = "power_bg")
     val iconColor by animateColorAsState(
-        if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         tween(300), label = "power_fg")
     val press by animateFloatAsState(if (on) 1f else 0.94f, JadooTheme.motion.expressive, label = "power_pop")
     Box(
         modifier
             .size(72.dp)
             .drawBehind {
+                // Stays inside this 72dp box: a larger halo got clipped by a parent
+                // and showed up as a square-edged glow leaking out of the button.
+                val r = size.minDimension / 2f
                 if (breath > 0f) drawCircle(
-                    Brush.radialGradient(listOf(accent.copy(alpha = breath), Color.Transparent),
-                                         radius = size.minDimension * 0.75f),
-                    radius = size.minDimension * 0.75f)
+                    Brush.radialGradient(
+                        0.55f to accent.copy(alpha = breath), 1f to Color.Transparent, radius = r),
+                    radius = r)
             },
         contentAlignment = Alignment.Center
     ) {
-        Surface(
+        JadooSurface(
             onClick = { onToggle(!on) },
             shape = CircleShape,
             color = container,
+            level = GlassLevel.Floating,
+            prominent = on,
             modifier = Modifier.size(60.dp).scale(press)
                 .semantics { contentDescription = if (on) "Turn JadOO off" else "Turn JadOO on" }
         ) {
@@ -536,11 +589,12 @@ fun PowerButton(on: Boolean, onToggle: (Boolean) -> Unit, modifier: Modifier = M
 /** A small rounded status chip, e.g. the current output device. */
 @Composable
 fun StatusChip(icon: ImageVector, text: String, onClick: (() -> Unit)? = null) {
-    Surface(
+    JadooSurface(
         onClick = onClick ?: {},
         enabled = onClick != null,
         shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        level = GlassLevel.Nested
     ) {
         Row(Modifier.heightIn(min = 36.dp).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically) {

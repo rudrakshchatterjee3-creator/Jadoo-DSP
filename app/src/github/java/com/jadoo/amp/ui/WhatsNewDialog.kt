@@ -120,9 +120,10 @@ fun WhatsNewDialog(
                         fontSize = 28.sp
                     )
                     Spacer(Modifier.height(6.dp))
-                    Surface(
+                    com.jadoo.amp.ui.components.JadooSurface(
                         shape = RoundedCornerShape(50.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                        level = com.jadoo.amp.ui.theme.GlassLevel.Nested
                     ) {
                         Text(
                             release.tagName,
@@ -144,6 +145,8 @@ fun WhatsNewDialog(
                         }
                     }
 
+                    // Liquid Glass puts the changelog on a glass card; Standard: a plain Column.
+                    com.jadoo.amp.ui.components.GlassSection {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -156,6 +159,7 @@ fun WhatsNewDialog(
                                 ChangelogLine(line)
                             }
                         }
+                    }
                     }
 
                     Spacer(Modifier.height(36.dp))

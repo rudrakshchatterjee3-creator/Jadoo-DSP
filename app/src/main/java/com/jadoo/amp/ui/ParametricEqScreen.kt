@@ -36,6 +36,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jadoo.amp.audio.DigitalFilterEngine
 import com.jadoo.amp.ui.theme.lchToColor
+import com.jadoo.amp.ui.components.*
+import com.jadoo.amp.ui.theme.GlassLevel
+import com.jadoo.amp.ui.theme.LocalUiStyle
+import com.jadoo.amp.ui.theme.UiStyle
+import androidx.compose.foundation.layout.RowScope
 import com.jadoo.amp.ui.theme.toLch
 import androidx.compose.ui.graphics.luminance
 import kotlin.math.*
@@ -105,23 +110,37 @@ fun ParametricEqScreen(
             frequency = 1000f, gain = 0f, q = 1.0f, isEnabled = false
         )
 
+    // Liquid Glass: back and Reset ride in a pinned glass bar and the editor
+    // scrolls under it. Standard: the bar scrolls with the page, as before.
+    val glass = LocalUiStyle.current == UiStyle.LiquidGlass
+    val topBar: @Composable RowScope.() -> Unit = {
+        IconButton(onClick = onNavigateBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        }
+        Spacer(Modifier.weight(1f))
+        TextButton(onClick = { showResetConfirm = true }) { Text("Reset") }
+    }
+    GlassPinnedLayout(modifier.fillMaxSize(), header = { if (glass) GlassTopBar(content = topBar) }) { headerTop ->
     Column(
-        modifier = modifier
+        modifier = if (glass) Modifier
+            .fillMaxSize()
+            .glassContentSource()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+            .padding(top = headerTop)
+        else Modifier
             .fillMaxSize()
             .padding(16.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // ── Top bar: back + title + reset ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onNavigateBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = { showResetConfirm = true }) { Text("Reset") }
+        if (!glass) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                content = topBar
+            )
         }
         Column(Modifier.padding(horizontal = 8.dp)) {
             Text("Parametric EQ", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
@@ -150,7 +169,8 @@ fun ParametricEqScreen(
                 .fillMaxWidth()
                 .height(52.dp)
                 .clip(RoundedCornerShape(26.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                .jadooControlBackground(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(26.dp),
+                                        GlassLevel.Card),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -199,6 +219,7 @@ fun ParametricEqScreen(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
+            GlassSection {
             BandSelector(
                 bandStates = bandStates,
                 selectedIndex = selectedBandIndex,
@@ -211,10 +232,11 @@ fun ParametricEqScreen(
                     }
                 }
             )
+            }
 
             // ── Active band info card ──
             val bandColor = bandColors[selectedBandIndex % bandColors.size]
-            Surface(
+            JadooSurface(
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainer
             ) {
@@ -238,11 +260,12 @@ fun ParametricEqScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
-                        Surface(
+                        JadooSurface(
                             shape = RoundedCornerShape(12.dp),
                             color = if (selectedBand.isEnabled)
                                 MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surfaceVariant
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                            level = GlassLevel.Nested
                         ) {
                             Text(
                                 text = if (selectedBand.isEnabled) selectedBand.type.name
@@ -325,7 +348,7 @@ fun ParametricEqScreen(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Surface(
+                JadooSurface(
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceContainer
                 ) {
@@ -371,10 +394,12 @@ fun ParametricEqScreen(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
+            GlassSection {
             PreampSlider(
                 value = preampDb,
                 onValueChange = onPreampChanged
             )
+            }
 
             Spacer(Modifier.height(8.dp))
         } else if (selectedTab == 1) {
@@ -385,6 +410,7 @@ fun ParametricEqScreen(
             )
         } else {
             // ── Table View ──
+            GlassSection {
             TableView(
                 bandStates = bandStates,
                 preampDb = preampDb,
@@ -393,11 +419,13 @@ fun ParametricEqScreen(
                 onBandEnabledChanged = onBandEnabledChanged,
                 modifier = Modifier.fillMaxWidth()
             )
+            }
         }
+    }
     }
 
     if (showResetConfirm) {
-        AlertDialog(
+        JadooAlertDialog(
             onDismissRequest = { showResetConfirm = false },
             title = { Text("Reset all bands?") },
             text = { Text("This will disable all 16 PEQ bands and restore their default values.") },
@@ -467,10 +495,10 @@ private fun EqGraph(
     }
 
     Box(modifier = modifier) {
-        Card(
+        JadooCard(
             modifier = Modifier.fillMaxSize(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = graphBackground)
+            shape = RoundedCornerShape(if (LocalUiStyle.current == UiStyle.LiquidGlass) 24.dp else 12.dp),
+            containerColor = graphBackground
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 // Top info bar
@@ -699,12 +727,12 @@ private fun GraphicView(
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Large response curve
-        Card(
+        JadooCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(280.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = graphBackground)
+            shape = RoundedCornerShape(if (LocalUiStyle.current == UiStyle.LiquidGlass) 24.dp else 16.dp),
+            containerColor = graphBackground
         ) {
             Box(modifier = Modifier.fillMaxSize().padding(bottom = 20.dp)) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
@@ -843,9 +871,9 @@ private fun GraphicView(
 
 @Composable
 private fun SummaryCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(
+    JadooSurface(
         modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(if (LocalUiStyle.current == UiStyle.LiquidGlass) 20.dp else 12.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
         Column(
@@ -874,9 +902,10 @@ private fun TableView(
     val bandColors = rememberBandColors()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Preamp row
-        Surface(
+        JadooSurface(
             shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            level = GlassLevel.Nested
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -894,9 +923,10 @@ private fun TableView(
         }
 
         // Header row
-        Surface(
+        JadooSurface(
             shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHighest
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            level = GlassLevel.Nested
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -915,11 +945,12 @@ private fun TableView(
         bandStates.forEachIndexed { index, band ->
             val isSelected = index == selectedBandIndex
             val bandColor = bandColors[index % bandColors.size]
-            Surface(
+            JadooSurface(
                 shape = RoundedCornerShape(12.dp),
                 color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
                         else MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.clickable { onSelectBand(index) }
+                modifier = Modifier.clickable { onSelectBand(index) },
+                level = GlassLevel.Nested
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1017,12 +1048,13 @@ private fun BandSelector(
                             .weight(1f)
                             .heightIn(min = 56.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(
+                            .jadooControlBackground(
                                 when {
                                     selected -> MaterialTheme.colorScheme.primaryContainer
                                     enabled -> MaterialTheme.colorScheme.surfaceContainerHighest
                                     else -> MaterialTheme.colorScheme.surfaceContainer
-                                }
+                                },
+                                RoundedCornerShape(12.dp)
                             )
                             .border(
                                 width = if (selected) 2.dp else 1.dp,
@@ -1058,7 +1090,9 @@ private fun BandSelector(
         FilledTonalButton(
             onClick = onAddBand,
             enabled = bandStates.any { !it.isEnabled },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+            colors = jadooTonalButtonColors(),
+            border = jadooTonalButtonBorder()
         ) {
             Text("Enable next available band")
         }
@@ -1080,9 +1114,10 @@ private fun FilterTypePill(
         modifier = modifier
             .heightIn(min = 52.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(
+            .jadooControlBackground(
                 if (selected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceContainerHigh
+                else MaterialTheme.colorScheme.surfaceContainerHigh,
+                RoundedCornerShape(16.dp)
             )
             .border(
                 width = if (selected) 1.5.dp else 1.dp,
@@ -1147,9 +1182,10 @@ private fun EqParamSlider(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold
             )
-            Surface(
+            JadooSurface(
                 shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHighest
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                level = GlassLevel.Nested
             ) {
                 Text(
                     text = displayFormatter(value),
@@ -1230,7 +1266,7 @@ private fun PreampSlider(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .jadooControlBackground(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(10.dp))
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             )
         }

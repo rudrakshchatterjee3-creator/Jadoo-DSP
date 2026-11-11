@@ -11,6 +11,7 @@ import com.jadoo.amp.ui.theme.Backdrop
 import com.jadoo.amp.ui.theme.ThemeMode
 import com.jadoo.amp.ui.theme.ThemeSpec
 import com.jadoo.amp.ui.theme.ToneMode
+import com.jadoo.amp.ui.theme.uiStyleFromKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -33,7 +34,9 @@ data class ThemeSettings(
      * "Black" | "Dim" | "Tinted" | "Aurora", or "" when never chosen — then it
      * follows the legacy Pure Black switch (on → Black, off → Dim).
      */
-    val backdrop: String = ""
+    val backdrop: String = "",
+    /** "Standard" | "LiquidGlass". Absent → Standard, the unchanged default. */
+    val uiStyle: String = "Standard"
 )
 
 /**
@@ -62,7 +65,8 @@ fun ThemeSettings.toSpec(): ThemeSpec = ThemeSpec(
         "Tinted" -> Backdrop.Tinted
         "Aurora" -> Backdrop.Aurora
         else -> if (amoled) Backdrop.Black else Backdrop.Dim
-    }
+    },
+    style = uiStyleFromKey(uiStyle)
 )
 
 /** The backdrop actually in effect, legacy Pure Black resolved. */
@@ -76,6 +80,7 @@ class ThemePreferences(private val context: Context) {
         val amoled = booleanPreferencesKey("amoled")
         val seedColor = intPreferencesKey("seed_color")
         val backdrop = stringPreferencesKey("backdrop")
+        val uiStyle = stringPreferencesKey("ui_style")
     }
 
     /**
@@ -145,7 +150,8 @@ class ThemePreferences(private val context: Context) {
             tone = p[Keys.tone] ?: "System",
             amoled = p[Keys.amoled] ?: false,
             seedColor = p[Keys.seedColor] ?: legacySeed ?: 0xFFE1A730.toInt(),
-            backdrop = p[Keys.backdrop] ?: ""
+            backdrop = p[Keys.backdrop] ?: "",
+            uiStyle = p[Keys.uiStyle] ?: "Standard"
         )
     }
 
@@ -159,6 +165,10 @@ class ThemePreferences(private val context: Context) {
 
     suspend fun setBackdrop(backdrop: String) {
         context.themeDataStore.edit { it[Keys.backdrop] = backdrop }
+    }
+
+    suspend fun setUiStyle(style: String) {
+        context.themeDataStore.edit { it[Keys.uiStyle] = style }
     }
 
     suspend fun setSeedColor(color: Int) {

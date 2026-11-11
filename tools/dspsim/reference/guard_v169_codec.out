@@ -1,0 +1,62 @@
+plans: {'Heavy': [(3.5, -16.4, 3.0), (2.67, -15.7, 3.0), (0.85, -14.7, 1.55), (1.0, -18.6, 1.2), (1.0, -19.8, 2.11), (2.75, -25.8, 3.0), (3.8, -34.6, 3.0), (4.85, -43.4, 3.0)]}
+E heavy: [(2.5, -14.9, 3.0), (1.67, -14.2, 3.0), (-0.15, -14.7, 1.23), (0.0, 0.0, 1.0), (0.0, -19.8, 1.56), (1.75, -24.3, 3.0), (2.8, -33.1, 3.0), (3.85, -41.9, 3.0)]
+E default: [(0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0)]
+
+===== LE guard alone (0 dB), no DP, vs bypass: transparency =====
+through  hot  inPk  -0.10 outPk  -0.51 LU -2.26 bass -3.32 mid -1.84 tre -2.33 bassP5 -4.70 GR>0.5dB  78.5% GRmax -6.48 residual  -10.8 dB
+through  -14  inPk  -5.37 outPk  -5.42 LU -0.36 bass -0.63 mid -0.23 tre -0.41 bassP5 -1.21 GR>0.5dB  13.5% GRmax -2.08 residual  -23.2 dB
+tobu     hot  inPk  -0.84 outPk  -2.12 LU -1.24 bass -0.96 mid -1.36 tre -0.98 bassP5 -2.16 GR>0.5dB  58.6% GRmax -3.73 residual  -16.1 dB
+tobu     -14  inPk  -3.90 outPk  -4.26 LU -0.24 bass -0.16 mid -0.29 tre -0.18 bassP5 -0.55 GR>0.5dB   8.5% GRmax -1.41 residual  -28.0 dB
+monica   hot  inPk  -0.82 outPk  -2.59 LU -0.73 bass -0.79 mid -0.63 tre -0.53 bassP5 -1.78 GR>0.5dB  41.0% GRmax -3.27 residual  -19.4 dB
+monica   -14  inPk  -2.69 outPk  -3.87 LU -0.25 bass -0.29 mid -0.21 tre -0.17 bassP5 -0.85 GR>0.5dB  11.3% GRmax -1.97 residual  -26.6 dB
+ishq     hot  inPk  -0.29 outPk  -2.82 LU -0.81 bass -0.98 mid -0.63 tre -0.61 bassP5 -2.32 GR>0.5dB  38.0% GRmax -4.48 residual  -18.0 dB
+ishq     -14  inPk  -2.09 outPk  -3.98 LU -0.34 bass -0.43 mid -0.23 tre -0.23 bassP5 -1.26 GR>0.5dB  12.5% GRmax -3.10 residual  -23.7 dB
+gehra    hot  inPk  -0.10 outPk  -2.99 LU -0.83 bass -1.20 mid -0.53 tre -0.54 bassP5 -2.54 GR>0.5dB  36.5% GRmax -5.13 residual  -17.3 dB
+gehra    -14  inPk  -1.63 outPk  -3.84 LU -0.41 bass -0.68 mid -0.22 tre -0.24 bassP5 -1.58 GR>0.5dB  14.9% GRmax -3.89 residual  -21.3 dB
+
+===== codecs (hot masters): decoded full-scale samples and decoded peak; mean/worst over 5 masters =====
+sbc   bypass         -    FS samples mean   229.6 worst   1148 | dec peak mean  -0.41 worst  +0.00
+sbc   Heavy          A    FS samples mean  2075.4 worst   7532 | dec peak mean  +0.00 worst  +0.00
+sbc   Heavy          B    FS samples mean   141.0 worst    457 | dec peak mean  +0.00 worst  +0.00
+sbc   Heavy          C1   FS samples mean  1063.4 worst   4345 | dec peak mean  +0.00 worst  +0.00
+sbc   Heavy          C2   FS samples mean   444.4 worst   1963 | dec peak mean  +0.00 worst  +0.00
+sbc   Heavy          D    FS samples mean    46.4 worst    184 | dec peak mean  -0.00 worst  +0.00
+sbc   Heavy          E    FS samples mean  1520.8 worst   6206 | dec peak mean  +0.00 worst  +0.00
+sbc   Heavy          REF  FS samples mean   309.0 worst   1085 | dec peak mean  +0.00 worst  +0.00
+sbc   Analog+DBFB N  A    FS samples mean  1483.4 worst   5898 | dec peak mean  +0.00 worst  +0.00
+sbc   Analog+DBFB N  B    FS samples mean    27.4 worst    109 | dec peak mean  -0.14 worst  +0.00
+sbc   Analog+DBFB N  C1   FS samples mean   612.0 worst   2688 | dec peak mean  +0.00 worst  +0.00
+sbc   Analog+DBFB N  C2   FS samples mean   164.6 worst    766 | dec peak mean  -0.01 worst  +0.00
+sbc   Analog+DBFB N  D    FS samples mean     2.0 worst      9 | dec peak mean  -0.64 worst  +0.00
+sbc   Analog+DBFB N  E    FS samples mean  1033.6 worst   4524 | dec peak mean  +0.00 worst  +0.00
+sbc   Analog+DBFB N  REF  FS samples mean   281.2 worst   1192 | dec peak mean  +0.00 worst  +0.00
+aptx  bypass         -    FS samples mean   160.4 worst    802 | dec peak mean  -0.37 worst  +0.00
+aptx  Heavy          A    FS samples mean  2010.2 worst   7350 | dec peak mean  +0.00 worst  +0.00
+aptx  Heavy          B    FS samples mean   124.8 worst    406 | dec peak mean  +0.00 worst  +0.00
+aptx  Heavy          C1   FS samples mean  1012.8 worst   4160 | dec peak mean  +0.00 worst  +0.00
+aptx  Heavy          C2   FS samples mean   399.0 worst   1776 | dec peak mean  +0.00 worst  +0.00
+aptx  Heavy          D    FS samples mean    48.6 worst    206 | dec peak mean  -0.00 worst  +0.00
+aptx  Heavy          E    FS samples mean  1460.6 worst   5957 | dec peak mean  +0.00 worst  +0.00
+aptx  Heavy          REF  FS samples mean   275.0 worst    935 | dec peak mean  +0.00 worst  +0.00
+aptx  Analog+DBFB N  A    FS samples mean  1399.2 worst   5627 | dec peak mean  +0.00 worst  +0.00
+aptx  Analog+DBFB N  B    FS samples mean    22.8 worst     84 | dec peak mean  -0.12 worst  +0.00
+aptx  Analog+DBFB N  C1   FS samples mean   552.2 worst   2440 | dec peak mean  +0.00 worst  +0.00
+aptx  Analog+DBFB N  C2   FS samples mean   153.2 worst    714 | dec peak mean  -0.00 worst  +0.00
+aptx  Analog+DBFB N  D    FS samples mean     2.8 worst     13 | dec peak mean  -0.64 worst  +0.00
+aptx  Analog+DBFB N  E    FS samples mean   974.4 worst   4315 | dec peak mean  +0.00 worst  +0.00
+aptx  Analog+DBFB N  REF  FS samples mean   238.8 worst    995 | dec peak mean  +0.00 worst  +0.00
+aac   bypass         -    FS samples mean    61.4 worst    307 | dec peak mean  -0.05 worst  +2.43
+aac   Heavy          A    FS samples mean   241.4 worst   1039 | dec peak mean  +1.13 worst  +3.27
+aac   Heavy          B    FS samples mean    23.4 worst    102 | dec peak mean  +0.79 worst  +1.95
+aac   Heavy          C1   FS samples mean   152.0 worst    697 | dec peak mean  +0.71 worst  +3.01
+aac   Heavy          C2   FS samples mean    63.0 worst    289 | dec peak mean  +0.65 worst  +2.95
+aac   Heavy          D    FS samples mean    12.0 worst     55 | dec peak mean  +0.72 worst  +2.84
+aac   Heavy          E    FS samples mean   206.0 worst    922 | dec peak mean  +0.81 worst  +3.25
+aac   Heavy          REF  FS samples mean    34.6 worst    108 | dec peak mean  +0.92 worst  +1.73
+aac   Analog+DBFB N  A    FS samples mean   144.2 worst    675 | dec peak mean  +0.47 worst  +1.91
+aac   Analog+DBFB N  B    FS samples mean     5.8 worst     28 | dec peak mean  -0.05 worst  +1.08
+aac   Analog+DBFB N  C1   FS samples mean    53.6 worst    230 | dec peak mean  +0.27 worst  +1.26
+aac   Analog+DBFB N  C2   FS samples mean    13.2 worst     56 | dec peak mean  +0.09 worst  +0.93
+aac   Analog+DBFB N  D    FS samples mean     0.6 worst      3 | dec peak mean  -0.60 worst  +0.21
+aac   Analog+DBFB N  E    FS samples mean   115.4 worst    511 | dec peak mean  +0.54 worst  +2.38
+aac   Analog+DBFB N  REF  FS samples mean    32.8 worst    159 | dec peak mean  +0.32 worst  +1.60

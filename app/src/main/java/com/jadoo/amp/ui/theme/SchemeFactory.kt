@@ -64,7 +64,8 @@ data class ThemeSpec(
     val tone: ToneMode = ToneMode.System,
     val amoled: Boolean = false,
     val seed: Color = BrandPalette.Gold,
-    val backdrop: Backdrop = Backdrop.Dim
+    val backdrop: Backdrop = Backdrop.Dim,
+    val style: UiStyle = UiStyle.Standard
 )
 
 /**

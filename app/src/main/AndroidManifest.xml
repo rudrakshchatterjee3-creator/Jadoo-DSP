@@ -9,8 +9,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- REQUEST_INSTALL_PACKAGES, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS and the
          updater's InstallResultReceiver are declared in
-         src/github/AndroidManifest.xml only — Google Play restricts both
-         permissions, so the Play build must not carry them. -->
+         src/github/AndroidManifest.xml. -->
     <!-- "development" permission: not granted at install time, but can be
          granted via `adb shell pm grant com.jadoo.amp android.permission.DUMP`
          because it's declared here. Used as a fallback to read the active
@@ -86,7 +85,7 @@
         </receiver>
 
         <!-- Restarts the DSP service after an update kills it — whether the
-             update came from the in-app updater or from Google Play.
+             update came from the in-app updater or was installed manually.
              MY_PACKAGE_REPLACED is only ever sent to this app itself, so it
              needs no exported filter from other apps' point of view. -->
         <receiver android:name=".update.PackageReplacedReceiver"

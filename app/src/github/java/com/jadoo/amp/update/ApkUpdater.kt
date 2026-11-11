@@ -21,8 +21,8 @@ import java.security.MessageDigest
  * Lane B of the update system: installs a new APK from within the app.
  *
  * This is still a package install — Android has no mechanism for replacing an
- * app's compiled code without one, and anything claiming otherwise is either
- * Play's own update flow or a policy violation. What Lane B removes is the
+ * app's compiled code without one, and anything claiming otherwise is not
+ * telling the truth. What Lane B removes is the
  * *friction*: no browser, no Downloads folder, no file manager, no manual
  * "install anyway" hunt. Because the new APK is signed with the same key
  * (`jadoo.jks`), Android treats it as an in-place update and every setting,

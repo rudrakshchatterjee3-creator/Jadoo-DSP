@@ -49,7 +49,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import com.jadoo.amp.ui.theme.BrandPalette
-import com.jadoo.amp.update.AUTOEQ_ENABLED
 import com.jadoo.amp.ui.theme.BrandScheme
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -92,7 +91,7 @@ private enum class OnboardingVisual {
 // The five page accents used to be an unrelated green/cyan/amber/violet set.
 // They are now a ramp anchored on the brand gold, warm through cool and back,
 // so the sequence has a direction and every page still belongs to JadOO.
-private val onboardingPages = listOfNotNull(
+private val onboardingPages = listOf(
     OnboardingPage(
         tag = "JADOO DSP",
         headline = "Every app.\nBetter sound.",
@@ -100,8 +99,7 @@ private val onboardingPages = listOfNotNull(
         accentColor = BrandPalette.Gold,
         visual = OnboardingVisual.Waveform
     ),
-    // AutoEQ isn't in the Play build (no network there), so neither is its page.
-    if (!AUTOEQ_ENABLED) null else OnboardingPage(
+    OnboardingPage(
         tag = "HEADPHONE CORRECTION",
         headline = "Your headphones,\nmeasured.",
         body = "Pick your model from 8,000+ lab measurements and JadOO corrects its response toward a neutral target.",

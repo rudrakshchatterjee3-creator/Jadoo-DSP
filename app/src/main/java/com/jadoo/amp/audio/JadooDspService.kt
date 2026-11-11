@@ -276,6 +276,12 @@ class JadooDspService : Service() {
     private val _preciseGainStaging = MutableStateFlow(true)
     val preciseGainStaging: StateFlow<Boolean> = _preciseGainStaging.asStateFlow()
 
+    // "Keep full loudness": wired, DAC and speaker routes skip the input trim
+    // that lowers the whole mix when the phone volume is at or near max.
+    // Bluetooth keeps its own plan and ignores this.
+    private val _keepFullLoudness = MutableStateFlow(false)
+    val keepFullLoudness: StateFlow<Boolean> = _keepFullLoudness.asStateFlow()
+
     private val _autoEqProfileName = MutableStateFlow("")
     /** AutoEQ correction applied to this output's PEQ, "Model · lab", or "". */
     val autoEqProfileName: StateFlow<String> = _autoEqProfileName.asStateFlow()
@@ -1008,7 +1014,8 @@ class JadooDspService : Service() {
             preEqLeftDb = preEqCurve(0),
             preEqRightDb = preEqCurve(1),
             volumeHeadroomDb = measureVolumeHeadroom(),
-            preciseGainStaging = _preciseGainStaging.value
+            preciseGainStaging = _preciseGainStaging.value,
+            keepFullLoudness = _keepFullLoudness.value
         )
         publishGainStagingReadout()
     }
@@ -1029,6 +1036,16 @@ class JadooDspService : Service() {
     fun setPreciseGainStaging(enabled: Boolean) {
         _preciseGainStaging.value = enabled
         if (_masterEnabled.value) rebuildDspTopology()
+        saveSession()
+    }
+
+    /**
+     * The trim is applied through the live input gain, so a headroom refresh
+     * is enough: no topology rebuild.
+     */
+    fun setKeepFullLoudness(enabled: Boolean) {
+        _keepFullLoudness.value = enabled
+        if (_masterEnabled.value) refreshHeadroom()
         saveSession()
     }
 
@@ -1436,6 +1453,7 @@ class JadooDspService : Service() {
         // than persisted — a stored curve would be stale the moment the user
         // changed volume while the service was dead.
         _preciseGainStaging.value = state.preciseGainStaging
+        _keepFullLoudness.value = state.keepFullLoudness
         _selectedPresetName.value = state.selectedPresetName
         _autoEqProfileName.value = state.autoEqProfileName
         // An AutoEQ preamp saved before Bluetooth stopped needing one: see applyAutoEqProfile.
@@ -1499,6 +1517,7 @@ class JadooDspService : Service() {
         loudnessAmount = _loudnessAmount.value,
         loudnessReferencePhon = _loudnessReferencePhon.value,
         preciseGainStaging = _preciseGainStaging.value,
+        keepFullLoudness = _keepFullLoudness.value,
         selectedPresetName = _selectedPresetName.value,
         autoEqProfileName = _autoEqProfileName.value
     )
@@ -1857,6 +1876,7 @@ class JadooDspService : Service() {
                 volumeHeadroomDb = measureVolumeHeadroom(),
                 bluetoothRoute = currentOutputDeviceApiType in BLUETOOTH_OUTPUT_TYPES,
                 preciseGainStaging = _preciseGainStaging.value,
+                keepFullLoudness = _keepFullLoudness.value,
                 hdrRestorationThreshold = remoteTuning.hdrRestorationThreshold,
                 hdrRestorationKnee = remoteTuning.hdrRestorationKnee,
                 hdrRestorationExpanderRatio = remoteTuning.hdrRestorationExpanderRatio,
@@ -2481,6 +2501,8 @@ class JadooDspService : Service() {
             preEqRightDb = preEqCurve(1),
             volumeHeadroomDb = measureVolumeHeadroom(),
             bluetoothRoute = currentOutputDeviceApiType in BLUETOOTH_OUTPUT_TYPES,
+            preciseGainStaging = _preciseGainStaging.value,
+            keepFullLoudness = _keepFullLoudness.value,
             hdrRestorationThreshold = remoteTuning.hdrRestorationThreshold,
             hdrRestorationKnee = remoteTuning.hdrRestorationKnee,
             hdrRestorationExpanderRatio = remoteTuning.hdrRestorationExpanderRatio,

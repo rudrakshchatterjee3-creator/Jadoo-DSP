@@ -64,6 +64,9 @@ data class SessionState(
     // the limiter threshold, which is what the app did before v1.6 and which
     // could reach -19 dBFS on a 10:1 brickwall. See DspEngine.levelMatchTrimDb.
     val preciseGainStaging: Boolean = true,
+    // Wired, DAC and speaker only: no input trim, so the mix is not lowered at
+    // full phone volume. Boosts on hot masters may clip. Off by default.
+    val keepFullLoudness: Boolean = false,
     // Name of the built-in or custom EQ preset last explicitly selected for
     // this device profile, so the highlighted chip / "Overwrite" target
     // survives a relaunch instead of resetting to none every cold start.
@@ -125,6 +128,7 @@ class SessionPreferences(private val context: Context) {
         const val LOUDNESS_AMOUNT = "loudness_amount"
         const val LOUDNESS_REFERENCE_PHON = "loudness_reference_phon"
         const val PRECISE_GAIN_STAGING = "precise_gain_staging"
+        const val KEEP_FULL_LOUDNESS = "keep_full_loudness"
         const val SELECTED_PRESET_NAME = "selected_preset_name"
         const val AUTOEQ_PROFILE_NAME = "autoeq_profile_name"
     }
@@ -164,6 +168,7 @@ class SessionPreferences(private val context: Context) {
         val loudnessAmount        = floatPreferencesKey(KeyNames.LOUDNESS_AMOUNT)
         val loudnessReferencePhon = floatPreferencesKey(KeyNames.LOUDNESS_REFERENCE_PHON)
         val preciseGainStaging    = booleanPreferencesKey(KeyNames.PRECISE_GAIN_STAGING)
+        val keepFullLoudness      = booleanPreferencesKey(KeyNames.KEEP_FULL_LOUDNESS)
         val selectedPresetName    = stringPreferencesKey(KeyNames.SELECTED_PRESET_NAME)
         val autoEqProfileName     = stringPreferencesKey(KeyNames.AUTOEQ_PROFILE_NAME)
     }
@@ -220,6 +225,7 @@ class SessionPreferences(private val context: Context) {
             p[floatKey(KeyNames.LOUDNESS_AMOUNT, deviceKey)] = state.loudnessAmount
             p[floatKey(KeyNames.LOUDNESS_REFERENCE_PHON, deviceKey)] = state.loudnessReferencePhon
             p[boolKey(KeyNames.PRECISE_GAIN_STAGING, deviceKey)] = state.preciseGainStaging
+            p[boolKey(KeyNames.KEEP_FULL_LOUDNESS, deviceKey)] = state.keepFullLoudness
             p[stringKey(KeyNames.SELECTED_PRESET_NAME, deviceKey)] = state.selectedPresetName
             p[stringKey(KeyNames.AUTOEQ_PROFILE_NAME, deviceKey)] = state.autoEqProfileName
         }
@@ -287,6 +293,9 @@ class SessionPreferences(private val context: Context) {
             // inheriting it would be the wrong kind of backwards compatibility.
             preciseGainStaging = bool(
                 KeyNames.PRECISE_GAIN_STAGING, LegacyKeys.preciseGainStaging, true
+            ),
+            keepFullLoudness = bool(
+                KeyNames.KEEP_FULL_LOUDNESS, LegacyKeys.keepFullLoudness, false
             ),
             selectedPresetName = string(
                 KeyNames.SELECTED_PRESET_NAME, LegacyKeys.selectedPresetName, ""

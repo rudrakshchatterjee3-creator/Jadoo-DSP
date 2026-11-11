@@ -65,6 +65,7 @@ other apps' audio. Everything is built from two effects:
   - Precise gain staging off stays on the wired plan and legacy limiter, for A/B.
 - Wired and speaker: the limiter threshold still drops by up to `MAX_HEADROOM_DB` (2 dB) for dense, loud material. That is all it does.
 - "Precise gain staging" off = legacy: no trim, the limiter takes the whole budget.
+- **"Keep full loudness"** (Settings > Sound, per output, default off; shown while precise staging is on): wired, DAC and speaker skip `levelMatchTrimDb` (trim 0) and keep the capped limiter, so features no longer lower the volume at full phone volume. Boosts get no room, so a hot master can clip; that is the user's trade. Bluetooth ignores it and keeps its level-aware plan. Differs from precise staging off, which also drops the limiter threshold by the whole budget (10:1 squash).
 
 ### 1.5 The home-screen curve is the truth
 
@@ -83,7 +84,7 @@ other apps' audio. Everything is built from two effects:
 7. **Voicing changes need ears.** Any change that moves bins (frame size, cutoffs, band order) re-voices the features. Say so to the user and ask them to A/B — never claim "sounds better" untested.
 8. **Words must match the DSP.** Help text, subtitles, README and store copy describe what the engine actually does. No "recovers detail", "saturation", "upscaling", "surgical notches" unless it is literally true.
 9. **No new feature that needs cross-channel mixing, raw samples or look-ahead.** Not possible without root; say so instead of faking it with an EQ curve under that name (Crossfeed was removed for this).
-10. **Build, test both flavors, install release-signed, check logcat** (see CLAUDE.md) before calling it done.
+10. **Build, test, install release-signed, check logcat** (see CLAUDE.md) before calling it done.
 
 ---
 
@@ -129,10 +130,11 @@ Stage key: **Pre** = PreEQ (15 bands, `EqBands`), **MBC** = multiband compressor
 - [ ] Check it on the home-screen curve.
 
 **Before a release**
-- [ ] All unit tests, both flavors; `compilePlayReleaseKotlin`.
+- [ ] All unit tests pass.
 - [ ] Release-signed build installed, logcat clean (`DspEngine Attached …` shows `budget` and `trim`).
 - [ ] By-ear pass: Bluetooth loud master with Loudness/Hi-Res/Surround; wired at full volume; speaker with Mobile Bass; a video for lip-sync.
 - [ ] Signer SHA-256 matches previous release; release body ends with `versionCode: N`.
+- [ ] Any sound change passed the regression gate: `docs/SOUND_REGRESSION_SOP.md` (reference: v1.6.9, commit `dd6d127`).
 
 ---
 

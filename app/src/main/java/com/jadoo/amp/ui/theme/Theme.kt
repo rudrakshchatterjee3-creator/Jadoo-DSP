@@ -37,7 +37,9 @@ fun JadOOampTheme(
     }
 
     val motionEnabled = rememberMotionEnabled()
-    val shapes = remember { JadooShapes() }
+    val shapes = remember(spec.style) {
+        if (spec.style == UiStyle.LiquidGlass) glassShapes() else JadooShapes()
+    }
     val tokens = remember(motionEnabled, shapes) {
         JadooTokens(shapes = shapes, motion = JadooMotion(enabled = motionEnabled))
     }
@@ -65,12 +67,22 @@ fun JadOOampTheme(
         }
     }
 
-    CompositionLocalProvider(LocalJadooTokens provides tokens, LocalBackdrop provides spec.backdrop) {
+    val glassRendering = rememberGlassRendering()
+    CompositionLocalProvider(
+        LocalJadooTokens provides tokens,
+        LocalBackdrop provides spec.backdrop,
+        LocalUiStyle provides spec.style,
+        LocalGlassRendering provides glassRendering
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = JadooTypography,
-            shapes = tokens.shapes.toMaterialShapes(),
-            content = content
-        )
+            shapes = tokens.shapes.toMaterialShapes()
+        ) {
+            // A bare Text() inherits LocalTextStyle, which MaterialTheme leaves
+            // at the platform default: without this, every Text that sets no
+            // style would ignore the app font and scale.
+            androidx.compose.material3.ProvideTextStyle(JadooTypography.bodyMedium, content)
+        }
     }
 }

@@ -51,6 +51,8 @@ import com.jadoo.amp.ui.theme.JadOOampTheme
 import com.jadoo.amp.ui.theme.buildColorScheme
 import com.jadoo.amp.ui.theme.rememberMotionEnabled
 import com.jadoo.amp.ui.components.ThemeTransitionHost
+import com.jadoo.amp.ui.components.JadooAlertDialog
+import com.jadoo.amp.ui.components.JadooCard
 import com.jadoo.amp.ui.components.rememberThemeTransitionState
 import com.jadoo.amp.ui.components.play
 import androidx.compose.ui.geometry.Offset
@@ -249,7 +251,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     if (showBatteryDialog) {
-                        AlertDialog(
+                        JadooAlertDialog(
                             onDismissRequest = { showBatteryDialog = false },
                             title = { Text("Allow unrestricted background usage") },
                             text = {
@@ -279,7 +281,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     crashReportText?.let { report ->
-                        AlertDialog(
+                        JadooAlertDialog(
                             onDismissRequest = {
                                 CrashHandler.reportFile(this@MainActivity).delete()
                                 crashReportText = null
@@ -306,8 +308,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // GitHub build: release check + What's New dialog.
-                    // Play build: no-op — the Play Store updates the app.
+                    // Release check + What's New dialog.
                     UpdateLaunchCheck()
                                             } // end true -> branch
                     }   // end when(onboardingDone)
@@ -399,6 +400,7 @@ class MainActivity : ComponentActivity() {
 
         // Gain staging
         val preciseGainStaging by audioService?.preciseGainStaging?.collectAsState(initial = true) ?: remember { mutableStateOf(true) }
+        val keepFullLoudness by audioService?.keepFullLoudness?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val gainBudgetDb by audioService?.gainBudgetDb?.collectAsState(initial = 0f) ?: remember { mutableFloatStateOf(0f) }
         val autoTrimDb by audioService?.autoTrimDb?.collectAsState(initial = 0f) ?: remember { mutableFloatStateOf(0f) }
         val bluetoothFullScale by audioService?.bluetoothFullScale?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
@@ -442,7 +444,7 @@ class MainActivity : ComponentActivity() {
         if (pendingImport != null) {
             var profileName by remember(pendingImport) { mutableStateOf("") }
             var nameError by remember(pendingImport) { mutableStateOf<String?>(null) }
-            AlertDialog(
+            JadooAlertDialog(
                 onDismissRequest = { pendingImportData = null },
                 title = { Text("Save Imported Profile") },
                 text = {
@@ -554,6 +556,7 @@ class MainActivity : ComponentActivity() {
             loudnessCurrentPhon = loudnessCurrentPhon,
             // Gain staging
             preciseGainStaging = preciseGainStaging,
+            keepFullLoudness = keepFullLoudness,
             gainBudgetDb = gainBudgetDb,
             autoTrimDb = autoTrimDb,
             showBluetoothHeadroomTip = bluetoothFullScale && !btTipDismissed,
@@ -705,6 +708,10 @@ class MainActivity : ComponentActivity() {
                 lifecycleScope.launch { themePreferences.setBackdrop(backdrop) }
                 onAppearanceChanged(origin, currentAppearance.copy(backdrop = backdrop))
             },
+            onUiStyleChanged = { origin, style ->
+                lifecycleScope.launch { themePreferences.setUiStyle(style) }
+                onAppearanceChanged(origin, currentAppearance.copy(uiStyle = style))
+            },
             onSeedColorChanged = { origin, color ->
                 lifecycleScope.launch { themePreferences.setSeedColor(color.toArgb()) }
                 onAppearanceChanged(origin, currentAppearance.copy(seedColor = color.toArgb()))
@@ -722,6 +729,9 @@ class MainActivity : ComponentActivity() {
             onImportSettings = {
                 importLauncher.launch(arrayOf("application/json"))
             },
+            buildDiagnostics = {
+                DiagnosticsReport.build(this@MainActivity, audioService?.exportSessionState())
+            },
             // SBC Enhancement
             sbcModeEnabled = sbcModeEnabled,
             onSbcModeEnabledChanged = { audioService?.setSbcModeEnabled(it) },
@@ -737,6 +747,7 @@ class MainActivity : ComponentActivity() {
             onLoudnessReferencePhonChanged = { audioService?.setLoudnessReferencePhon(it) },
             // Gain staging
             onPreciseGainStagingChanged = { audioService?.setPreciseGainStaging(it) },
+            onKeepFullLoudnessChanged = { audioService?.setKeepFullLoudness(it) },
             onSelectedPresetNameChanged = { audioService?.setSelectedPresetName(it) },
             // Per-app profiles
             onPerAppProfileToggled = { pkg, enabled ->
@@ -749,9 +760,9 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun PermissionsErrorCard() {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Card(
+            JadooCard(
                 modifier = Modifier.padding(32.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                containerColor = MaterialTheme.colorScheme.errorContainer
             ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
@@ -790,9 +801,9 @@ class MainActivity : ComponentActivity() {
 
     /**
      * The one-tap exemption prompt needs REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-     * which only the github flavor declares — Google Play restricts it to apps
-     * that Doze breaks outright. Without it, the Play build opens the system's
-     * battery-optimization list and the user picks "Don't optimize" there.
+     * which the github flavor declares. Without it (it can be revoked), the
+     * system's battery-optimization list opens and the user picks "Don't
+     * optimize" there.
      */
     private fun canRequestBatteryExemptionDirectly(): Boolean =
         ContextCompat.checkSelfPermission(

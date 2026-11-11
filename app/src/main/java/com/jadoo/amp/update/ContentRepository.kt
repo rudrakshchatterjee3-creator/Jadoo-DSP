@@ -64,8 +64,7 @@ class ContentRepository(private val context: Context) {
 
     /**
      * Resolves bundled → cached, then refreshes from the network if due
-     * (never, in the Play build — see [refresh]). Safe to call on every app
-     * launch.
+     * Safe to call on every app launch.
      */
     suspend fun initialize() = withContext(Dispatchers.IO) {
         loadBundled()?.let { _content.value = it }
@@ -89,11 +88,9 @@ class ContentRepository(private val context: Context) {
 
     /**
      * Force a fetch regardless of the refresh interval. Returns true only if a
-     * genuinely newer document was adopted. Always false in builds without
-     * the network tier ([REMOTE_CONTENT_ENABLED] — the Play build).
+     * genuinely newer document was adopted.
      */
     suspend fun refresh(): Boolean = withContext(Dispatchers.IO) {
-        if (!REMOTE_CONTENT_ENABLED) return@withContext false
         val raw = fetchRaw() ?: return@withContext false
         val parsed = RemoteContent.parse(raw) ?: run {
             Log.w(TAG, "Fetched content rejected by parser — keeping current")

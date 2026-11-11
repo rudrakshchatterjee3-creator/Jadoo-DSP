@@ -30,6 +30,18 @@ data class JadooShapes(
     val sheet: RoundedCornerShape = RoundedCornerShape(32.dp),
 )
 
+/**
+ * Liquid Glass radii: the same six roles, rounder, with chips as full
+ * capsules. Only used while the Liquid Glass style is on.
+ */
+fun glassShapes(): JadooShapes = JadooShapes(
+    chip = RoundedCornerShape(50),
+    control = RoundedCornerShape(16.dp),
+    inner = RoundedCornerShape(20.dp),
+    card = RoundedCornerShape(28.dp),
+    sheet = RoundedCornerShape(36.dp)
+)
+
 /** The M3 [Shapes] mapping, so stock components pick these up for free. */
 fun JadooShapes.toMaterialShapes(): Shapes = Shapes(
     extraSmall = chip,

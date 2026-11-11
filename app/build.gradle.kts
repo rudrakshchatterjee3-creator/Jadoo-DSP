@@ -26,22 +26,14 @@ android {
         }
     }
 
-    // Same applicationId and signing key for both, so a user can move between
-    // them without uninstalling. versionCode is shared: keep it increasing
-    // across both channels or one will refuse to update the other.
+    // The one distribution: the GitHub Releases APK. It checks for and installs
+    // its own updates (src/github: UpdateChecker, ApkUpdater,
+    // REQUEST_INSTALL_PACKAGES). Keep versionCode increasing so updates install.
     flavorDimensions += "distribution"
     productFlavors {
-        // GitHub Releases APK. Checks for and installs its own updates
-        // (src/github: UpdateChecker, ApkUpdater, REQUEST_INSTALL_PACKAGES).
         create("github") {
             dimension = "distribution"
             isDefault = true
-        }
-        // Google Play AAB. Play's Device and Network Abuse policy forbids
-        // self-updating, so none of the src/github updater code or its
-        // install permission is compiled in; Play delivers updates itself.
-        create("play") {
-            dimension = "distribution"
         }
     }
 
@@ -101,7 +93,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
-    // Shizuku removed entirely — Play Protect flags its provider manifest entry
+    // Shizuku removed entirely — Google Play Protect flags its provider manifest entry
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.materialkolor)

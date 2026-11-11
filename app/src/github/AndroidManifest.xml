@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Merged into src/main/AndroidManifest.xml for the github flavor only. -->
+<!-- Merged into src/main/AndroidManifest.xml (the github flavor). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- In-app update (Lane B). Lets JadOO DSP hand a downloaded release APK
@@ -12,8 +12,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Lets the battery dialog open the one-tap "ignore optimizations"
-         prompt. The play flavor opens the system list instead — see
-         MainActivity.canRequestBatteryExemptionDirectly. -->
+         prompt — see MainActivity.canRequestBatteryExemptionDirectly. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application>

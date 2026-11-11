@@ -132,6 +132,8 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.withStyle
@@ -146,7 +148,6 @@ import com.jadoo.amp.audio.EqBands
 import com.jadoo.amp.audio.SurroundMode
 import com.jadoo.amp.settings.SavedEqPreset
 import com.jadoo.amp.ui.components.AppearanceSection
-import com.jadoo.amp.update.AUTOEQ_ENABLED
 import com.jadoo.amp.ui.components.Entrance
 import com.jadoo.amp.ui.components.FeatureGroup
 import com.jadoo.amp.ui.components.FeatureRow
@@ -157,6 +158,13 @@ import com.jadoo.amp.ui.components.PowerButton
 import com.jadoo.amp.ui.components.ResponseCurveHero
 import com.jadoo.amp.ui.components.StatusChip
 import com.jadoo.amp.ui.components.jadooBackdrop
+import com.jadoo.amp.ui.components.GlassAwareSurface
+import com.jadoo.amp.ui.components.*
+import com.jadoo.amp.ui.theme.GlassLevel
+import com.jadoo.amp.ui.theme.LocalUiStyle
+import com.jadoo.amp.ui.theme.UiStyle
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.material3.FilterChipDefaults
 import com.jadoo.amp.ui.components.SettingToggleRow
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -258,7 +266,7 @@ private sealed class HelpContent(
 
     data object GainStaging : HelpContent(
         title = "Precise Gain Staging",
-        body = "Every boost (bass, treble, Loudness, Surround, EQ) needs room above a loud song, or its peaks clip.\n\n## On\nOn wired and speaker, the input is trimmed just enough to keep the mix as loud as with the effects off. Below full volume the phone's own volume already makes that room.\n\nBluetooth always arrives at full level, so there boosts are level-aware instead: whole at normal levels, fading out on a song's hottest moments. Nothing is turned down to make room, and turning a feature on doesn't cost volume.\n\n## Off\nNo protection. Loud songs can clip when several boosts are on.\n\nSafe to leave on. Turn off only to compare against how the app used to sound."
+        body = "Every boost (bass, treble, Loudness, Surround, EQ) needs room above a loud song, or its peaks clip.\n\n## On\nOn wired and speaker, the input is trimmed just enough to keep the mix as loud as with the effects off. Below full volume the phone's own volume already makes that room.\n\nBluetooth always arrives at full level, so there boosts are level-aware instead: whole at normal levels, fading out on a song's hottest moments. Nothing is turned down to make room, and turning a feature on doesn't cost volume.\n\n## Keep full loudness\nWired, DAC and speaker only. Skips the input trim, so turning features on no longer lowers the volume when the phone is at full volume. The boosts then have no room, so loud songs can clip. Bluetooth is not affected.\n\n## Off\nNo protection. Loud songs can clip when several boosts are on.\n\nSafe to leave on. Turn off only to compare against how the app used to sound."
     )
 
 }
@@ -273,7 +281,7 @@ private sealed class HelpContent(
 @Composable
 private fun BluetoothHeadroomTip(trimDb: Float, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    Surface(
+    JadooSurface(
         shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.secondaryContainer,
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
@@ -378,6 +386,7 @@ fun DashboardScreen(
     loudnessCurrentPhon: Float,
     // Gain staging
     preciseGainStaging: Boolean,
+    keepFullLoudness: Boolean,
     gainBudgetDb: Float,
     autoTrimDb: Float,
     // Bluetooth on absolute volume while boosts are being trimmed — see BluetoothHeadroomTip
@@ -434,6 +443,7 @@ fun DashboardScreen(
     onThemeModeChanged: (Offset, String) -> Unit,
     onToneModeChanged: (Offset, String) -> Unit,
     onBackdropChanged: (Offset, String) -> Unit,
+    onUiStyleChanged: (Offset, String) -> Unit = { _, _ -> },
     onSeedColorChanged: (Offset, Color) -> Unit,
     onDeviceTypeChanged: (com.jadoo.amp.audio.DeviceType) -> Unit,
     onResetDigitalFilterBands: () -> Unit,
@@ -441,6 +451,8 @@ fun DashboardScreen(
     onApplyAutoEq: (com.jadoo.amp.audio.AutoEq.Profile, String) -> Unit,
     onExportSettings: () -> Unit,
     onImportSettings: () -> Unit,
+    /** Builds the opt-in diagnostics report text (see DiagnosticsReport). */
+    buildDiagnostics: suspend () -> String = { "" },
     // SBC Enhancement (Bluetooth-only)
     sbcModeEnabled: Boolean,
     onSbcModeEnabledChanged: (Boolean) -> Unit,
@@ -456,6 +468,7 @@ fun DashboardScreen(
     onLoudnessReferencePhonChanged: (Float) -> Unit,
     // Gain staging callbacks
     onPreciseGainStagingChanged: (Boolean) -> Unit,
+    onKeepFullLoudnessChanged: (Boolean) -> Unit,
     onSelectedPresetNameChanged: (String?) -> Unit,
     // Per-app profile callbacks
     onPerAppProfileToggled: (String, Boolean) -> Unit,
@@ -708,6 +721,7 @@ fun DashboardScreen(
             onThemeModeChanged = onThemeModeChanged,
             onToneModeChanged = onToneModeChanged,
             onBackdropChanged = onBackdropChanged,
+            onUiStyleChanged = onUiStyleChanged,
             onSeedColorChanged = onSeedColorChanged,
             dumpPermissionEnabled = dumpPermissionEnabled,
             currentOutputDevice = currentOutputDevice,
@@ -716,6 +730,7 @@ fun DashboardScreen(
             onHelpRequested = { helpDialog = it },
             onExportSettings = onExportSettings,
             onImportSettings = onImportSettings,
+            buildDiagnostics = buildDiagnostics,
             savedProfileNames = savedProfileNames,
             onLoadProfile = { name -> onLoadProfile(name); showSettings = false },
             onDeleteProfile = onDeleteProfile,
@@ -724,9 +739,11 @@ fun DashboardScreen(
             perAppProfilePackages = perAppProfilePackages,
             onPerAppProfileToggled = onPerAppProfileToggled,
             preciseGainStaging = preciseGainStaging,
+            keepFullLoudness = keepFullLoudness,
             gainBudgetDb = gainBudgetDb,
             autoTrimDb = autoTrimDb,
             onPreciseGainStagingChanged = onPreciseGainStagingChanged,
+            onKeepFullLoudnessChanged = onKeepFullLoudnessChanged,
             autoEqProfileName = autoEqProfileName,
             onOpenAutoEq = { autoEqQuery = ""; showAutoEq = true },
             onRemoveAutoEq = {
@@ -742,30 +759,49 @@ fun DashboardScreen(
         enter = slideInHorizontally(JadooTheme.motion.standardSpec()) { -it / 4 } + fadeIn(JadooTheme.motion.fade),
         exit = slideOutHorizontally(JadooTheme.motion.standardSpec()) { -it / 4 } + fadeOut(JadooTheme.motion.fade)
     ) {
+    // Liquid Glass pins the top bar as a floating glass capsule and lets the
+    // dashboard scroll (and refract) underneath it; Standard keeps the bar
+    // in the scrolling column exactly as before.
+    val glass = LocalUiStyle.current == UiStyle.LiquidGlass
+    val dashboardScroll = rememberScrollState()
+    val topBarContent: @Composable RowScope.() -> Unit = {
+        Text("JadOO", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+             modifier = Modifier.weight(1f).padding(start = if (glass) 12.dp else 0.dp))
+        StatusChip(
+            icon = outputDeviceIcon(currentOutputDevice),
+            text = currentOutputDevice.removePrefix("Bluetooth: ").removePrefix("USB: ")
+                .let { if (perAppProfileActive) "$it · app" else it },
+            onClick = { showLiveChain = true }
+        )
+        IconButton(onClick = { showSettings = true }) {
+            Icon(Icons.Default.Settings, "Settings")
+        }
+    }
+    Box(Modifier.fillMaxSize().jadooBackdrop()) {
+    GlassPinnedLayout(
+        modifier = Modifier.fillMaxSize(),
+        header = { if (glass) GlassTopBar(content = topBarContent) }
+    ) { headerTop ->
     Column(
-        modifier = Modifier
+        modifier = if (glass) Modifier
             .fillMaxSize()
-            .jadooBackdrop()
+            .glassContentSource()
+            .verticalScroll(dashboardScroll)
+            .navigationBarsPadding()
+            .padding(horizontal = JadooTheme.dimens.screenPadding)
+            .padding(top = headerTop + 4.dp, bottom = 40.dp)
+        else Modifier
+            .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(dashboardScroll)
             .padding(horizontal = JadooTheme.dimens.screenPadding)
             .padding(top = 4.dp, bottom = 40.dp)
     ) {
             // ── Top bar: wordmark, where the sound is going, settings ──────
-            Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Text("JadOO", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
-                     modifier = Modifier.weight(1f))
-                StatusChip(
-                    icon = outputDeviceIcon(currentOutputDevice),
-                    text = currentOutputDevice.removePrefix("Bluetooth: ").removePrefix("USB: ")
-                        .let { if (perAppProfileActive) "$it · app" else it },
-                    onClick = { showLiveChain = true }
-                )
-                IconButton(onClick = { showSettings = true }) {
-                    Icon(Icons.Default.Settings, "Settings")
-                }
+            if (!glass) {
+                Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically, content = topBarContent)
             }
 
             // ── Hero: state, power, and the live response curve ───────────
@@ -848,11 +884,11 @@ fun DashboardScreen(
                 it.startsWith("Bluetooth: ") || it.startsWith("USB: ")
             }?.substringAfter(": ")
             AnimatedVisibility(
-                visible = AUTOEQ_ENABLED && masterEnabled && connectedModel != null && autoEqProfileName.isBlank(),
+                visible = masterEnabled && connectedModel != null && autoEqProfileName.isBlank(),
                 enter = expandVertically(JadooTheme.motion.standardSize) + fadeIn(JadooTheme.motion.fade),
                 exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)
             ) {
-                Surface(
+                JadooSurface(
                     onClick = { autoEqQuery = connectedModel ?: ""; showAutoEq = true },
                     shape = RoundedCornerShape(28.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -891,11 +927,13 @@ fun DashboardScreen(
                     FeatureGroup {
                         FeatureRow(
                             icon = Icons.Default.GraphicEq,
+                            glyph = FeatureGlyph.GraphicEq,
                             title = "Graphic EQ",
                             subtitle = if (graphicEqEnabled) "15 bands · tap the graph to expand" else "15-band equalizer",
                             checked = graphicEqEnabled,
                             enabled = manualControlsEnabled,
                             fullWidthContent = true,
+                            titleContrastTint = true,
                             onCheckedChange = { enabled ->
                                 graphicEqEnabled = enabled
                                 if (enabled) {
@@ -916,6 +954,7 @@ fun DashboardScreen(
                         GroupDivider()
                         FeatureRow(
                             icon = Icons.Default.Tune,
+                            glyph = FeatureGlyph.ParametricEq,
                             title = "Parametric EQ",
                             subtitle = autoEqProfileName.takeIf { it.isNotBlank() }?.let { "AutoEQ · $it" }
                                 ?: "16 filters with Q and filter types",
@@ -924,21 +963,20 @@ fun DashboardScreen(
                             onCheckedChange = onDigitalFilterEnabledChanged,
                             onHelpClick = { helpDialog = HelpContent.DigitalFilters }
                         ) {
-                            FilledTonalButton(onClick = { showParametricEq = true }, modifier = Modifier.fillMaxWidth()) {
+                            FilledTonalButton(onClick = { showParametricEq = true }, modifier = Modifier.fillMaxWidth(),
+                                              colors = jadooTonalButtonColors(), border = jadooTonalButtonBorder()) {
                                 Text("Edit filters")
                             }
                         }
-                        if (AUTOEQ_ENABLED) {
-                            GroupDivider()
-                            NavRow(
-                                icon = Icons.Default.Headphones,
-                                title = "Headphone correction",
-                                value = autoEqProfileName.ifBlank { "Search 8,000+ measured headphones" },
-                                accent = autoEqProfileName.isNotBlank() && digitalFilterEnabled,
-                                enabled = masterEnabled,
-                                onClick = { autoEqQuery = ""; showAutoEq = true }
-                            )
-                        }
+                        GroupDivider()
+                        NavRow(
+                            icon = Icons.Default.Headphones,
+                            title = "Headphone correction",
+                            value = autoEqProfileName.ifBlank { "Search 8,000+ measured headphones" },
+                            accent = autoEqProfileName.isNotBlank() && digitalFilterEnabled,
+                            enabled = masterEnabled,
+                            onClick = { autoEqQuery = ""; showAutoEq = true }
+                        )
                     }
                 }
             }
@@ -951,6 +989,7 @@ fun DashboardScreen(
                     FeatureGroup {
                         FeatureRow(
                             icon = Icons.Default.Radio,
+                            glyph = FeatureGlyph.AnalogBass,
                             title = "Analog Bass",
                             subtitle = when {
                                 analogBassBlockedByFront -> "Not available with Front Stage"
@@ -972,17 +1011,29 @@ fun DashboardScreen(
                                 valueLabel = "${String.format(Locale.US, "%.0f", analogBassDrift * 100)}%",
                                 onValueChange = onAnalogBassDriftChanged, steps = 100)
                             Text(
-                                if (mobileBassEnabled) "Pultec EQ · inactive while Mobile Bass is on" else "Pultec EQ",
+                                if (mobileBassEnabled) "Pultec EQ · inactive while Mobile Bass is on" else "Pultec EQ frequency",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = if (mobileBassEnabled) MaterialTheme.colorScheme.onSurfaceVariant
                                         else MaterialTheme.colorScheme.onSurface
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()) {
                                 listOf("20 Hz", "30 Hz", "60 Hz", "100 Hz").forEachIndexed { idx, label ->
-                                    FilterChip(selected = analogBassPultecFreqIndex == idx,
+                                    FilterChip(modifier = Modifier.weight(1f)
+                                                   .semantics { contentDescription = label },
+                                               selected = analogBassPultecFreqIndex == idx,
                                                onClick = { onAnalogBassPultecFreqIndexChanged(idx) },
-                                               label = { Text(label) })
+                                               // The unit stays on the pill; 12 sp, centred and
+                                               // never wrapped so "100 Hz" fits four across.
+                                               label = {
+                                                   Text(label, maxLines = 1, softWrap = false,
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                        modifier = Modifier.fillMaxWidth())
+                                               },
+                                               shape = jadooChipShape(FilterChipDefaults.shape),
+                                               colors = jadooFilterChipColors(),
+                                               border = jadooFilterChipBorder(true, analogBassPultecFreqIndex == idx))
                                 }
                             }
                             LabeledSlider(label = "Boost", value = analogBassPultecBoost,
@@ -1003,6 +1054,7 @@ fun DashboardScreen(
                         GroupDivider()
                         FeatureRow(
                             icon = Icons.Default.Whatshot,
+                            glyph = FeatureGlyph.TubeWarmth,
                             title = "Tube Warmth",
                             subtitle = if (tubeWarmthEnabled) "Warm bloom, softened highs" else "Valve-amp tone",
                             checked = tubeWarmthEnabled,
@@ -1017,6 +1069,7 @@ fun DashboardScreen(
                         GroupDivider()
                         FeatureRow(
                             icon = Icons.Default.WbSunny,
+                            glyph = FeatureGlyph.Dbfb,
                             title = "JadOO DBFB",
                             subtitle = if (dbfbMode == DbfbMode.Off) "Level-aware sub-bass" else "Dynamic bass · ${dbfbMode.displayName}",
                             checked = dbfbMode != DbfbMode.Off,
@@ -1029,6 +1082,7 @@ fun DashboardScreen(
                         GroupDivider()
                         FeatureRow(
                             icon = Icons.Default.HighQuality,
+                            glyph = FeatureGlyph.HiRes,
                             title = "Hi-Res Upscaler",
                             subtitle = if (hiResUpscalerEnabled) "Air · silk · presence" else "More air and sparkle up top",
                             checked = hiResUpscalerEnabled,
@@ -1039,6 +1093,7 @@ fun DashboardScreen(
                         GroupDivider()
                         FeatureRow(
                             icon = Icons.Default.AutoAwesome,
+                            glyph = FeatureGlyph.Exciter,
                             title = "Harmonic Exciter",
                             subtitle = if (harmonicExciterEnabled) "Adding presence and sparkle" else "Clarity in the 2-8 kHz range",
                             checked = harmonicExciterEnabled,
@@ -1053,6 +1108,7 @@ fun DashboardScreen(
                         GroupDivider()
                         FeatureRow(
                             icon = Icons.Default.Contrast,
+                            glyph = FeatureGlyph.Hdr,
                             title = "HDR Dynamics",
                             subtitle = if (hdrDynamicsEnabled) "${hdrMode.displayName} · restores punch" else "Opens up brickwalled masters",
                             checked = hdrDynamicsEnabled,
@@ -1073,6 +1129,7 @@ fun DashboardScreen(
                     FeatureGroup {
                         NavRow(
                             icon = Icons.Default.SurroundSound,
+                            glyph = FeatureGlyph.Surround,
                             title = "JadOO Surround+",
                             value = if (surroundMode != SurroundMode.Off)
                                 "${surroundMode.displayName} · ${surroundMode.tagline}" else "Off · choose a stage",
@@ -1093,6 +1150,7 @@ fun DashboardScreen(
                         val belowReference = (loudnessReferencePhon - loudnessCurrentPhon).coerceAtLeast(0f)
                         FeatureRow(
                             icon = Icons.AutoMirrored.Filled.VolumeUp,
+                            glyph = FeatureGlyph.Loudness,
                             title = "Loudness Contour",
                             subtitle = when {
                                 !loudnessEnabled -> "Keeps the balance at low volume"
@@ -1161,7 +1219,8 @@ fun DashboardScreen(
                                             SegmentedButton(
                                                 selected = sbcStyle == style,
                                                 onClick = { onSbcStyleChanged(style) },
-                                                shape = SegmentedButtonDefaults.itemShape(i, styles.size)
+                                                shape = SegmentedButtonDefaults.itemShape(i, styles.size),
+                                                colors = jadooSegmentedColors()
                                             ) { Text(style.displayName) }
                                         }
                                     }
@@ -1171,6 +1230,8 @@ fun DashboardScreen(
                     }
                 }
             }
+    }
+    }
     }
     }
 
@@ -1208,12 +1269,11 @@ fun DashboardScreen(
                 decorFitsSystemWindows = false
             )
         ) {
-            Surface(
+            JadooScreenSurface(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
                     .navigationBarsPadding(),
-                shape = RoundedCornerShape(0.dp),
                 color = MaterialTheme.colorScheme.surface
             ) {
                 AutoEqScreen(
@@ -1234,12 +1294,11 @@ fun DashboardScreen(
                 decorFitsSystemWindows = false
             )
         ) {
-            Surface(
+            JadooScreenSurface(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
                     .navigationBarsPadding(),
-                shape = RoundedCornerShape(0.dp),
                 color = MaterialTheme.colorScheme.surface
             ) {
                 LiveChainScreen(
@@ -1259,12 +1318,11 @@ fun DashboardScreen(
                 decorFitsSystemWindows = false
             )
         ) {
-            Surface(
+            JadooScreenSurface(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
                     .navigationBarsPadding(),
-                shape = RoundedCornerShape(0.dp),
                 color = MaterialTheme.colorScheme.surface
             ) {
                 ParametricEqScreen(
@@ -1288,7 +1346,7 @@ fun DashboardScreen(
                     onPreampChanged = onPreGainChanged,
                     onResetAllBands = onResetDigitalFilterBands,
                     autoEqProfileName = autoEqProfileName,
-                    onOpenAutoEq = if (AUTOEQ_ENABLED) ({ autoEqQuery = ""; showAutoEq = true }) else null,
+                    onOpenAutoEq = { autoEqQuery = ""; showAutoEq = true },
                     onNavigateBack = { showParametricEq = false }
                 )
             }
@@ -1315,7 +1373,10 @@ private fun HdrModeChips(
                 selected = selected,
                 onClick = { onModeSelected(mode) },
                 label = { Text(mode.displayName) },
-                enabled = enabled
+                enabled = enabled,
+                shape = jadooChipShape(FilterChipDefaults.shape),
+                colors = jadooFilterChipColors(),
+                border = jadooFilterChipBorder(enabled, selected)
             )
         }
     }
@@ -1339,7 +1400,10 @@ private fun DbfbModeChips(
                 selected = selected,
                 onClick = { onModeSelected(mode) },
                 label = { Text(mode.displayName) },
-                enabled = enabled
+                enabled = enabled,
+                shape = jadooChipShape(FilterChipDefaults.shape),
+                colors = jadooFilterChipColors(),
+                border = jadooFilterChipBorder(enabled, selected)
             )
         }
     }
@@ -1436,13 +1500,14 @@ private fun DeviceTypeCard(
         label = "device_type_icon_${type.name}"
     )
 
-    Surface(
+    JadooSurface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.scale(scale),
         shape = RoundedCornerShape(18.dp),
         color = containerColor,
-        border = BorderStroke(borderWidth, borderColor)
+        border = BorderStroke(borderWidth, borderColor),
+        level = GlassLevel.Nested
     ) {
         Box(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1484,7 +1549,7 @@ private fun GainControlDeck(
     onPostGainChanged: (Float) -> Unit,
     onResetAll: () -> Unit
 ) {
-    Surface(
+    JadooSurface(
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 1.dp
@@ -2173,7 +2238,7 @@ private fun ExpandedEqDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(
+        JadooScreenSurface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
@@ -2251,6 +2316,8 @@ private fun ExpandedEqDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         AssistChip(
+                            shape = jadooChipShape(AssistChipDefaults.shape),
+                            border = jadooAssistChipBorder(enabled),
                             onClick = { onSavePreset(overwriteTargetPreset.name, bandGains.copyOf()) },
                             label = { Text("Overwrite \"${overwriteTargetPreset.name}\"") },
                             leadingIcon = {
@@ -2262,7 +2329,9 @@ private fun ExpandedEqDialog(
                             },
                             enabled = enabled,
                             colors = AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                containerColor = if (LocalUiStyle.current == UiStyle.LiquidGlass)
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
+                                else MaterialTheme.colorScheme.primaryContainer,
                                 labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                 leadingIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             )
@@ -2284,7 +2353,10 @@ private fun ExpandedEqDialog(
                             onPresetSelected(FloatArray(EqBands.count))
                         },
                         label = { Text("Reset (Flat)") },
-                        enabled = enabled
+                        enabled = enabled,
+                        shape = jadooChipShape(AssistChipDefaults.shape),
+                        colors = jadooAssistChipColors(),
+                        border = jadooAssistChipBorder(enabled)
                     )
                     Presets.forEach { (name, gains) ->
                         AssistChip(
@@ -2294,10 +2366,12 @@ private fun ExpandedEqDialog(
                             },
                             label = { Text(name) },
                             enabled = enabled,
+                            shape = jadooChipShape(AssistChipDefaults.shape),
+                            colors = jadooAssistChipColors(),
                             border = if (name == matchedPresetName) {
                                 selectedBorder
                             } else {
-                                AssistChipDefaults.assistChipBorder(enabled = enabled)
+                                jadooAssistChipBorder(enabled)
                             }
                         )
                     }
@@ -2311,10 +2385,12 @@ private fun ExpandedEqDialog(
                                 },
                                 label = { Text(preset.name) },
                                 enabled = enabled,
+                                shape = jadooChipShape(AssistChipDefaults.shape),
+                                colors = jadooAssistChipColors(),
                                 border = if (preset.name == matchedPresetName) {
                                     selectedBorder
                                 } else {
-                                    AssistChipDefaults.assistChipBorder(enabled = enabled)
+                                    jadooAssistChipBorder(enabled)
                                 },
                                 modifier = Modifier.pointerInput(preset.name) {
                                     detectTapGestures(
@@ -2324,7 +2400,10 @@ private fun ExpandedEqDialog(
                             )
                             DropdownMenu(
                                 expanded = contextMenuPreset?.name == preset.name,
-                                onDismissRequest = { contextMenuPreset = null }
+                                onDismissRequest = { contextMenuPreset = null },
+                                shape = jadooMenuShape(),
+                                containerColor = jadooMenuContainer(),
+                                border = jadooMenuBorder()
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("Overwrite with current EQ") },
@@ -2352,7 +2431,10 @@ private fun ExpandedEqDialog(
                     }
                     AssistChip(
                         onClick = { showSaveDialog = true },
-                        label = { Text("Save current") }
+                        label = { Text("Save current") },
+                        shape = jadooChipShape(AssistChipDefaults.shape),
+                        colors = jadooAssistChipColors(),
+                        border = jadooAssistChipBorder(true)
                     )
                     AssistChip(
                         onClick = {
@@ -2360,7 +2442,10 @@ private fun ExpandedEqDialog(
                             onPresetSelected(FloatArray(EqBands.count))
                         },
                         label = { Text("Reset flat") },
-                        enabled = enabled
+                        enabled = enabled,
+                        shape = jadooChipShape(AssistChipDefaults.shape),
+                        colors = jadooAssistChipColors(),
+                        border = jadooAssistChipBorder(enabled)
                     )
                 }
             }
@@ -2387,11 +2472,9 @@ private fun SavePresetDialog(
     var presetName by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
-        Card(
+        JadooDialogCard(
             shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-            )
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             Column(
                 modifier = Modifier.padding(24.dp),
@@ -2444,9 +2527,8 @@ private fun SavePresetDialog(
  * sides than before cards existed at all.
  */
 /**
- * Settings' Updates card. The check itself is per distribution channel (see
- * UpdateChannel.kt in src/github and src/play): GitHub builds query GitHub
- * Releases and install in-app, Play builds hand off to the Play Store.
+ * Settings' Updates card (see UpdateChannel.kt in src/github): queries GitHub
+ * Releases and installs in-app.
  */
 @Composable
 private fun UpdatesCard() {
@@ -2476,13 +2558,9 @@ private fun SettingsCard(
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(12.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        // Same container as the grouped lists (FeatureGroup) so the Updates
-        // block reads as one more group, not a different kind of card.
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer
-    ) {
+    // Same container as the grouped lists (FeatureGroup) so the Updates
+    // block reads as one more group, not a different kind of card.
+    GlassAwareSurface(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2511,6 +2589,7 @@ private fun SettingsScreen(
     onThemeModeChanged: (Offset, String) -> Unit,
     onToneModeChanged: (Offset, String) -> Unit,
     onBackdropChanged: (Offset, String) -> Unit,
+    onUiStyleChanged: (Offset, String) -> Unit = { _, _ -> },
     onSeedColorChanged: (Offset, Color) -> Unit,
     dumpPermissionEnabled: Boolean,
     currentOutputDevice: String,
@@ -2519,6 +2598,7 @@ private fun SettingsScreen(
     onHelpRequested: (HelpContent) -> Unit,
     onExportSettings: () -> Unit,
     onImportSettings: () -> Unit,
+    buildDiagnostics: suspend () -> String,
     savedProfileNames: List<String>,
     onLoadProfile: (String) -> Unit,
     onDeleteProfile: (String) -> Unit,
@@ -2527,9 +2607,11 @@ private fun SettingsScreen(
     perAppProfilePackages: Set<String>,
     onPerAppProfileToggled: (String, Boolean) -> Unit,
     preciseGainStaging: Boolean,
+    keepFullLoudness: Boolean,
     gainBudgetDb: Float,
     autoTrimDb: Float,
     onPreciseGainStagingChanged: (Boolean) -> Unit,
+    onKeepFullLoudnessChanged: (Boolean) -> Unit,
     autoEqProfileName: String,
     onOpenAutoEq: () -> Unit,
     onRemoveAutoEq: () -> Unit,
@@ -2538,26 +2620,50 @@ private fun SettingsScreen(
     // Back handling for this screen is owned by the PredictiveBackHandler at
     // the DashboardScreen call site (it needs the gesture's live progress to
     // drive the slide-out), so this screen doesn't register its own.
+    // Liquid Glass: the back button rides in a pinned glass bar and the page
+    // scrolls under it. Standard: unchanged, everything in one column.
+    val glass = LocalUiStyle.current == UiStyle.LiquidGlass
+    val settingsScroll = rememberScrollState()
+    Box(modifier.fillMaxSize().jadooBackdrop()) {
+    GlassPinnedLayout(
+        modifier = Modifier.fillMaxSize(),
+        header = {
+            if (glass) GlassTopBar {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                Text("Settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    ) { headerTop ->
     Column(
-        modifier = modifier
+        modifier = if (glass) Modifier
             .fillMaxSize()
-            .jadooBackdrop()
+            .glassContentSource()
+            .verticalScroll(settingsScroll)
+            .navigationBarsPadding()
+            .padding(horizontal = JadooTheme.dimens.screenPadding)
+            .padding(top = headerTop + 4.dp, bottom = 40.dp)
+        else Modifier
+            .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(settingsScroll)
             .padding(horizontal = JadooTheme.dimens.screenPadding)
             .padding(top = 4.dp, bottom = 40.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onNavigateBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        if (!glass) {
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
             }
+            Text("Settings", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold,
+                 modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp))
         }
-        Text("Settings", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold,
-             modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp))
 
         // ── Headphone correction (AutoEQ) ─────────────────────────────────
-        if (AUTOEQ_ENABLED) Entrance(0) {
+        Entrance(0) {
             Column {
                 GroupHeader("Headphone correction")
                 FeatureGroup {
@@ -2629,6 +2735,18 @@ private fun SettingsScreen(
                         onCheckedChange = onPreciseGainStagingChanged,
                         onHelpClick = { onHelpRequested(HelpContent.GainStaging) }
                     )
+                    if (preciseGainStaging) {
+                        GroupDivider(inset = false)
+                        SettingToggleRow(
+                            title = "Keep full loudness",
+                            subtitle = if (keepFullLoudness)
+                                "No volume drop at full volume · loud songs may clip"
+                            else "Wired, DAC and speaker · stops the drop at full volume",
+                            checked = keepFullLoudness,
+                            onCheckedChange = onKeepFullLoudnessChanged,
+                            onHelpClick = { onHelpRequested(HelpContent.GainStaging) }
+                        )
+                    }
                     GroupDivider(inset = false)
                     if (activeAppPackage == null) {
                         Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
@@ -2671,6 +2789,7 @@ private fun SettingsScreen(
                     onModeChanged = onThemeModeChanged,
                     onToneChanged = onToneModeChanged,
                     onBackdropChanged = onBackdropChanged,
+                    onUiStyleChanged = onUiStyleChanged,
                     onSeedChanged = onSeedColorChanged
                 )
             }
@@ -2699,8 +2818,25 @@ private fun SettingsScreen(
             }
         }
 
-        // ── System ────────────────────────────────────────────────────────
+        // ── Diagnostics (opt-in, nothing is sent without a tap) ───────────
+        var diagnosticsOpen by remember { mutableStateOf(false) }
         Entrance(5) {
+            Column {
+                GroupHeader("Diagnostics")
+                FeatureGroup {
+                    NavRow(Icons.Default.Info, "Send diagnostics",
+                           "Review a report of logs and settings, then share it only if you choose",
+                           onClick = { diagnosticsOpen = true })
+                }
+            }
+        }
+        if (diagnosticsOpen) DiagnosticsDialog(
+            build = buildDiagnostics,
+            onDismiss = { diagnosticsOpen = false }
+        )
+
+        // ── System ────────────────────────────────────────────────────────
+        Entrance(6) {
             Column {
                 GroupHeader("System")
                 FeatureGroup {
@@ -2718,6 +2854,53 @@ private fun SettingsScreen(
             }
         }
     }
+    }
+    }
+}
+
+/**
+ * Shows the whole diagnostics report before anything is shared, so people see
+ * exactly what would leave the phone. Share hands it to the system share sheet;
+ * Cancel discards it. Nothing is stored or uploaded by the app itself.
+ */
+@Composable
+private fun DiagnosticsDialog(build: suspend () -> String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var report by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { report = runCatching { build() }.getOrElse { "Could not build the report: ${it.message}" } }
+    JadooAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Send diagnostics") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Device and app version, your current settings, the last crash if there was one, " +
+                        "and JadOO's own recent log. No audio, track names or personal data. " +
+                        "Nothing is sent unless you tap Share.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Box(Modifier.fillMaxWidth().heightIn(max = 240.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f))
+                    .padding(10.dp)) {
+                    if (report == null) {
+                        Text("Collecting…", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Text(report!!, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                             fontSize = 10.sp, lineHeight = 13.sp,
+                             modifier = Modifier.verticalScroll(rememberScrollState()))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = report != null, onClick = {
+                report?.let { com.jadoo.amp.DiagnosticsReport.share(context, it) }
+                onDismiss()
+            }) { Text("Share") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 /**
@@ -2765,11 +2948,16 @@ private fun HelpDialog(
         paragraphs[0] to paragraphs.getOrNull(1)
     }
 
+    val glassSheet = LocalUiStyle.current == UiStyle.LiquidGlass
+    var sheetBlur by remember { mutableStateOf(false) }
     androidx.compose.material3.ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        containerColor = jadooSheetContainer(MaterialTheme.colorScheme.surfaceContainerLow, windowBlur = sheetBlur),
+        shape = jadooSheetShape(androidx.compose.material3.BottomSheetDefaults.ExpandedShape),
+        dragHandle = if (glassSheet) { { GlassSheetHandle() } } else { { androidx.compose.material3.BottomSheetDefaults.DragHandle() } }
     ) {
+        if (glassSheet) sheetBlur = GlassDialogWindow()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2794,10 +2982,11 @@ private fun HelpDialog(
                         exit = fadeOut(JadooTheme.motion.fade),
                         modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
                     ) {
-                        Surface(
+                        JadooSurface(
                             onClick = { replayKey++ },
                             shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f)
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f),
+                            level = GlassLevel.Nested
                         ) {
                             Row(Modifier.heightIn(min = 32.dp).padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
@@ -2822,7 +3011,8 @@ private fun HelpDialog(
                 HelpBodyText(body = it)
             }
             Spacer(Modifier.height(24.dp))
-            FilledTonalButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+            FilledTonalButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(48.dp),
+                              colors = jadooTonalButtonColors(), border = jadooTonalButtonBorder()) {
                 Text("Done")
             }
         }
@@ -2890,11 +3080,9 @@ private fun SurroundModePickerDialog(
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Card(
+        JadooDialogCard(
             shape = RoundedCornerShape(32.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-            )
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             Column(
                 modifier = Modifier
@@ -3002,11 +3190,12 @@ private fun SurroundModeCard(
         animationSpec = JadooTheme.motion.expressive,
         label = "surround_card_icon_scale"
     )
-    Surface(
+    JadooSurface(
         modifier = modifier.clickable { onClick() },
         shape = RoundedCornerShape(20.dp),
         color = containerColor,
-        tonalElevation = elevation
+        tonalElevation = elevation,
+        level = GlassLevel.Nested
     ) {
         Row(
             modifier = Modifier.padding(16.dp),

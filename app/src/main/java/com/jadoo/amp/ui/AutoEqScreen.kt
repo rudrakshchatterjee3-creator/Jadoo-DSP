@@ -64,6 +64,19 @@ import androidx.compose.ui.unit.dp
 import com.jadoo.amp.audio.AutoEq
 import com.jadoo.amp.audio.DigitalFilterEngine
 import com.jadoo.amp.ui.theme.JadooTheme
+import com.jadoo.amp.ui.components.*
+import com.jadoo.amp.ui.theme.GlassLevel
+import com.jadoo.amp.ui.theme.LocalUiStyle
+import com.jadoo.amp.ui.theme.UiStyle
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.CancellationException
 import java.util.Locale
 import kotlin.math.exp
@@ -136,12 +149,12 @@ fun AutoEqScreen(
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onNavigateBack) { Icon(Icons.Default.Close, "Close") }
-            Text("Headphone EQ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        }
+    val glass = LocalUiStyle.current == UiStyle.LiquidGlass
+    val titleRow: @Composable RowScope.() -> Unit = {
+        IconButton(onClick = onNavigateBack) { Icon(Icons.Default.Close, "Close") }
+        Text("Headphone EQ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+    }
+    val searchField: @Composable (Modifier) -> Unit = { m ->
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
@@ -152,49 +165,84 @@ fun AutoEqScreen(
             } else null,
             singleLine = true,
             shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-                .padding(horizontal = JadooTheme.dimens.screenPadding, vertical = 8.dp)
-                .focusRequester(focus)
+            modifier = m.focusRequester(focus)
         )
-
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            when {
-                indexError -> Column(Modifier.align(Alignment.Center).padding(32.dp),
-                                     horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("The headphone list didn't download.", style = MaterialTheme.typography.titleMedium)
-                    Text("Check your connection and try again.", style = MaterialTheme.typography.bodyMedium,
-                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { reloadKey++ }) { Text("Try again") }
-                }
-                entries == null -> Column(Modifier.align(Alignment.Center),
-                                          horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text("Loading the headphone list…", style = MaterialTheme.typography.bodyMedium,
-                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                query.isBlank() -> EmptySearch(suggestedQuery(currentOutputDevice)) { query = it }
-                models.isEmpty() -> Text("No headphone matches \"$query\".",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(24.dp))
-                else -> LazyColumn(Modifier.fillMaxSize()) {
-                    items(models, key = { it.name }) { m ->
-                        ModelRow(m) { selected = m }
-                    }
+    }
+    // [top] clears the pinned glass header (0 under Standard).
+    val results: @Composable BoxScope.(Dp) -> Unit = { top ->
+        when {
+            indexError -> Column(Modifier.align(Alignment.Center).padding(top = top).padding(32.dp),
+                                 horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("The headphone list didn't download.", style = MaterialTheme.typography.titleMedium)
+                Text("Check your connection and try again.", style = MaterialTheme.typography.bodyMedium,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { reloadKey++ }) { Text("Try again") }
+            }
+            entries == null -> Column(Modifier.align(Alignment.Center).padding(top = top),
+                                      horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(12.dp))
+                Text("Loading the headphone list…", style = MaterialTheme.typography.bodyMedium,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            query.isBlank() -> Box(Modifier.padding(top = top)) {
+                EmptySearch(suggestedQuery(currentOutputDevice)) { query = it }
+            }
+            models.isEmpty() -> Text("No headphone matches \"$query\".",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = top).padding(24.dp))
+            else -> LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = if (glass) PaddingValues(start = 16.dp, end = 16.dp, top = top, bottom = 24.dp)
+                                 else PaddingValues(0.dp),
+                verticalArrangement = if (glass) Arrangement.spacedBy(8.dp) else Arrangement.Top
+            ) {
+                items(models, key = { it.name }) { m ->
+                    ModelRow(m) { selected = m }
                 }
             }
         }
+    }
+
+    if (glass) {
+        // Liquid Glass: title and search float as one glass panel; results
+        // scroll under it and are refracted by it.
+        GlassPinnedLayout(
+            modifier = Modifier.fillMaxSize(),
+            header = {
+                GlassTopPanel {
+                    Row(Modifier.fillMaxWidth().padding(end = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically, content = titleRow)
+                    searchField(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 10.dp))
+                }
+            }
+        ) { top ->
+            Box(Modifier.fillMaxSize().glassContentSource()) { results(top + 8.dp) }
+        }
+        return
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically, content = titleRow)
+        searchField(Modifier.fillMaxWidth()
+            .padding(horizontal = JadooTheme.dimens.screenPadding, vertical = 8.dp))
+
+        Box(Modifier.weight(1f).fillMaxWidth()) { results(0.dp) }
     }
 }
 
 @Composable
 private fun EmptySearch(suggestion: String?, onPick: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+    val glass = LocalUiStyle.current == UiStyle.LiquidGlass
+    GlassSection(Modifier.padding(horizontal = if (glass) 16.dp else 0.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = if (glass) 4.dp else 24.dp, vertical = if (glass) 4.dp else 16.dp),
            verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (suggestion != null) {
-            Surface(onClick = { onPick(suggestion) }, shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+            JadooSurface(onClick = { onPick(suggestion) }, shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth(),
+                    level = GlassLevel.Nested) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Headphones, null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(14.dp))
@@ -212,10 +260,26 @@ private fun EmptySearch(suggestion: String?, onPick: (String) -> Unit) {
         Text("Data: AutoEQ by Jaakko Pasanen (MIT licence).", style = MaterialTheme.typography.bodySmall,
              color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+    }
 }
 
 @Composable
 private fun ModelRow(model: Model, onClick: () -> Unit) {
+    if (LocalUiStyle.current == UiStyle.LiquidGlass) {
+        // One glass row per model, inset from the edges like a grouped list.
+        JadooSurface(onClick = onClick, shape = RoundedCornerShape(22.dp),
+                     color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.heightIn(min = 56.dp).padding(horizontal = 20.dp, vertical = 12.dp)) {
+                Text(model.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
+                     maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val labs = model.entries.map { it.source }.distinct()
+                Text(if (labs.size == 1) model.entries.first().sourceLabel
+                     else "${labs.first()} + ${labs.size - 1} more lab${if (labs.size > 2) "s" else ""}",
+                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        return
+    }
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick)
             .heightIn(min = 56.dp).padding(horizontal = 24.dp, vertical = 12.dp)) {
         Text(model.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
@@ -255,13 +319,8 @@ private fun ProfileScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to search") }
-        }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())
-                .padding(horizontal = JadooTheme.dimens.screenPadding + 4.dp)) {
+    val glass = LocalUiStyle.current == UiStyle.LiquidGlass
+    val profileBody: @Composable ColumnScope.() -> Unit = {
             Text(model.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(16.dp))
 
@@ -290,7 +349,10 @@ private fun ProfileScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     model.entries.forEach { e ->
                         FilterChip(selected = e == entry, onClick = { entry = e },
-                                   label = { Text(e.sourceLabel) })
+                                   label = { Text(e.sourceLabel) },
+                                   shape = jadooChipShape(FilterChipDefaults.shape),
+                                   colors = jadooFilterChipColors(),
+                                   border = jadooFilterChipBorder(true, e == entry))
                     }
                 }
             } else {
@@ -322,21 +384,63 @@ private fun ProfileScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(24.dp))
-        }
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-        Column(Modifier.fillMaxWidth().padding(horizontal = JadooTheme.dimens.screenPadding, vertical = 12.dp)) {
+            Spacer(Modifier.height(if (glass) 4.dp else 24.dp))
+    }
+    val applyPanel: @Composable ColumnScope.() -> Unit = {
             Text("Replaces the Parametric EQ for $currentOutputDevice. Very narrow filters are smoothed " +
                  "by JadOO's 15-band engine.",
                  style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
             Button(onClick = { profile?.let { onApply(it, "${model.name} · ${entry.source}") } },
                    enabled = profile != null,
+                   border = jadooTonalButtonBorder(),
                    modifier = Modifier.fillMaxWidth().height(52.dp)) {
                 Text("Apply to Parametric EQ")
             }
+    }
+
+    if (glass) {
+        // Liquid Glass: back button in a pinned glass bar, the Apply panel as
+        // a floating glass bottom bar; the profile scrolls between and under both.
+        var bottomPx by remember { mutableIntStateOf(0) }
+        val density = LocalDensity.current
+        GlassPinnedLayout(
+            modifier = Modifier.fillMaxSize(),
+            header = {
+                GlassTopBar {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to search") }
+                    Text("Headphone EQ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        ) { top ->
+            Column(Modifier.fillMaxSize().glassContentSource().verticalScroll(rememberScrollState())
+                    .padding(horizontal = JadooTheme.dimens.screenPadding)
+                    .padding(top = top + 4.dp, bottom = with(density) { bottomPx.toDp() } + 16.dp)) {
+                GlassSection(content = profileBody)
+            }
+            Column(
+                Modifier.align(Alignment.BottomCenter)
+                    .onSizeChanged { bottomPx = it.height }
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .liquidGlass(RoundedCornerShape(30.dp), level = GlassLevel.Floating)
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                content = applyPanel
+            )
         }
+        return
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to search") }
+        }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())
+                .padding(horizontal = JadooTheme.dimens.screenPadding + 4.dp), content = profileBody)
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        Column(Modifier.fillMaxWidth().padding(horizontal = JadooTheme.dimens.screenPadding, vertical = 12.dp),
+               content = applyPanel)
     }
 }
 

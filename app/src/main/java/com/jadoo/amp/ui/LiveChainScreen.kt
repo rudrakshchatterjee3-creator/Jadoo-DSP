@@ -92,6 +92,10 @@ import com.jadoo.amp.audio.AudioChainProbe
 import com.jadoo.amp.audio.AudioChainProbe.ChainSnapshot
 import com.jadoo.amp.audio.SurroundMode
 import com.jadoo.amp.ui.theme.JadooTheme
+import com.jadoo.amp.ui.components.*
+import com.jadoo.amp.ui.theme.LocalUiStyle
+import com.jadoo.amp.ui.theme.UiStyle
+import androidx.compose.foundation.layout.RowScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -345,7 +349,7 @@ fun LiveChainCard(
     val v = verdict(state, snapshot)
     val jadooOn = state.masterEnabled && !state.dspBypassed
 
-    Surface(
+    JadooSurface(
         onClick = onOpen,
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -430,22 +434,31 @@ fun LiveChainScreen(
     val inPath = dspInPath(state, snapshot)
     val bluetooth = state.outputLabel.startsWith("Bluetooth")
 
+    // Liquid Glass: the title bar floats as glass over the scrolling page,
+    // and the answer and the wire each sit on a glass card. Standard: as before.
+    val glass = LocalUiStyle.current == UiStyle.LiquidGlass
+    val titleRow: @Composable RowScope.() -> Unit = {
+        IconButton(onClick = onNavigateBack) { Icon(Icons.Default.Close, "Close") }
+        Text("Signal path", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+    }
+    GlassPinnedLayout(Modifier.fillMaxSize(), header = { if (glass) GlassTopBar(content = titleRow) }) { headerTop ->
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onNavigateBack) { Icon(Icons.Default.Close, "Close") }
-            Text("Signal path", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        if (!glass) {
+            Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, content = titleRow)
         }
 
         Column(
             Modifier
                 .fillMaxSize()
+                .glassContentSource()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = JadooTheme.dimens.screenPadding + 4.dp)
-                .padding(bottom = 32.dp)
+                .padding(horizontal = if (glass) JadooTheme.dimens.screenPadding else JadooTheme.dimens.screenPadding + 4.dp)
+                .padding(top = headerTop, bottom = 32.dp)
         ) {
+            GlassSection {
             // ── Answer first: what is playing, and what happens to it ──
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(if (glass) 4.dp else 16.dp))
             Text(snapshot?.nowPlaying?.title ?: sourceName(state, snapshot),
                  style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold,
                  maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -477,10 +490,16 @@ fun LiveChainScreen(
                 }
             }
 
-            Spacer(Modifier.height(28.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            Spacer(Modifier.height(20.dp))
+            }
+            if (glass) {
+                Spacer(Modifier.height(16.dp))
+            } else {
+                Spacer(Modifier.height(28.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Spacer(Modifier.height(20.dp))
+            }
 
+            GlassSection {
             // ── The wire: one node per stage, changes written on the wire ──
             androidx.compose.runtime.CompositionLocalProvider(
                 LocalWireFlow provides rememberWireFlow(flowing = track != null)
@@ -572,6 +591,8 @@ fun LiveChainScreen(
                 }
             )
             }
+            }
+        }
         }
     }
 }
@@ -628,8 +649,11 @@ private fun StageNode(
             Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                  maxLines = 2, overflow = TextOverflow.Ellipsis)
             fact?.takeIf { it.isNotBlank() }?.let {
+                // Liquid Glass: AA contrast tint under the "Graphic EQ" label (no-op in Standard).
                 Text(it, style = MaterialTheme.typography.bodyMedium.merge(tabular),
-                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                     modifier = if (it.contains("Graphic EQ"))
+                         Modifier.glassLabelTint() else Modifier)
             }
             AnimatedVisibility(expanded,
                 enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {

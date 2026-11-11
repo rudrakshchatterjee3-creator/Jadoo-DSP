@@ -184,12 +184,7 @@ cd Jadoo-DSP
 
 The release APK will be at `app/build/outputs/apk/github/release/JadOO-DSP-github-release.apk`.
 
-There are two build flavors, sharing one package name and signing key:
-
-| Flavor | Output | Updates |
-|--------|--------|---------|
-| `github` | APK (`assembleGithubRelease`) | Checks GitHub Releases and installs in-app |
-| `play` | AAB (`bundlePlayRelease`) | Delivered by Google Play; no in-app updater or install permission |
+The single build flavor is `github`: an APK (`assembleGithubRelease`) that checks GitHub Releases and installs updates in-app.
 
 For debug builds with logging:
 ```bash

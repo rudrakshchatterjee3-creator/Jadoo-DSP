@@ -94,7 +94,8 @@ fun AppearanceSection(
     onToneChanged: (Offset, String) -> Unit,
     onBackdropChanged: (Offset, String) -> Unit,
     onSeedChanged: (Offset, Color) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onUiStyleChanged: (Offset, String) -> Unit = { _, _ -> }
 ) {
     val dimens = JadooTheme.dimens
     val alpha = JadooTheme.alpha
@@ -114,16 +115,13 @@ fun AppearanceSection(
     var swatchRowCentre by remember { mutableStateOf(Offset.Zero) }
     var toneRowCentre by remember { mutableStateOf(Offset.Zero) }
     var backdropRowCentre by remember { mutableStateOf(Offset.Zero) }
+    var styleRowCentre by remember { mutableStateOf(Offset.Zero) }
 
     // surfaceContainerHighest, not surfaceContainerHigh — this card lives
     // inside SettingsDialog, whose own Card is already surfaceContainerHigh;
     // see SettingsCard's doc comment in DashboardScreen.kt for why the same
     // token one level down doesn't read as a distinct card.
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer
-    ) {
+    GlassAwareSurface(modifier = modifier.fillMaxWidth()) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -269,7 +267,8 @@ fun AppearanceSection(
                     SegmentedButton(
                         selected = settings.tone == key,
                         onClick = { onToneChanged(toneRowCentre, key) },
-                        shape = SegmentedButtonDefaults.itemShape(index, tones.size)
+                        shape = SegmentedButtonDefaults.itemShape(index, tones.size),
+                        colors = jadooSegmentedColors()
                     ) {
                         Text(label, maxLines = 1)
                     }
@@ -316,7 +315,76 @@ fun AppearanceSection(
                 )
             }
         }
+
+        // ── Style: Standard or the Liquid Glass emulation ─────────────────
+        Text("Style", style = MaterialTheme.typography.bodyLarge)
+        val styles = listOf("Standard" to "Standard", "LiquidGlass" to "UI - Liquid Glass")
+        val currentStyle = if (settings.uiStyle == "LiquidGlass") "LiquidGlass" else "Standard"
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .onGloballyPositioned { styleRowCentre = it.centreInRoot() }
+                .selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(dimens.sm)
+        ) {
+            styles.forEach { (key, label) ->
+                StylePreviewTile(
+                    label = label,
+                    glass = key == "LiquidGlass",
+                    selected = currentStyle == key,
+                    modifier = Modifier
+                        .weight(1f)
+                        .selectable(
+                            selected = currentStyle == key,
+                            role = Role.RadioButton,
+                            onClick = { if (currentStyle != key) onUiStyleChanged(styleRowCentre, key) }
+                        )
+                )
+            }
+        }
     }
+    }
+}
+
+/** A style option: a mini surface drawn the way that style draws cards. */
+@Composable
+private fun StylePreviewTile(
+    label: String,
+    glass: Boolean,
+    selected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val dimens = JadooTheme.dimens
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(dimens.xs)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .clip(JadooTheme.shapes.control)
+                .background(scheme.background)
+                .then(if (glass) Modifier.background(
+                    androidx.compose.ui.graphics.Brush.linearGradient(
+                        listOf(scheme.primary.copy(alpha = 0.45f), scheme.tertiary.copy(alpha = 0.35f)))) else Modifier)
+                .selectionOutline(selected, JadooTheme.shapes.control),
+            contentAlignment = Alignment.Center
+        ) {
+            val chip = Modifier.fillMaxWidth().padding(10.dp).height(26.dp)
+            if (glass) Box(chip.liquidGlass(CircleShape, forceGlass = true))
+            else Box(chip.clip(CircleShape).background(scheme.surfaceContainer))
+            if (selected) SelectedBadge()
+        }
+        Text(
+            text = label,
+            style = JadooTheme.text.bodyCompact,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) scheme.onSurface else scheme.onSurfaceVariant,
+            maxLines = 1
+        )
     }
 }
 
@@ -344,16 +412,11 @@ private fun BackdropPreviewTile(
                 .then(if (aurora) Modifier.background(
                     androidx.compose.ui.graphics.Brush.radialGradient(
                         listOf(scheme.primary.copy(alpha = 0.35f), Color.Transparent))) else Modifier)
-                .border(
-                    width = if (selected) 2.dp else 1.dp,
-                    color = if (selected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.outlineVariant,
-                    shape = JadooTheme.shapes.control
-                )
-                .padding(8.dp),
+                .selectionOutline(selected, JadooTheme.shapes.control),
             contentAlignment = Alignment.BottomCenter
         ) {
-            Box(Modifier.fillMaxWidth().height(18.dp).clip(CircleShape).background(scheme.surfaceContainer))
+            Box(Modifier.fillMaxWidth().padding(8.dp).height(18.dp).clip(CircleShape).background(scheme.surfaceContainer))
+            if (selected) SelectedBadge()
         }
         Text(
             text = label,
@@ -388,15 +451,10 @@ private fun ModePreviewTile(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(64.dp)
                 .clip(JadooTheme.shapes.control)
                 .background(scheme.background)
-                .border(
-                    width = if (selected) 2.dp else 1.dp,
-                    color = if (selected) scheme.primary
-                            else MaterialTheme.colorScheme.outlineVariant,
-                    shape = JadooTheme.shapes.control
-                ),
+                .selectionOutline(selected, JadooTheme.shapes.control),
             contentAlignment = Alignment.Center
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -409,31 +467,15 @@ private fun ModePreviewTile(
                     )
                 }
             }
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .size(16.dp)
-                        .clip(CircleShape)
-                        .background(scheme.primary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = null,
-                        tint = scheme.onPrimary,
-                        modifier = Modifier.size(11.dp)
-                    )
-                }
-            }
+            if (selected) SelectedBadge()
         }
         Text(
             text = label,
             style = JadooTheme.text.bodyCompact,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
         )
     }
 }

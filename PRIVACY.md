@@ -21,9 +21,7 @@ Everything below stays on your device unless you choose to share it yourself.
 
 ## Network access
 
-**Google Play version:** the app does not request internet access and makes no network connections.
-
-**GitHub version** (downloaded from the project's GitHub Releases page): the app connects to GitHub to check for new app versions (`api.github.com`), download updates you choose to install, download updated tuning presets (`raw.githubusercontent.com`), and — only when you open Headphone correction — download the public AutoEQ headphone list and the profile you pick (`raw.githubusercontent.com/jaakkopasanen/AutoEq`). Searching happens on your device; your search text is never sent. These requests contain no personal information, but as with any web request GitHub receives your IP address and device's network details; GitHub's handling of that is covered by the [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
+The app (downloaded from the project's GitHub Releases page) connects to GitHub to check for new app versions (`api.github.com`), download updates you choose to install, download updated tuning presets (`raw.githubusercontent.com`), and — only when you open Headphone correction — download the public AutoEQ headphone list and the profile you pick (`raw.githubusercontent.com/jaakkopasanen/AutoEq`). Searching happens on your device; your search text is never sent. These requests contain no personal information, but as with any web request GitHub receives your IP address and device's network details; GitHub's handling of that is covered by the [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
 
 ## Permissions
 

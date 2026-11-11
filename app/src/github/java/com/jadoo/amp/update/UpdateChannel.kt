@@ -24,18 +24,7 @@ import com.jadoo.amp.ui.WhatsNewDialog
 import kotlinx.coroutines.launch
 
 // GitHub flavor's update channel: polls GitHub Releases and installs the APK
-// in-app (see ApkUpdater), and refreshes tuning content over the air. The
-// play flavor has its own UpdateChannel.kt with the same declarations,
-// backed by Google Play instead.
-
-/**
- * Whether tuning, presets and device profiles refresh from the content
- * document on GitHub (see ContentRepository). Off in the play flavor.
- */
-const val REMOTE_CONTENT_ENABLED = true
-
-/** Whether the AutoEQ headphone database (downloaded from GitHub on use) is offered. */
-const val AUTOEQ_ENABLED = true
+// in-app (see ApkUpdater), and refreshes tuning content over the air.
 
 /**
  * Launch-time update check, hosted once in MainActivity.
