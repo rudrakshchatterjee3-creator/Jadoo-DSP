@@ -11,7 +11,7 @@
 [![Android](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)](#)
 [![Kotlin](https://img.shields.io/badge/Language-Kotlin-7F52FF?logo=kotlin&logoColor=white)](#)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white)](#)
-[![License](https://img.shields.io/badge/License-Proprietary-red)](#)
+[![License](https://img.shields.io/badge/License-GPL--3.0-blue)](LICENSE)
 
 </div>
 
