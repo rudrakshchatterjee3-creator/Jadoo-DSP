@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shr_battery_title">Autoriser l’utilisation en arrière-plan sans restriction</string>
+    <string name="shr_battery_body_direct">Sur certaines ROM de constructeurs, le moteur JadOO DSP peut s’arrêter au bout de quelques secondes. Autoriser JadOO DSP à ignorer l’optimisation de la batterie pour que le DSP continue de fonctionner pendant la lecture de musique.</string>
+    <string name="shr_battery_body_settings">Sur certaines ROM de constructeurs, le moteur JadOO DSP peut s’arrêter au bout de quelques secondes. Sur l’écran suivant, sélectionner JadOO DSP et choisir « Ne pas optimiser » pour que le DSP continue de fonctionner pendant la lecture de musique.</string>
+    <string name="shr_allow">Autoriser</string>
+    <string name="shr_later">Plus tard</string>
+
+    <string name="shr_crash_title">JadOO DSP a planté la dernière fois</string>
+    <string name="shr_crash_body">Partager ce rapport aide à corriger le problème : il ne contient que des informations sur l’appareil et une trace d’appels, aucune donnée personnelle.</string>
+    <string name="shr_crash_share">Partager le rapport de plantage</string>
+    <string name="shr_crash_dismiss">Ignorer</string>
+
+    <string name="shr_import_title">Enregistrer le profil importé</string>
+    <string name="shr_import_body">Donner un nom à ce profil importé. Il sera enregistré séparément : le profil actuel de l’appareil ne sera pas modifié.</string>
+    <string name="shr_import_name_label">Nom du profil</string>
+    <string name="shr_import_name_empty">Saisir un nom</string>
+    <string name="shr_import_name_exists">Ce nom existe déjà : en choisir un autre</string>
+    <string name="shr_save">Enregistrer</string>
+    <string name="shr_cancel">Annuler</string>
+
+    <string name="shr_perm_title">Autorisations requises</string>
+    <string name="shr_perm_body">JadOO DSP a besoin de l’autorisation d’envoyer des notifications pour maintenir le moteur DSP actif.</string>
+
+    <string name="shr_mode_brand">Marque</string>
+    <string name="shr_mode_custom">Perso</string>
+    <string name="shr_accent_swatch_desc">Échantillon de couleur d’accent</string>
+    <string name="shr_tone_title">Clair / Sombre</string>
+    <string name="shr_tone_always_light">Toujours clair</string>
+    <string name="shr_tone_always_dark">Toujours sombre</string>
+    <string name="shr_tone_system_dark_now">Suit le système · actuellement sombre</string>
+    <string name="shr_tone_system_light_now">Suit le système · actuellement clair</string>
+    <string name="shr_collapse">Réduire</string>
+    <string name="shr_expand">Développer</string>
+    <string name="shr_tone_light">Clair</string>
+    <string name="shr_tone_dark">Sombre</string>
+    <string name="shr_background">Arrière-plan</string>
+    <string name="shr_backdrop_dim">Atténué</string>
+    <string name="shr_backdrop_tinted">Teinté</string>
+    <string name="shr_backdrop_black">Noir</string>
+    <string name="shr_backdrop_black_dark_only">Noir (sombre)</string>
+    <string name="shr_style">Style</string>
+    <string name="shr_style_standard">Standard</string>
+
+    <string name="shr_selected">Sélectionné</string>
+    <string name="shr_about_title">À propos de %1$s</string>
+    <string name="shr_curve_off">Courbe de réponse, plate : JadOO désactivé</string>
+    <string name="shr_curve_flat">Courbe de réponse, plate</string>
+    <string name="shr_curve_peak">Courbe de réponse, plus forte variation de %1$s dB à %2$s</string>
+    <string name="shr_curve_hz">%1$s hertz</string>
+    <string name="shr_curve_khz">%1$s kilohertz</string>
+    <string name="shr_power_off_desc">Désactiver JadOO</string>
+    <string name="shr_power_on_desc">Activer JadOO</string>
+</resources>

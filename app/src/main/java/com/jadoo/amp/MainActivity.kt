@@ -24,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -93,6 +94,11 @@ class MainActivity : ComponentActivity() {
             audioService = null
             isBound = false
         }
+    }
+
+    /** Per-app language on Android 9-12; a no-op on 13+. See [AppLocale]. */
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -253,13 +259,13 @@ class MainActivity : ComponentActivity() {
                     if (showBatteryDialog) {
                         JadooAlertDialog(
                             onDismissRequest = { showBatteryDialog = false },
-                            title = { Text("Allow unrestricted background usage") },
+                            title = { Text(stringResource(R.string.shr_battery_title)) },
                             text = {
                                 Text(
                                     if (canRequestBatteryExemptionDirectly())
-                                        "Some OEM ROMs may stop the JadOO DSP engine after a few seconds. Allow JadOO DSP to ignore battery optimizations so the DSP can keep running while music plays."
+                                        stringResource(R.string.shr_battery_body_direct)
                                     else
-                                        "Some OEM ROMs may stop the JadOO DSP engine after a few seconds. On the next screen, find JadOO DSP and set it to \"Don't optimize\" so the DSP can keep running while music plays."
+                                        stringResource(R.string.shr_battery_body_settings)
                                 )
                             },
                             confirmButton = {
@@ -269,12 +275,12 @@ class MainActivity : ComponentActivity() {
                                         requestBatteryOptimizationExemption()
                                     }
                                 ) {
-                                    Text("Allow")
+                                    Text(stringResource(R.string.shr_allow))
                                 }
                             },
                             dismissButton = {
                                 TextButton(onClick = { showBatteryDialog = false }) {
-                                    Text("Later")
+                                    Text(stringResource(R.string.shr_later))
                                 }
                             }
                         )
@@ -286,24 +292,24 @@ class MainActivity : ComponentActivity() {
                                 CrashHandler.reportFile(this@MainActivity).delete()
                                 crashReportText = null
                             },
-                            title = { Text("JadOO DSP crashed last time") },
-                            text = { Text("Sharing this report helps get it fixed — it's just device info and a stack trace, no personal data.") },
+                            title = { Text(stringResource(R.string.shr_crash_title)) },
+                            text = { Text(stringResource(R.string.shr_crash_body)) },
                             confirmButton = {
                                 TextButton(onClick = {
                                     val sendIntent = Intent(Intent.ACTION_SEND).apply {
                                         type = "text/plain"
                                         putExtra(Intent.EXTRA_TEXT, report)
                                     }
-                                    startActivity(Intent.createChooser(sendIntent, "Share crash report"))
+                                    startActivity(Intent.createChooser(sendIntent, getString(R.string.shr_crash_share)))
                                     CrashHandler.reportFile(this@MainActivity).delete()
                                     crashReportText = null
-                                }) { Text("Share crash report") }
+                                }) { Text(stringResource(R.string.shr_crash_share)) }
                             },
                             dismissButton = {
                                 TextButton(onClick = {
                                     CrashHandler.reportFile(this@MainActivity).delete()
                                     crashReportText = null
-                                }) { Text("Dismiss") }
+                                }) { Text(stringResource(R.string.shr_crash_dismiss)) }
                             }
                         )
                     }
@@ -357,6 +363,7 @@ class MainActivity : ComponentActivity() {
         val sessionId by audioService?.audioSessionId?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
         val activePackageName by audioService?.activeAppLabel?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
         val currentOutputDevice by audioService?.currentOutputDevice?.collectAsState(initial = "Phone Speaker") ?: remember { mutableStateOf("Phone Speaker") }
+        val graphicEqStashed by (audioService?.graphicEqStash?.collectAsState(initial = null) ?: remember { mutableStateOf<FloatArray?>(null) })
         val masterEnabled by audioService?.masterEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
         val dspBypassed by audioService?.dspBypassed?.collectAsState(initial = true) ?: remember { mutableStateOf(true) }
         val preGainDb by audioService?.preGainDb?.collectAsState(initial = 0f) ?: remember { mutableFloatStateOf(0f) }
@@ -408,6 +415,15 @@ class MainActivity : ComponentActivity() {
         val selectedPresetName by audioService?.selectedPresetName?.collectAsState(initial = "") ?: remember { mutableStateOf("") }
         val responseCurveDb by audioService?.responseCurveDb?.collectAsState(initial = FloatArray(DpResponse.DISPLAY_FREQUENCIES_HZ.size)) ?: remember { mutableStateOf(FloatArray(DpResponse.DISPLAY_FREQUENCIES_HZ.size)) }
         val autoEqProfileName by audioService?.autoEqProfileName?.collectAsState(initial = "") ?: remember { mutableStateOf("") }
+        val hearPrintEnabled by audioService?.hearPrintEnabled?.collectAsState(initial = false) ?: remember { mutableStateOf(false) }
+        val hearPrintStrength by audioService?.hearPrintStrength?.collectAsState(initial = 0.5f) ?: remember { mutableFloatStateOf(0.5f) }
+        val hearPrintProfile by audioService?.hearPrintProfile?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
+        val hearPrintCurve by audioService?.hearPrintCurveFlow?.collectAsState(initial = FloatArray(EqBands.count))
+            ?: remember { mutableStateOf(FloatArray(EqBands.count)) }
+        val tasteLibrary by audioService?.tasteLibrary?.collectAsState(initial = com.jadoo.amp.audio.Taste.Library())
+            ?: remember { mutableStateOf(com.jadoo.amp.audio.Taste.Library()) }
+        val tasteCurve by audioService?.tasteCurveFlow?.collectAsState(initial = FloatArray(EqBands.count))
+            ?: remember { mutableStateOf(FloatArray(EqBands.count)) }
 
         // Per-app profiles — activePackageName above is the human-readable
         // label; the raw package is what keys a profile, so it's collected
@@ -446,14 +462,14 @@ class MainActivity : ComponentActivity() {
             var nameError by remember(pendingImport) { mutableStateOf<String?>(null) }
             JadooAlertDialog(
                 onDismissRequest = { pendingImportData = null },
-                title = { Text("Save Imported Profile") },
+                title = { Text(stringResource(R.string.shr_import_title)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Give this imported profile a name. It'll be saved separately - your current device profile won't be changed.")
+                        Text(stringResource(R.string.shr_import_body))
                         OutlinedTextField(
                             value = profileName,
                             onValueChange = { profileName = it; nameError = null },
-                            label = { Text("Profile name") },
+                            label = { Text(stringResource(R.string.shr_import_name_label)) },
                             isError = nameError != null,
                             supportingText = nameError?.let { { Text(it) } },
                             singleLine = true,
@@ -464,11 +480,11 @@ class MainActivity : ComponentActivity() {
                 confirmButton = {
                     TextButton(onClick = {
                         val name = profileName.trim()
-                        if (name.isBlank()) { nameError = "Please enter a name"; return@TextButton }
+                        if (name.isBlank()) { nameError = this@MainActivity.getString(R.string.shr_import_name_empty); return@TextButton }
                         lifecycleScope.launch {
                             val exists = audioService?.profileExists(name) ?: false
                             if (exists) {
-                                nameError = "Name already exists - try another"
+                                nameError = this@MainActivity.getString(R.string.shr_import_name_exists)
                             } else {
                                 audioService?.saveAsCustomProfile(name, pendingImport.sessionState)
                                 pendingImport.eqPresets.forEach { preset ->
@@ -477,10 +493,10 @@ class MainActivity : ComponentActivity() {
                                 pendingImportData = null
                             }
                         }
-                    }) { Text("Save") }
+                    }) { Text(stringResource(R.string.shr_save)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { pendingImportData = null }) { Text("Cancel") }
+                    TextButton(onClick = { pendingImportData = null }) { Text(stringResource(R.string.shr_cancel)) }
                 }
             )
         }
@@ -575,6 +591,30 @@ class MainActivity : ComponentActivity() {
             digitalFilterEnabled = digitalFilterEnabled,
             digitalFilterBandStates = digitalFilterBandStates,
             savedPresets = savedPresets,
+            hearPrint = audioService?.let { service ->
+                com.jadoo.amp.ui.HearPrintUi(
+                    enabled = hearPrintEnabled,
+                    strength = hearPrintStrength,
+                    profile = hearPrintProfile,
+                    curve = hearPrintCurve,
+                    onSpeaker = currentOutputDevice == "Phone Speaker",
+                    onEnabledChange = service::setHearPrintEnabled,
+                    onStrengthChange = service::setHearPrintStrength,
+                    onSave = service::saveHearPrintProfile,
+                    onDelete = service::deleteHearPrintProfile,
+                    beginTest = service::beginHearPrintTest,
+                    endTest = service::endHearPrintTest,
+                    tasteLibrary = tasteLibrary,
+                    tasteCurve = tasteCurve,
+                    onTastePreview = service::setTastePreview,
+                    onSaveTaste = service::saveTaste,
+                    onSelectTaste = service::selectTaste,
+                    onRenameTaste = service::renameTaste,
+                    onDeleteTaste = service::deleteTaste,
+                    isMusicPlaying = service::isMusicPlaying,
+                    outputKey = currentOutputDevice
+                )
+            },
             // currentAppearance, NOT themeSettings — themeSettings is the raw
             // DataStore-collected value, which only catches up to a toggle
             // once the async write's Flow re-emits. Reading it here made the
@@ -622,6 +662,8 @@ class MainActivity : ComponentActivity() {
             onPresetSelected = { gains ->
                 audioService?.applyPreset(gains)
             },
+            graphicEqOff = graphicEqStashed != null,
+            onGraphicEqEnabledChanged = { on -> audioService?.setGraphicEqEnabled(on) },
             onSavePreset = { name, gains ->
                 lifecycleScope.launch {
                     eqPresetPreferences.savePreset(name, gains)
@@ -769,14 +811,14 @@ class MainActivity : ComponentActivity() {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Permissions Required",
+                        text = stringResource(R.string.shr_perm_title),
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.titleLarge
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "JadOO DSP requires notifications permission to keep the DSP engine running.",
+                        text = stringResource(R.string.shr_perm_body),
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onErrorContainer
                     )

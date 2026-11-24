@@ -79,7 +79,23 @@ data class SessionState(
     // EQ, as "Model · lab", or "" for none. Display only: the filters it
     // produced live in peqBands like any manual PEQ edit, so editing a band
     // afterwards keeps the name until the bank is reset or replaced.
-    val autoEqProfileName: String = ""
+    val autoEqProfileName: String = "",
+    // HearPrint: personal per-ear curve from the tone test (HearPrint.encode),
+    // per output like AutoEQ: it measured this listener with these headphones.
+    val hearPrintEnabled: Boolean = false,
+    val hearPrintStrength: Float = 0.5f,
+    val hearPrintProfile: String = "",
+    // Taste profiles: HearPrint's optional preference half, per output (Taste.encodeLibrary).
+    val tasteProfile: String = "",
+    // False only for profiles saved before 1.7.0: on Bluetooth those may
+    // still carry an AutoEQ preamp the level-aware plan no longer wants, and
+    // it is cleared once on their first load (JadooDspService.applyState).
+    // Every save writes true, so a pre-gain set by hand afterwards is kept.
+    val btAutoEqPreampChecked: Boolean = false,
+    // The Graphic EQ curve while its switch is off ("" = switch on), as
+    // comma-separated dB. Persisted so turning the EQ back on after a restart
+    // brings the curve back instead of a flat line.
+    val graphicEqStash: String = ""
 )
 
 /**
@@ -131,6 +147,12 @@ class SessionPreferences(private val context: Context) {
         const val KEEP_FULL_LOUDNESS = "keep_full_loudness"
         const val SELECTED_PRESET_NAME = "selected_preset_name"
         const val AUTOEQ_PROFILE_NAME = "autoeq_profile_name"
+        const val HEARPRINT_ENABLED = "hearprint_enabled"
+        const val HEARPRINT_STRENGTH = "hearprint_strength"
+        const val HEARPRINT_PROFILE = "hearprint_profile"
+        const val TASTE_PROFILE = "taste_profile"
+        const val BT_AUTOEQ_PREAMP_CHECKED = "bt_autoeq_preamp_checked"
+        const val GRAPHIC_EQ_STASH = "graphic_eq_stash"
     }
 
     // Legacy (pre-per-device) un-suffixed keys, kept only as a one-time
@@ -171,6 +193,14 @@ class SessionPreferences(private val context: Context) {
         val keepFullLoudness      = booleanPreferencesKey(KeyNames.KEEP_FULL_LOUDNESS)
         val selectedPresetName    = stringPreferencesKey(KeyNames.SELECTED_PRESET_NAME)
         val autoEqProfileName     = stringPreferencesKey(KeyNames.AUTOEQ_PROFILE_NAME)
+        // Never written: HearPrint is per output only. Present so load() can
+        // read it the same way; a new output starts without one.
+        val hearPrintEnabled      = booleanPreferencesKey(KeyNames.HEARPRINT_ENABLED)
+        val hearPrintStrength     = floatPreferencesKey(KeyNames.HEARPRINT_STRENGTH)
+        val hearPrintProfile      = stringPreferencesKey(KeyNames.HEARPRINT_PROFILE)
+        val tasteProfile          = stringPreferencesKey(KeyNames.TASTE_PROFILE)
+        val btAutoEqPreampChecked = booleanPreferencesKey(KeyNames.BT_AUTOEQ_PREAMP_CHECKED)
+        val graphicEqStash        = stringPreferencesKey(KeyNames.GRAPHIC_EQ_STASH)
     }
 
     private val savedProfileNamesKey = stringPreferencesKey("saved_profile_names")
@@ -228,6 +258,12 @@ class SessionPreferences(private val context: Context) {
             p[boolKey(KeyNames.KEEP_FULL_LOUDNESS, deviceKey)] = state.keepFullLoudness
             p[stringKey(KeyNames.SELECTED_PRESET_NAME, deviceKey)] = state.selectedPresetName
             p[stringKey(KeyNames.AUTOEQ_PROFILE_NAME, deviceKey)] = state.autoEqProfileName
+            p[boolKey(KeyNames.HEARPRINT_ENABLED, deviceKey)] = state.hearPrintEnabled
+            p[floatKey(KeyNames.HEARPRINT_STRENGTH, deviceKey)] = state.hearPrintStrength
+            p[stringKey(KeyNames.HEARPRINT_PROFILE, deviceKey)] = state.hearPrintProfile
+            p[stringKey(KeyNames.TASTE_PROFILE, deviceKey)] = state.tasteProfile
+            p[boolKey(KeyNames.BT_AUTOEQ_PREAMP_CHECKED, deviceKey)] = true
+            p[stringKey(KeyNames.GRAPHIC_EQ_STASH, deviceKey)] = state.graphicEqStash
         }
     }
 
@@ -302,7 +338,13 @@ class SessionPreferences(private val context: Context) {
             ),
             autoEqProfileName = string(
                 KeyNames.AUTOEQ_PROFILE_NAME, LegacyKeys.autoEqProfileName, ""
-            )
+            ),
+            hearPrintEnabled = bool(KeyNames.HEARPRINT_ENABLED, LegacyKeys.hearPrintEnabled, false),
+            hearPrintStrength = float(KeyNames.HEARPRINT_STRENGTH, LegacyKeys.hearPrintStrength, 0.5f),
+            hearPrintProfile = string(KeyNames.HEARPRINT_PROFILE, LegacyKeys.hearPrintProfile, ""),
+            tasteProfile = string(KeyNames.TASTE_PROFILE, LegacyKeys.tasteProfile, ""),
+            btAutoEqPreampChecked = bool(KeyNames.BT_AUTOEQ_PREAMP_CHECKED, LegacyKeys.btAutoEqPreampChecked, false),
+            graphicEqStash = string(KeyNames.GRAPHIC_EQ_STASH, LegacyKeys.graphicEqStash, "")
         )
     }
 

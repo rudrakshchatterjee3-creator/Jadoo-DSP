@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dash_off">Aus</string>
+    <string name="dash_cancel">Abbrechen</string>
+    <string name="dash_save">Speichern</string>
+    <string name="dash_delete">Löschen</string>
+    <string name="dash_done">Fertig</string>
+    <string name="dash_close">Schließen</string>
+    <string name="dash_back">Zurück</string>
+    <string name="dash_settings">Einstellungen</string>
+    <string name="dash_remove">Entfernen</string>
+    <string name="dash_load">Laden</string>
+    <string name="dash_share">Teilen</string>
+    <string name="dash_selected">Ausgewählt</string>
+    <string name="dash_device_phone_speaker">Smartphone-Lautsprecher</string>
+    <string name="dash_device_wired_headphones">Kabelgebundene Kopfhörer</string>
+    <string name="dash_hero_standby">Standby</string>
+    <string name="dash_hero_processing">Aktiv</string>
+    <string name="dash_hero_tap_power_speaker">Tippe auf den Power-Button, um den Klang über den Lautsprecher zu verarbeiten</string>
+    <string name="dash_hero_tap_power_device">Tippe auf den Power-Button, um den Klang über %1$s zu verarbeiten</string>
+    <string name="dash_waiting_playback">Warte auf Wiedergabe</string>
+    <string name="dash_nothing_on">Nichts eingeschaltet</string>
+    <string name="dash_chip_app_suffix">%1$s · App</string>
+    <string name="dash_tonal_response">Klangkurve</string>
+    <string name="dash_in_out_db">In %1$s · Out %2$s dB</string>
+    <string name="dash_hide_gain">Gain ausblenden</string>
+    <string name="dash_show_gain">Gain einblenden</string>
+    <string name="dash_gain_deck_title">Eingangs- und Ausgangspegel</string>
+    <string name="dash_reset_all">Alle zurücksetzen</string>
+    <string name="dash_pre_gain">Pre-Gain</string>
+    <string name="dash_post_gain">Post-Gain</string>
+    <string name="dash_group_signal_path">Signalweg</string>
+    <string name="dash_group_tone">Klangregelung</string>
+    <string name="dash_group_character">Charakter</string>
+    <string name="dash_group_space">Raum</string>
+    <string name="dash_group_level">Pegel</string>
+    <string name="dash_headphone_correction">Kopfhörerkorrektur</string>
+    <string name="dash_group_device_type">Gerätetyp</string>
+    <string name="dash_group_sound">Klang</string>
+    <string name="dash_group_appearance">Darstellung</string>
+    <string name="dash_group_backup">Sicherung</string>
+    <string name="dash_group_diagnostics">Diagnose</string>
+    <string name="dash_group_system">System</string>
+    <string name="dash_correct_model">%1$s korrigieren</string>
+    <string name="dash_correct_headphones">Kopfhörer korrigieren</string>
+    <string name="dash_correct_hint">Gemessene EQ-Kurve in der AutoEQ-Datenbank finden</string>
+    <string name="dash_bt_tip_title">Mehr Headroom für Bluetooth</string>
+    <string name="dash_bt_tip_body">Deine Ohrhörer bekommen ständig volle Lautstärke, deshalb senkt JadOO den Eingangspegel um %1$.1f dB ab, damit deine Anhebungen nicht übersteuern. Aktiviere „Absolute Lautstärkeregelung deaktivieren“ in den Entwickleroptionen und verbinde neu: Dann sorgt die Lautstärkeregelung des Smartphones für diesen Spielraum.</string>
+    <string name="dash_not_now">Nicht jetzt</string>
+    <string name="dash_open_settings">Einstellungen öffnen</string>
+    <string name="dash_dev_options_toast">Tippe siebenmal auf „Build-Nummer“, um die Entwickleroptionen freizuschalten, und komm dann zurück</string>
+    <string name="dash_geq_sub_on">15 Bänder · Tippen zum Vergrößern</string>
+    <string name="dash_geq_sub_off">15-Band-Equalizer</string>
+    <string name="dash_peq_sub">16 Filter mit Q und Filtertypen</string>
+    <string name="dash_edit_filters">Filter bearbeiten</string>
+    <string name="dash_search_headphones">Über 8.000 vermessene Kopfhörer durchsuchen</string>
+    <string name="dash_ab_blocked">Nicht mit Front Stage verfügbar</string>
+    <string name="dash_ab_on">Drive, Wärme und Pultec-Bass</string>
+    <string name="dash_ab_off">Vintage-Hardware-Bass</string>
+    <string name="dash_warmth">Wärme</string>
+    <string name="dash_drift">Drift</string>
+    <string name="dash_pultec_inactive">Pultec EQ · inaktiv, solange Mobile Bass an ist</string>
+    <string name="dash_pultec_freq">Pultec-EQ-Frequenz</string>
+    <string name="dash_boost">Anhebung</string>
+    <string name="dash_cut">Absenkung</string>
+    <string name="dash_reset_defaults">Auf Standard zurücksetzen</string>
+    <string name="dash_intensity">Intensität</string>
+    <string name="dash_tube_on">Warme Fülle, weichere Höhen</string>
+    <string name="dash_tube_off">Röhrenverstärker-Klang</string>
+    <string name="dash_dbfb_off">Pegelabhängiger Subbass</string>
+    <string name="dash_dbfb_on">Dynamischer Bass · %1$s</string>
+    <string name="dash_hires_on">Luft · Glanz · Präsenz</string>
+    <string name="dash_hires_off">Mehr Luft und Glanz in den Höhen</string>
+    <string name="dash_exciter_on">Mehr Präsenz und Glanz</string>
+    <string name="dash_exciter_off">Klarheit im Bereich 2–8 kHz</string>
+    <string name="dash_hdr_on">%1$s · bringt Punch zurück</string>
+    <string name="dash_hdr_off">Öffnet totkomprimierte Master</string>
+    <string name="dash_mode_dbfb_normal">Normal</string>
+    <string name="dash_mode_dbfb_high">Hoch</string>
+    <string name="dash_mode_hdr_pure">Pur</string>
+    <string name="dash_mode_hdr_restoration">Restaurierung</string>
+    <string name="dash_mode_sbc_classic">Klassisch</string>
+    <string name="dash_mode_sbc_new">Neu</string>
+    <string name="dash_mode_surround_traditional">Traditionell</string>
+    <string name="dash_tagline_off">Keine räumliche Verarbeitung</string>
+    <string name="dash_tagline_traditional">Natürliche Stereobreite</string>
+    <string name="dash_tagline_front">Projektion nach vorn</string>
+    <string name="dash_tagline_wide">Immersiver 180°-Klang</string>
+    <string name="dash_surround_off_hint">Aus · Klangbühne wählen</string>
+    <string name="dash_loudness_off">Hält die Balance bei niedriger Lautstärke</string>
+    <string name="dash_loudness_at_ref">Auf Referenzpegel · keine Korrektur</string>
+    <string name="dash_loudness_below_ref">%1$d dB unter Referenz · Ausgleich aktiv</string>
+    <string name="dash_amount">Stärke</string>
+    <string name="dash_reference_level">Referenzpegel</string>
+    <string name="dash_loudness_note">Stelle die Referenz darauf ein, wie laut deine Anlage bei voller Lautstärke ist. Wird pro Ausgang gespeichert und hebt nie über den Referenzpegel hinaus an.</string>
+    <string name="dash_mobile_bass_on">Stellt fehlende Tiefen wieder her</string>
+    <string name="dash_mobile_bass_off">Vollerer Bass aus dem integrierten Lautsprecher</string>
+    <string name="dash_sbc_on">%1$s · für den SBC-Encoder</string>
+    <string name="dash_sbc_off">Nur für SBC-Kopfhörer</string>
+    <string name="dash_dt_general">Allgemein</string>
+    <string name="dash_dt_iem">In-Ear-Monitor</string>
+    <string name="dash_dt_on_ear">On-Ear-Kopfhörer</string>
+    <string name="dash_dt_over_ear">Over-Ear-Kopfhörer</string>
+    <string name="dash_dt_compact_speaker">Kompaktlautsprecher</string>
+    <string name="dash_dt_home_speaker">Heimlautsprecher</string>
+    <string name="dash_eq_title">15-Band-EQ</string>
+    <string name="dash_eq_subtitle">Eigene Kurven speichern und abrufen</string>
+    <string name="dash_eq_close">EQ-Editor schließen</string>
+    <string name="dash_overwrite_named">„%1$s“ überschreiben</string>
+    <string name="dash_eq_reset_flat_paren">Zurücksetzen (Flat)</string>
+    <string name="dash_eq_reset_flat">Auf Flat zurücksetzen</string>
+    <string name="dash_eq_overwrite_current">Mit aktuellem EQ überschreiben</string>
+    <string name="dash_eq_save_current">Aktuellen EQ speichern</string>
+    <string name="dash_preset_acoustic">Akustik</string>
+    <string name="dash_preset_bass">Bass</string>
+    <string name="dash_preset_beats">Beats</string>
+    <string name="dash_preset_classic">Klassik</string>
+    <string name="dash_preset_clear">Klar</string>
+    <string name="dash_preset_soulful_mids">Soulige Mitten</string>
+    <string name="dash_save_preset">Preset speichern</string>
+    <string name="dash_preset_name">Preset-Name</string>
+    <string name="dash_updates">Updates</string>
+    <string name="dash_installed_version">Installierte Version %1$s</string>
+    <string name="dash_unknown">unbekannt</string>
+    <string name="dash_find_headphone">Kopfhörer finden</string>
+    <string name="dash_find_headphone_sub">Über 8.000 vermessene Kopfhörer und IEMs · AutoEQ</string>
+    <string name="dash_applied_to">Angewendet auf %1$s · zum Ändern tippen</string>
+    <string name="dash_remove_correction">Korrektur entfernen</string>
+    <string name="dash_correction_note">Korrekturen werden pro Ausgabegerät gespeichert und in den Parametric EQ geladen, wo du sie feinjustieren kannst.</string>
+    <string name="dash_driver_locked">Am Smartphone-Lautsprecher fest auf „Allgemein“ gestellt. Mobile Bass passt sich bereits daran an.</string>
+    <string name="dash_driver_hint">Passt Bass- und Höhenfunktionen an das an, was dein Treiber wiedergeben kann.</string>
+    <string name="dash_gs_title">Präzises Gain-Staging</string>
+    <string name="dash_gs_on_trim">Eingang %1$.1f dB, damit Anhebungen nicht übersteuern</string>
+    <string name="dash_gs_on_room">Anhebungen bekommen Headroom, damit laute Songs nicht übersteuern</string>
+    <string name="dash_gs_legacy_ceiling">Legacy: Limiter-Ceiling %1$.1f dB, kein Übersteuerungsschutz</string>
+    <string name="dash_gs_legacy">Legacy: Das Limiter-Ceiling sinkt um die gesamte Anhebung</string>
+    <string name="dash_keep_loudness">Volle Lautstärke halten</string>
+    <string name="dash_keep_loudness_on">Kein Pegelverlust bei Maximallautstärke · laute Songs können übersteuern</string>
+    <string name="dash_keep_loudness_off">Kabel, DAC und Lautsprecher · kein Pegelverlust bei Maximallautstärke</string>
+    <string name="dash_per_app_title">App-Profile</string>
+    <string name="dash_per_app_hint">Spiel etwas ab, um dieser App eigene Einstellungen zu geben.</string>
+    <string name="dash_own_profile_for">Eigenes Profil für %1$s</string>
+    <string name="dash_own_profile_on">Eigene Einstellungen auf jedem Ausgang</string>
+    <string name="dash_own_profile_off">Nutzt die gemeinsamen Einstellungen dieses Ausgangs</string>
+    <string name="dash_export_settings">Einstellungen exportieren</string>
+    <string name="dash_export_settings_sub">Alle Einstellungen und Presets in einer Datei</string>
+    <string name="dash_import_settings">Einstellungen importieren</string>
+    <string name="dash_import_settings_sub">Aus einer Sicherungsdatei wiederherstellen</string>
+    <string name="dash_send_diagnostics">Diagnose senden</string>
+    <string name="dash_send_diagnostics_sub">Bericht mit Logs und Einstellungen prüfen und nur auf Wunsch teilen</string>
+    <string name="dash_diag_text">Geräte- und App-Version, deine aktuellen Einstellungen, der letzte Absturz (falls vorhanden) und das jüngste JadOO-Protokoll. Keine Audiodaten, Titelnamen oder persönlichen Daten. Es wird nichts gesendet, solange du nicht auf „Teilen“ tippst.</string>
+    <string name="dash_diag_error">Der Bericht konnte nicht erstellt werden: %1$s</string>
+    <string name="dash_collecting">Wird erfasst …</string>
+    <string name="dash_live_stream">Live-Streamdaten</string>
+    <string name="dash_dump_granted">DUMP erteilt · vollständiger Signalweg</string>
+    <string name="dash_dump_optional">Optionale DUMP-Freigabe über adb</string>
+    <string name="dash_surround_title">Surround-Modus</string>
+    <string name="dash_surround_subtitle">EQ-basierte Verbreiterung, kein Resampling</string>
+    <string name="dash_help_dump_title">DUMP-Berechtigung</string>
+    <string name="dash_help_per_app_title">App-Profile</string>
+    <string name="dash_help_gs_title">Präzises Gain-Staging</string>
+    <string name="dash_help_hires_body">Mehr Luft und Glanz oben, ohne dass du am EQ etwas ändern musst.
+
+Ab 5 kHz kommt die Anhebung in Stufen: zuerst etwa +2,5 dB, oben bis zu +5,5 dB über 14,5 kHz. Es macht das Vorhandene heller. Details, die eine komprimierte Datei schon verloren hat, holt es nicht zurück.</string>
+    <string name="dash_help_dbfb_body">Gibt dem Bass unter etwa 260 Hz mehr Gewicht und Druck.
+
+• **Normal** – eine sanfte Anhebung
+• **High** – tiefer und kräftiger</string>
+    <string name="dash_help_hdr_body">Gibt stark komprimierter Musik ein Stück Raum zurück.
+
+• **Pure** – fast transparent. Der Limiter greift nur bei den Spitzen.
+• **Restoration** – drückt die allerleisesten Stellen noch weiter runter, damit leise und laute Passagen weiter auseinanderliegen.</string>
+    <string name="dash_help_analog_bass_body">Bass mit der Farbe alter Hardware: Kompression im Tieftonbereich, dazu eine Klangformung im Pultec-Stil. Es kopiert, wie diese Geräte klingen, nicht ihre Schaltung.
+
+• **Drive** – drückt den Bass stärker zusammen, für einen dichteren Tiefton
+• **Warmth** – fügt Fülle hinzu
+• **Drift** – wie locker die Kompression einsetzt
+• **Pultec** – eine Tiefton-Anhebung mit einer Absenkung knapp darüber</string>
+    <string name="dash_help_surround_body">Macht das Stereobild nur mit EQ-Formung breiter. Stimmen bleiben in der Mitte.
+
+• **Traditional** – etwas breiter
+• **Front Stage** – holt die Stimme nach vorn, wie Lautsprecher vor dir
+• **Ultra Wide** – am räumlichsten</string>
+    <string name="dash_help_dump_body">Optional. Hilft JadOO, die Audiosession der gerade spielenden App zu finden, wenn Androids normale Suche sie übersieht.
+
+Einmal vom Computer aus erteilen:
+
+**adb shell pm grant com.jadoo.amp android.permission.DUMP**</string>
+    <string name="dash_help_tube_body">Warmer Röhrenverstärker-Charakter, gut für dünn oder klinisch klingende Titel. Es ist nur Klangfarbe: ein weicher Bass und ein sanfterer Höhenbereich. Echte Röhrensättigung geht auf Android nicht, das hier kommt dem am nächsten.</string>
+    <string name="dash_help_mobile_bass_body">Macht den kleinen Lautsprecher deines Telefons voller. Echte Tiefbässe schafft er nicht, deshalb werden die Töne knapp darüber angehoben, die er noch wiedergeben kann.
+
+Erscheint nur, wenn Audio über den Telefonlautsprecher läuft.</string>
+    <string name="dash_help_exciter_body">Bringt Präsenz und Klarheit zwischen 2 und 8 kHz, wo Stimmen und Anschläge sitzen.
+
+Das ist eine sanfte Anhebung, keine neuen Obertöne. Zu weit aufgedreht wird es bei hellen Titeln schnell scharf. Funktioniert bei jeder Ausgabe.</string>
+    <string name="dash_help_peq_body">Bis zu 16 Filter zusätzlich zum Grafik-EQ.
+
+Die Filter laufen über dieselben 15 Bänder wie der Grafik-EQ, schmale Filter werden deshalb breiter, als du sie eingestellt hast. Die Kurve auf dem Startbildschirm zeigt, was wirklich passiert.</string>
+    <string name="dash_help_sbc_body">Zwei Varianten für SBC-Bluetooth. Nimm die, die dir besser gefällt.
+
+• **Classic** – heller und offener
+• **New** – formt das Signal vor dem Codec, für sanftere Becken und weniger wässriges Zischen
+
+SBC verteilt seine Bits nach Lautstärke und tut das alle 3 ms neu. New nimmt die ganz obersten Höhen zurück, wo Bits teuer und kaum hörbar sind, und stabilisiert die Höhen, damit sie nicht zerfallen.
+
+Nur für SBC. Wenn deine Kopfhörer LDAC, LHDC oder aptX HD können, nimm lieber eines davon.</string>
+    <string name="dash_help_loudness_body">Leise Musik verliert Bass und Höhen, weil das Ohr so arbeitet. Beim Leiserdrehen kommen sie wieder dazu, damit die Balance gleich bleibt.
+
+## Referenzpegel
+Wie laut dein Gerät bei voller Lautstärke wirklich wird. Stell es nach Gehör mit einem Titel ein, den du kennst.
+
+## Stärke
+Wie viel Korrektur angewendet wird. Dreh sie runter, wenn volle Stärke zu viel ist.</string>
+    <string name="dash_help_per_app_body">Gibt jeder App eigene Einstellungen, die greifen, sobald sie zu spielen beginnt. Zum Beispiel eine Sprachbetonung für Podcasts und die volle Kurve für Musik.
+
+Gespeichert pro App und pro Ausgabe.</string>
+    <string name="dash_help_gs_body">Verstärkungen brauchen Platz über lauten Titeln, sonst übersteuern sie.
+
+## An (empfohlen)
+Über Kabel und Lautsprecher wird der Eingang gerade so weit gesenkt, dass der Titel so laut bleibt wie ohne Effekte. Bei Bluetooth lassen die Anhebungen nur an den lautesten Stellen nach, es wird nichts leiser gemacht.
+
+## Volle Lautstärke halten
+Nur Kabel, DAC und Lautsprecher. Die Effekte senken die Lautstärke bei voller Lautstärke nicht mehr, aber laute Titel können übersteuern. Bluetooth ist nicht betroffen.
+
+## Aus
+Kein Schutz. Laute Titel können mit mehreren Anhebungen übersteuern. Nur zum Vergleich mit älteren Versionen sinnvoll.</string>
+    <plurals name="dash_features_on">
+        <item quantity="one">%1$d Funktion</item>
+        <item quantity="other">%1$d Funktionen</item>
+    </plurals>
+</resources>

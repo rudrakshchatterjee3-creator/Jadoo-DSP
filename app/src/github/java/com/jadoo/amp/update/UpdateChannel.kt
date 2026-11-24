@@ -1,5 +1,6 @@
 package com.jadoo.amp.update
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
@@ -17,8 +18,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jadoo.amp.R
 import com.jadoo.amp.settings.UpdatePreferences
 import com.jadoo.amp.ui.WhatsNewDialog
 import kotlinx.coroutines.launch
@@ -77,6 +80,7 @@ fun UpdateLaunchCheck() {
  * the same WhatsNewDialog (and the same verified in-app install).
  */
 @Composable
+@SuppressLint("LocalContextGetResourceValueCall") // read in click handlers; a language change recreates the activity
 fun UpdateCheckControls(installedVersion: String) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -104,16 +108,16 @@ fun UpdateCheckControls(installedVersion: String) {
                 when {
                     release == null -> {
                         statusIsError = true
-                        status = "Couldn't reach the update server. Check your connection and try again."
+                        status = context.getString(R.string.upd_check_unreachable)
                     }
                     UpdateChecker.isNewer(release.tagName, installedVersion) -> {
                         statusIsError = false
-                        status = "Version ${release.tagName.removePrefix("v")} is available."
+                        status = context.getString(R.string.upd_check_available, release.tagName.removePrefix("v"))
                         newRelease = release
                     }
                     else -> {
                         statusIsError = false
-                        status = "You're on the latest version."
+                        status = context.getString(R.string.upd_check_latest)
                     }
                 }
             }
@@ -124,9 +128,9 @@ fun UpdateCheckControls(installedVersion: String) {
         if (checking) {
             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             Spacer(Modifier.width(10.dp))
-            Text("Checking…")
+            Text(stringResource(R.string.upd_checking))
         } else {
-            Text("Check for updates")
+            Text(stringResource(R.string.upd_check_button))
         }
     }
 

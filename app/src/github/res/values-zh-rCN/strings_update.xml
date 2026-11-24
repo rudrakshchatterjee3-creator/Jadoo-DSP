@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="upd_whats_new">更新内容</string>
+    <string name="upd_downloading">正在下载… %1$d%%</string>
+    <string name="upd_verifying">正在验证签名…</string>
+    <string name="upd_opening_installer">正在打开安装程序…</string>
+    <string name="upd_open_release_page">改为打开发布页面</string>
+    <string name="upd_allow_install_then_retry">请允许 JadOO DSP 安装应用，然后再次点按“安装更新”。</string>
+    <string name="upd_download_failed">下载失败，请检查网络连接。</string>
+    <string name="upd_install_update">安装更新</string>
+    <string name="upd_download_update">下载更新</string>
+    <string name="upd_remind_later">以后再说</string>
+    <string name="upd_made_with_love">用心打造，作者 Rudraksh Chatterjee（JadOO）</string>
+
+    <string name="upd_err_invalid_apk">下载的文件不是有效的 APK。</string>
+    <string name="upd_err_wrong_package">下载的 APK 属于 %1$s，而不是 %2$s。</string>
+    <string name="upd_err_no_installed_signature">无法读取已安装应用的签名，无法进行比对。</string>
+    <string name="upd_err_no_certificate">无法提取签名证书进行验证。</string>
+    <string name="upd_err_signature_mismatch">签名不一致：此 APK 与已安装的应用并非使用同一密钥签名。安装已取消。</string>
+    <string name="upd_err_install_failed">安装失败：%1$s</string>
+
+    <string name="upd_install_failed">更新安装失败</string>
+    <string name="upd_install_failed_reason">更新安装失败：%1$s</string>
+    <string name="upd_channel_name">应用更新</string>
+    <string name="upd_notif_title">JadOO DSP 更新已就绪</string>
+    <string name="upd_notif_text">点按以安装</string>
+
+    <string name="upd_check_unreachable">无法连接更新服务器，请检查网络连接后重试。</string>
+    <string name="upd_check_available">版本 %1$s 可供更新。</string>
+    <string name="upd_check_latest">当前已是最新版本。</string>
+    <string name="upd_checking">正在检查…</string>
+    <string name="upd_check_button">检查更新</string>
+    <string name="upd_title">有可用更新</string>
+    <string name="upd_subtitle">JadOO DSP %1$s 已可安装。</string>
+    <string name="upd_highlights">亮点</string>
+</resources>

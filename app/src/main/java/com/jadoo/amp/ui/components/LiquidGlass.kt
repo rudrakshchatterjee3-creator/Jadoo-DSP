@@ -123,6 +123,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.res.stringResource
+import com.jadoo.amp.R
 import com.jadoo.amp.ui.theme.GLASS_BLUR_RADIUS_DP
 import com.jadoo.amp.ui.theme.GLASS_WINDOW_BLUR_DP
 import com.jadoo.amp.ui.theme.GlassLevel
@@ -854,7 +856,7 @@ fun BoxScope.SelectedBadge(modifier: Modifier = Modifier) {
             .background(scheme.primary),
         contentAlignment = Alignment.Center
     ) {
-        Icon(Icons.Default.Check, contentDescription = "Selected", tint = scheme.onPrimary,
+        Icon(Icons.Default.Check, contentDescription = stringResource(R.string.shr_selected), tint = scheme.onPrimary,
              modifier = Modifier.size(12.dp))
     }
 }

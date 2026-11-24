@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hp_help_body">HearPrint joue de petits bips à onze hauteurs, de 250 Hz à 12 kHz, et trouve pour chacune le niveau le plus faible que tu entends encore. Il remonte ensuite les zones que tu entends moins, d’environ la moitié de l’écart avec une oreille typique.
+
+Le son ne devient jamais plus sombre : les aigus ne sont jamais coupés, et les graves ne reçoivent jamais plus de relevé que les aigus.
+
+Les deux oreilles entendent la même courbe, l’image stéréo reste donc stable. Elle n’est enregistrée que pour cette sortie et mesure tes oreilles et tes écouteurs ensemble. Si AutoEQ est activé, il s’occupe de la part des écouteurs.
+
+**Profil de goût :** quelques questions, puis des comparaisons A/B sur ta propre musique. La voix reste au même niveau dans les deux : tu choisis le timbre, pas le volume.
+
+C’est un réglage sonore, pas un test auditif, et il ne dit rien de médical sur ton audition.</string>
+    <string name="hp_sub_speaker">Pour casque et écouteurs uniquement</string>
+    <string name="hp_sub_none">Adapter JadOO à ses oreilles en 90 secondes environ</string>
+    <string name="hp_sub_on">Adapté à vos oreilles</string>
+    <string name="hp_sub_off">HearPrint enregistré mais désactivé</string>
+    <string name="hp_strength">Intensité</string>
+    <string name="hp_retake">Refaire le test auditif</string>
+    <string name="hp_delete">Supprimer</string>
+    <string name="hp_delete_title">Supprimer le HearPrint ?</string>
+    <string name="hp_delete_body">La courbe de ce casque est supprimée. Le test peut être refait à tout moment.</string>
+    <string name="hp_stop_title">Arrêter le test ?</string>
+    <string name="hp_stop_body">Rien n’est enregistré et le son revient à la normale.</string>
+    <string name="hp_stop_confirm">Arrêter</string>
+    <string name="hp_keep_going">Continuer</string>
+    <string name="hp_cd_stop">Arrêter le test</string>
+    <string name="hp_intro_headline">Votre HearPrint</string>
+    <string name="hp_intro_body">Chaque personne entend différemment, et chaque casque sonne différemment. En 90 secondes environ, JadOO apprend comment chaque partie du son est perçue et s’y adapte.</string>
+    <string name="hp_check_headphones">Porter le casque dans le bon sens</string>
+    <string name="hp_check_quiet">Choisir un endroit calme</string>
+    <string name="hp_check_music">La musique est mise en pause pendant le test</string>
+    <string name="hp_need_headphones">Brancher un casque pour commencer. HearPrint est conçu pour le casque.</string>
+    <string name="hp_start">Commencer</string>
+    <string name="hp_not_medical">Pas un test auditif médical.</string>
+    <string name="hp_volume_headline">Régler le volume</string>
+    <string name="hp_volume_body">Des bips doivent maintenant être audibles. Utiliser les boutons de volume pour qu’ils soient faibles mais nets, comme une conversation calme. Garder ce volume pendant tout le test.</string>
+    <string name="hp_volume_done">C’est bon</string>
+    <string name="hp_progress">Son %1$d sur %2$d</string>
+    <string name="hp_test_body">Maintenir le bouton tant que les bips sont audibles. Relâcher dès qu’ils disparaissent. Ils reviennent, c’est normal.</string>
+    <string name="hp_hearing">Audible</string>
+    <string name="hp_hold">Maintenir tant que les bips sont audibles</string>
+    <string name="hp_state_pressed">Appuyé</string>
+    <string name="hp_state_released">Relâché</string>
+    <string name="hp_result_headline">Votre HearPrint est prêt</string>
+    <string name="hp_result_body">Voici comment JadOO règle votre son, à l’identique pour les deux oreilles. Vers le haut : une partie moins bien entendue est relevée.</string>
+    <string name="hp_note_volume_high">Beaucoup de sons étaient encore entendus au niveau le plus faible. Le volume était sans doute élevé : le baisser de quelques crans et refaire le test pour un résultat plus précis.</string>
+    <string name="hp_note_not_heard">Certains sons n’ont pas été entendus, même au niveau le plus fort. JadOO ne les relève que jusqu’à sa limite de sécurité.</string>
+    <string name="hp_note_unsteady">Les deux mesures à la même hauteur diffèrent. Une pièce plus calme ou un nouveau test peut donner un résultat plus stable.</string>
+    <string name="hp_note_steady">Les réponses étaient cohérentes.</string>
+    <string name="hp_save">Enregistrer et activer</string>
+    <string name="hp_chart_cd">Votre courbe HearPrint, identique pour les deux oreilles : jusqu’à %1$s dB de relèvement</string>
+    <string name="hp_note_incomplete">Certains sons n’ont pas reçu de réponse stable, rien n’a donc été enregistré. Réessayer dans un endroit plus calme et relâcher dès que les bips disparaissent.</string>
+    <string name="hp_note_false_presses">Le bouton a été pressé plusieurs fois alors que rien ne jouait. Cela peut brouiller le résultat ; une pièce plus calme aide.</string>
+    <string name="hp_output_changed_title">Sortie modifiée</string>
+    <string name="hp_output_changed_body">Le son est passé sur une autre sortie, cette session a donc été arrêtée. Rien n’a été enregistré. Recommencez sur la sortie que vous voulez régler.</string>
+    <string name="hp_output_changed_ok">OK</string>
+</resources>

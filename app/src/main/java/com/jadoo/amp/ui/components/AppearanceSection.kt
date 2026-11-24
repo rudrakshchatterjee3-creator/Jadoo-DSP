@@ -45,11 +45,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.jadoo.amp.R
 import com.jadoo.amp.settings.ThemeSettings
 import com.jadoo.amp.settings.effectiveBackdrop
 import com.jadoo.amp.settings.toSpec
@@ -130,7 +132,11 @@ fun AppearanceSection(
     ) {
         // ── Mode: live colour previews, not a text control ────────────────
         val context = androidx.compose.ui.platform.LocalContext.current
-        val modes = listOf("Brand" to "Brand", "MaterialYou" to "You", "CustomSeed" to "Custom")
+        val modes = listOf(
+            "Brand" to stringResource(R.string.shr_mode_brand),
+            "MaterialYou" to stringResource(R.string.shr_mode_you),
+            "CustomSeed" to stringResource(R.string.shr_mode_custom)
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -189,6 +195,7 @@ fun AppearanceSection(
                     .selectableGroup(),
                 horizontalArrangement = Arrangement.spacedBy(dimens.md)
             ) {
+                val swatchDescription = stringResource(R.string.shr_accent_swatch_desc)
                 SeedSwatches.forEach { color ->
                     val selected = color.value == Color(settings.seedColor).value
                     Box(
@@ -204,7 +211,7 @@ fun AppearanceSection(
                                 ) else Modifier
                             )
                             .clickable(role = Role.RadioButton) { onSeedChanged(swatchRowCentre, color) }
-                            .semantics { contentDescription = "Accent colour swatch" },
+                            .semantics { contentDescription = swatchDescription },
                         contentAlignment = Alignment.Center
                     ) {
                         if (selected) {
@@ -235,14 +242,17 @@ fun AppearanceSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Light / Dark", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.shr_tone_title), style = MaterialTheme.typography.bodyLarge)
                 Text(
                     // The live resolved state, so collapsing hides the
                     // controls without hiding the information.
                     text = when (settings.tone) {
-                        "Light" -> "Always light"
-                        "Dark" -> "Always dark"
-                        else -> "Follows system · ${if (systemDark) "Dark" else "Light"} now"
+                        "Light" -> stringResource(R.string.shr_tone_always_light)
+                        "Dark" -> stringResource(R.string.shr_tone_always_dark)
+                        else -> stringResource(
+                            if (systemDark) R.string.shr_tone_system_dark_now
+                            else R.string.shr_tone_system_light_now
+                        )
                     },
                     style = JadooTheme.text.bodyCompact,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -250,7 +260,7 @@ fun AppearanceSection(
             }
             Icon(
                 Icons.Default.ExpandMore,
-                contentDescription = if (toneExpanded) "Collapse" else "Expand",
+                contentDescription = stringResource(if (toneExpanded) R.string.shr_collapse else R.string.shr_expand),
                 modifier = Modifier.rotate(chevronRotation),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -261,7 +271,11 @@ fun AppearanceSection(
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut()
         ) {
-            val tones = listOf("System" to "Auto", "Light" to "Light", "Dark" to "Dark")
+            val tones = listOf(
+                "System" to stringResource(R.string.shr_tone_auto),
+                "Light" to stringResource(R.string.shr_tone_light),
+                "Dark" to stringResource(R.string.shr_tone_dark)
+            )
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 tones.forEachIndexed { index, (key, label) ->
                     SegmentedButton(
@@ -277,8 +291,14 @@ fun AppearanceSection(
         }
 
         // ── Background: live previews of each backdrop ────────────────────
-        Text("Background", style = MaterialTheme.typography.bodyLarge)
-        val backdrops = listOf("Dim" to "Dim", "Tinted" to "Tinted", "Aurora" to "Aurora", "Black" to "Black")
+        Text(stringResource(R.string.shr_background), style = MaterialTheme.typography.bodyLarge)
+        val backdrops = listOf(
+            "Dim" to stringResource(R.string.shr_backdrop_dim),
+            "Tinted" to stringResource(R.string.shr_backdrop_tinted),
+            "Aurora" to stringResource(R.string.shr_backdrop_aurora),
+            "Black" to stringResource(R.string.shr_backdrop_black)
+        )
+        val blackDarkOnlyLabel = stringResource(R.string.shr_backdrop_black_dark_only)
         val current = settings.effectiveBackdrop
         val previewContext = androidx.compose.ui.platform.LocalContext.current
         Row(
@@ -299,7 +319,7 @@ fun AppearanceSection(
                     )
                 }
                 BackdropPreviewTile(
-                    label = if (available) label else "Black (dark)",
+                    label = if (available) label else blackDarkOnlyLabel,
                     scheme = preview,
                     aurora = key == "Aurora",
                     selected = current == key && available,
@@ -317,8 +337,11 @@ fun AppearanceSection(
         }
 
         // ── Style: Standard or the Liquid Glass emulation ─────────────────
-        Text("Style", style = MaterialTheme.typography.bodyLarge)
-        val styles = listOf("Standard" to "Standard", "LiquidGlass" to "UI - Liquid Glass")
+        Text(stringResource(R.string.shr_style), style = MaterialTheme.typography.bodyLarge)
+        val styles = listOf(
+            "Standard" to stringResource(R.string.shr_style_standard),
+            "LiquidGlass" to stringResource(R.string.shr_style_liquid_glass)
+        )
         val currentStyle = if (settings.uiStyle == "LiquidGlass") "LiquidGlass" else "Standard"
         Row(
             modifier = Modifier

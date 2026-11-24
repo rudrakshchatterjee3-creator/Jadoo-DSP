@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
+import com.jadoo.amp.AppLocale
 import android.content.Intent
 import android.database.ContentObserver
 import android.media.AudioAttributes
@@ -282,6 +283,35 @@ class JadooDspService : Service() {
     private val _keepFullLoudness = MutableStateFlow(false)
     val keepFullLoudness: StateFlow<Boolean> = _keepFullLoudness.asStateFlow()
 
+    // ── HearPrint ── personal curve (same for both ears) from the tone test; see HearPrint.
+    private val _hearPrintEnabled = MutableStateFlow(false)
+    val hearPrintEnabled: StateFlow<Boolean> = _hearPrintEnabled.asStateFlow()
+    private val _hearPrintStrength = MutableStateFlow(HearPrint.DEFAULT_STRENGTH)
+    val hearPrintStrength: StateFlow<Float> = _hearPrintStrength.asStateFlow()
+    private val _hearPrintProfile = MutableStateFlow<HearPrint.Profile?>(null)
+    val hearPrintProfile: StateFlow<HearPrint.Profile?> = _hearPrintProfile.asStateFlow()
+    /** Live 15-band curve; all zero when off. Recomputed by [recomputeHearPrint]. */
+    private var hearPrintCurve = FloatArray(EqBands.count)
+    private val _hearPrintCurveFlow = MutableStateFlow(FloatArray(EqBands.count))
+    val hearPrintCurveFlow: StateFlow<FloatArray> = _hearPrintCurveFlow.asStateFlow()
+    /** True while the tone test runs: the DP stays released so tones reach the ear unprocessed. */
+    @Volatile private var hearPrintTestActive = false
+
+    // ── Taste profile ── HearPrint's optional second half; see Taste.
+    private val _tasteLibrary = MutableStateFlow(Taste.Library())
+    /** This output's saved tastes and which one plays; see Taste.Library. */
+    val tasteLibrary: StateFlow<Taste.Library> = _tasteLibrary.asStateFlow()
+    /** Gains being auditioned during the taste A/B; overrides the saved taste while set. Never persisted. */
+    @Volatile private var tastePreviewGains: FloatArray? = null
+    private var tasteCurve = FloatArray(EqBands.count)
+    private val _tasteCurveFlow = MutableStateFlow(FloatArray(EqBands.count))
+    val tasteCurveFlow: StateFlow<FloatArray> = _tasteCurveFlow.asStateFlow()
+    private var hearPrintFocusRequest: android.media.AudioFocusRequest? = null
+
+    /** The Graphic EQ curve while its switch is off; null when on. See setGraphicEqEnabled. */
+    private val _graphicEqStash = MutableStateFlow<FloatArray?>(null)
+    val graphicEqStash: StateFlow<FloatArray?> = _graphicEqStash.asStateFlow()
+
     private val _autoEqProfileName = MutableStateFlow("")
     /** AutoEQ correction applied to this output's PEQ, "Model · lab", or "". */
     val autoEqProfileName: StateFlow<String> = _autoEqProfileName.asStateFlow()
@@ -349,6 +379,52 @@ class JadooDspService : Service() {
         return _deviceType.value.correctionDb(index, _deviceQualityTier.value)
     }
 
+    /** HearPrint is for headphones; never on the phone speaker. */
+    private fun hearPrintActive(): Boolean =
+        _hearPrintEnabled.value && currentDeviceKey != "speaker" && _hearPrintProfile.value?.complete == true
+
+    /**
+     * Recomputes HearPrint's band curves. AutoEQ (when this output has one)
+     * already corrects the headphone part of what the test measured, so its
+     * gain at the test tones is handed in and not corrected twice.
+     */
+    private fun recomputeHearPrint() {
+        val profile = _hearPrintProfile.value
+        val curve = if (hearPrintActive()) {
+            val autoEq = if (_autoEqProfileName.value.isNotBlank() && digitalFilterEngine.enabled)
+                FloatArray(HearPrint.TEST_FREQS_HZ.size) { i ->
+                    val f = HearPrint.TEST_FREQS_HZ[i]
+                    digitalFilterEngine.evaluateBandGainDb(f / 1.12f, f * 1.12f)
+                } else null
+            HearPrint.bandCurve(profile, _hearPrintStrength.value, autoEq)
+        } else FloatArray(EqBands.count)
+        if (!curve.contentEquals(hearPrintCurve) && curve.any { it != 0f }) {
+            Log.i(TAG, "HearPrint curve dB: " + curve.joinToString(",") { String.format(java.util.Locale.US, "%.1f", it) })
+        }
+        hearPrintCurve = curve
+        _hearPrintCurveFlow.value = curve
+
+        val preview = tastePreviewGains
+        val taste = _tasteLibrary.value.current
+        val t = when {
+            currentDeviceKey == "speaker" -> FloatArray(EqBands.count)
+            preview != null -> Taste.curve(preview)
+            hearPrintActive() && taste != null && !taste.isNeutral -> Taste.curve(taste.gainsDb)
+            else -> FloatArray(EqBands.count)
+        }
+        if (!t.contentEquals(tasteCurve) && t.any { it != 0f } && preview == null) {
+            Log.i(TAG, "Taste curve dB: " + t.joinToString(",") { String.format(java.util.Locale.US, "%.1f", it) })
+        }
+        tasteCurve = t
+        _tasteCurveFlow.value = t
+    }
+
+    /** HearPrint's hearing curve plus the taste curve: one curve for both ears. */
+    private fun hearPrintCentered(index: Int): Float = hearPrintCurve[index] + tasteCurve[index]
+
+    private fun tasteActive(): Boolean = currentDeviceKey != "speaker" &&
+        (tastePreviewGains != null || (hearPrintActive() && _tasteLibrary.value.current?.isNeutral == false))
+
     private fun parametricEqShape(index: Int): Float {
         val loHz = if (index == 0) 20f else EqBands.cutoffFrequencies[index - 1]
         return digitalFilterEngine.evaluateBandGainDb(loHz, EqBands.cutoffFrequencies[index])
@@ -386,7 +462,8 @@ class JadooDspService : Service() {
 
     private fun staticPreEqShape(index: Int): Float =
         manualBandGains[index] + parametricEqShape(index) + loudnessCompensation[index] +
-            deviceCorrectionShape(index) + sbcPreEmphasisShape(index)
+            deviceCorrectionShape(index) + sbcPreEmphasisShape(index) +
+            hearPrintCurve[index] + tasteCurve[index]
 
     private fun preEqBassPeakDb(): Float =
         LoudnessContour.BASS_BANDS.maxOf(::staticPreEqShape).coerceAtLeast(0f)
@@ -537,6 +614,11 @@ class JadooDspService : Service() {
 
     inner class LocalBinder : Binder() {
         fun getService(): JadooDspService = this@JadooDspService
+    }
+
+    /** Notification text follows the in-app language on Android 9-12. See [AppLocale]. */
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
     }
 
     override fun onCreate() {
@@ -1456,8 +1538,20 @@ class JadooDspService : Service() {
         _keepFullLoudness.value = state.keepFullLoudness
         _selectedPresetName.value = state.selectedPresetName
         _autoEqProfileName.value = state.autoEqProfileName
-        // An AutoEQ preamp saved before Bluetooth stopped needing one: see applyAutoEqProfile.
-        if (onBluetoothPlan() && state.autoEqProfileName.isNotBlank() && _preGainDb.value < 0f) _preGainDb.value = 0f
+        _hearPrintEnabled.value = state.hearPrintEnabled
+        _hearPrintStrength.value = state.hearPrintStrength.coerceIn(0f, 1f)
+        _hearPrintProfile.value = HearPrint.decode(state.hearPrintProfile)
+        _tasteLibrary.value = Taste.decodeLibrary(state.tasteProfile)
+        // An audition belongs to the output it started on; never carry it over.
+        tastePreviewGains = null
+        recomputeHearPrint()
+        // An AutoEQ preamp saved before Bluetooth stopped needing one (see
+        // applyAutoEqProfile). Once per profile: this used to run on every
+        // load, so a negative pre-gain the user set by hand on Bluetooth was
+        // reset to 0 at every restart and route change.
+        if (!state.btAutoEqPreampChecked && onBluetoothPlan() &&
+            state.autoEqProfileName.isNotBlank() && _preGainDb.value < 0f) _preGainDb.value = 0f
+        _graphicEqStash.value = decodeGains(state.graphicEqStash)
         _loudnessEnabled.value = state.loudnessEnabled
         _loudnessAmount.value = state.loudnessAmount.coerceIn(0f, 1f)
         _loudnessReferencePhon.value = state.loudnessReferencePhon
@@ -1519,8 +1613,17 @@ class JadooDspService : Service() {
         preciseGainStaging = _preciseGainStaging.value,
         keepFullLoudness = _keepFullLoudness.value,
         selectedPresetName = _selectedPresetName.value,
-        autoEqProfileName = _autoEqProfileName.value
+        autoEqProfileName = _autoEqProfileName.value,
+        hearPrintEnabled = _hearPrintEnabled.value,
+        hearPrintStrength = _hearPrintStrength.value,
+        hearPrintProfile = HearPrint.encode(_hearPrintProfile.value),
+        tasteProfile = Taste.encodeLibrary(_tasteLibrary.value),
+        btAutoEqPreampChecked = true,
+        graphicEqStash = _graphicEqStash.value?.joinToString(",") ?: ""
     )
+
+    private fun decodeGains(s: String): FloatArray? =
+        s.split(",").mapNotNull { it.toFloatOrNull() }.toFloatArray().takeIf { it.size == EqBands.count }
 
     private fun saveSession() {
         saveDebounceJob?.cancel()
@@ -1580,7 +1683,7 @@ class JadooDspService : Service() {
         val channelId = "jadoo_dsp_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                channelId, "JadOO DSP Engine", NotificationManager.IMPORTANCE_LOW
+                channelId, getString(com.jadoo.amp.R.string.aud_notif_channel_name), NotificationManager.IMPORTANCE_LOW
             )
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .createNotificationChannel(channel)
@@ -1598,11 +1701,19 @@ class JadooDspService : Service() {
     private fun buildNotification(channelId: String, active: Boolean): Notification {
         val statusText = when {
             _audioSessionId.value != null && _masterEnabled.value && _dspBypassed.value ->
-                "Engine on · Bypass (no effects active) · ${_activeAppLabel.value ?: _activePackageName.value ?: "Global session"}"
+                getString(
+                    com.jadoo.amp.R.string.aud_notif_status_bypass,
+                    _activeAppLabel.value ?: _activePackageName.value
+                        ?: getString(com.jadoo.amp.R.string.aud_notif_global_session)
+                )
             _audioSessionId.value != null && _masterEnabled.value ->
-                "DSP active · ${_activeAppLabel.value ?: _activePackageName.value ?: "Global session"}"
-            _masterEnabled.value -> "Engine on · Waiting for playback"
-            else -> "Engine off"
+                getString(
+                    com.jadoo.amp.R.string.aud_notif_status_active,
+                    _activeAppLabel.value ?: _activePackageName.value
+                        ?: getString(com.jadoo.amp.R.string.aud_notif_global_session)
+                )
+            _masterEnabled.value -> getString(com.jadoo.amp.R.string.aud_notif_status_waiting)
+            else -> getString(com.jadoo.amp.R.string.aud_notif_status_off)
         }
         return NotificationCompat.Builder(this, channelId)
             .setContentTitle("JadOO DSP")
@@ -1670,6 +1781,7 @@ class JadooDspService : Service() {
     }
 
     override fun onDestroy() {
+        endHearPrintTest()
         super.onDestroy()
         peqApplyJob?.cancel()
         peqApplyJob = null
@@ -1786,6 +1898,7 @@ class JadooDspService : Service() {
         // enabled released the engine and the correction was never written —
         // audibly identical to not selecting one at all.
         if ((0 until EqBands.count).any { deviceCorrectionShape(it) != 0f }) return true
+        if (hearPrintActive() || tasteActive()) return true
         if (digitalFilterEngine.hasActiveBand()) return true
         if (_preGainDb.value != 0f) return true
         if (_postGainDb.value != 0f) return true
@@ -1824,7 +1937,7 @@ class JadooDspService : Service() {
     }
 
     private fun attachSession(sessionId: Int, packageName: String? = _activePackageName.value, forceReattach: Boolean = false) {
-        if (!hasActiveDspFeatures()) {
+        if (hearPrintTestActive || !hasActiveDspFeatures()) {
             // Nothing to process — stay (or become) fully bypassed.
             if (dspEngine.dynamicsProcessing != null) {
                 dspEngine.release()
@@ -1948,6 +2061,114 @@ class JadooDspService : Service() {
         saveSession()
     }
 
+    // -- HearPrint control --------------------------------------------------
+
+    private fun applyHearPrintChange(save: Boolean = true) {
+        recomputeHearPrint()
+        if (_masterEnabled.value) {
+            attachGlobalSession()
+            applyAllBands(manualBandGains.copyOf())
+        }
+        scheduleResponseRefresh()
+        if (save) saveSession()
+    }
+
+    fun setHearPrintEnabled(enabled: Boolean) {
+        _hearPrintEnabled.value = enabled && _hearPrintProfile.value?.complete == true
+        applyHearPrintChange()
+    }
+
+    fun setHearPrintStrength(value: Float) {
+        _hearPrintStrength.value = value.coerceIn(0f, 1f)
+        applyHearPrintChange()
+    }
+
+    /** Saves a finished test for this output and switches HearPrint on. */
+    fun saveHearPrintProfile(profile: HearPrint.Profile) {
+        _hearPrintProfile.value = profile
+        _hearPrintEnabled.value = profile.complete
+        applyHearPrintChange()
+    }
+
+    fun deleteHearPrintProfile() {
+        _hearPrintProfile.value = null
+        _hearPrintEnabled.value = false
+        applyHearPrintChange()
+    }
+
+    /**
+     * Auditions [gains] (a taste A/B side) live, or ends the audition with
+     * null. The PreEQ crossfades over one FFT hop, so switching is click-free.
+     * Not saved: leaving mid-way leaves the saved taste as it was.
+     */
+    fun setTastePreview(gains: FloatArray?) {
+        tastePreviewGains = gains?.copyOf()
+        applyHearPrintChange(save = false)
+    }
+
+    /**
+     * Saves a finished taste for this output as [name], over entry [replace]
+     * (a retake) or as a new one, and makes it the one that plays.
+     */
+    fun saveTaste(profile: Taste.Profile, name: String, replace: Int?) {
+        tastePreviewGains = null
+        _tasteLibrary.value = _tasteLibrary.value.save(profile, name.trim().take(Taste.MAX_NAME), replace)
+        if (_hearPrintProfile.value?.complete == true) _hearPrintEnabled.value = true
+        applyHearPrintChange()
+    }
+
+    /** Plays taste [index]; -1 = hearing only. */
+    fun selectTaste(index: Int) {
+        _tasteLibrary.value = _tasteLibrary.value.select(index)
+        applyHearPrintChange()
+    }
+
+    fun renameTaste(index: Int, name: String) {
+        _tasteLibrary.value = _tasteLibrary.value.rename(index, name)
+        saveSession()
+    }
+
+    fun deleteTaste(index: Int) {
+        _tasteLibrary.value = _tasteLibrary.value.delete(index)
+        applyHearPrintChange()
+    }
+
+    /** True when something is playing, for the taste step's "play a song" hint. */
+    fun isMusicPlaying(): Boolean =
+        (getSystemService(AUDIO_SERVICE) as android.media.AudioManager).isMusicActive
+
+    /**
+     * Test start: release the DP so the tones reach the ear exactly as
+     * generated (no EQ, no trim, no limiter), and take transient exclusive
+     * audio focus so the music app pauses. Nothing is persisted, so a crash
+     * mid-test leaves nothing behind; [endHearPrintTest] re-attaches.
+     */
+    fun beginHearPrintTest() {
+        hearPrintTestActive = true
+        detachSession()
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val req = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+            .setAudioAttributes(AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build())
+            .build()
+        hearPrintFocusRequest = req
+        try { am.requestAudioFocus(req) } catch (e: Exception) { Log.w(TAG, "HearPrint focus: ${e.message}") }
+        Log.i(TAG, "HearPrint test started: DSP bypassed")
+    }
+
+    fun endHearPrintTest() {
+        if (!hearPrintTestActive) return
+        hearPrintTestActive = false
+        hearPrintFocusRequest?.let {
+            try { (getSystemService(Context.AUDIO_SERVICE) as AudioManager).abandonAudioFocusRequest(it) } catch (_: Exception) {}
+        }
+        hearPrintFocusRequest = null
+        if (_masterEnabled.value) resolveAndAttachSession()
+        Log.i(TAG, "HearPrint test ended: DSP restored")
+    }
+
     fun setMasterPower(enabled: Boolean) {
         _masterEnabled.value = enabled
         if (enabled) {
@@ -1973,8 +2194,27 @@ class JadooDspService : Service() {
         saveSession()
     }
 
+    /**
+     * The Graphic EQ switch. Off keeps the curve in [graphicEqStash] (saved
+     * with the profile) and flattens the bands; on puts it back. The stash
+     * used to live only in the dashboard's memory, so turning the EQ back on
+     * after a restart gave a flat curve.
+     */
+    fun setGraphicEqEnabled(enabled: Boolean) {
+        if (enabled) {
+            val stash = _graphicEqStash.value ?: return
+            _graphicEqStash.value = null
+            writeGraphicGains(stash)
+        } else {
+            if (_graphicEqStash.value != null) return
+            _graphicEqStash.value = manualBandGains.copyOf()
+            writeGraphicGains(FloatArray(EqBands.count))
+        }
+    }
+
     fun setManualBandGain(bandIndex: Int, gainDb: Float) {
         if (bandIndex !in 0 until EqBands.count) return
+        _graphicEqStash.value = null
 
         val clamped = gainDb.coerceIn(-15f, 15f)
         manualBandGains[bandIndex] = clamped
@@ -2007,6 +2247,11 @@ class JadooDspService : Service() {
     }
 
     fun applyPreset(gains: FloatArray) {
+        _graphicEqStash.value = null
+        writeGraphicGains(gains)
+    }
+
+    private fun writeGraphicGains(gains: FloatArray) {
         for (index in 0 until EqBands.count) {
             manualBandGains[index] = gains.getOrNull(index)?.coerceIn(-15f, 15f) ?: 0f
         }
@@ -2457,6 +2702,13 @@ class JadooDspService : Service() {
             Log.d(TAG, "rebuildDspTopology skipped — no active session")
             return
         }
+        // The HearPrint tone test needs the raw output. A profile switch (route
+        // change) landing mid-test used to re-attach the DSP under the tones;
+        // endHearPrintTest attaches with whatever state is current by then.
+        if (hearPrintTestActive) {
+            Log.d(TAG, "rebuildDspTopology skipped — HearPrint test running")
+            return
+        }
 
         if (!hasActiveDspFeatures()) {
             // The toggle that triggered this rebuild was the last active
@@ -2763,8 +3015,9 @@ class JadooDspService : Service() {
         // selector a sound of its own rather than only scaling other features.
         val deviceCorrection = deviceCorrectionShape(index)
 
+        // HearPrint: one curve for both ears, so it never touches the L/R split.
         val baseGain = graphicGain + peqGain + hdrAirBoost + tubeWarmthShape +
-            sbcPreEmphasis + loudnessShape + deviceCorrection
+            sbcPreEmphasis + loudnessShape + deviceCorrection + hearPrintCentered(index)
 
         val stack = stackScale()
         val surroundScale = if (EqBands.frequencies[index] <= DspEngine.BT_BASS_ZONE_TOP_HZ) stack.bass else stack.treble
@@ -2778,6 +3031,7 @@ class JadooDspService : Service() {
      * after each rebuild: an audible tonal sweep on every feature toggle.
      */
     private fun combinedInitialGains(): FloatArray {
+        recomputeHearPrint()
         val mode = _surroundMode.value
         return FloatArray(EqBands.count) { i ->
             combinedCenteredGain(i, manualBandGains.getOrElse(i) { 0f }, mode).coerceIn(-15f, 15f)
@@ -2843,6 +3097,7 @@ class JadooDspService : Service() {
         // (several call sites invoke this directly from UI callbacks without
         // their own try/catch).
         try {
+            recomputeHearPrint()
             if (dspEngine.dynamicsProcessing == null) return
             val mode = _surroundMode.value
             dspEngine.setPreGain(_preGainDb.value)

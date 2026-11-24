@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- MainActivity: battery optimization dialog -->
+    <string name="shr_battery_title">允许后台不受限运行</string>
+    <string name="shr_battery_body_direct">部分厂商定制系统可能会在几秒后停止 JadOO DSP 引擎。请允许 JadOO DSP 忽略电池优化，以便在播放音乐时 DSP 能持续运行。</string>
+    <string name="shr_battery_body_settings">部分厂商定制系统可能会在几秒后停止 JadOO DSP 引擎。请在下一个界面中找到 JadOO DSP，并设为“不优化”，以便在播放音乐时 DSP 能持续运行。</string>
+    <string name="shr_allow">允许</string>
+    <string name="shr_later">以后再说</string>
+
+    <!-- MainActivity: crash report dialog -->
+    <string name="shr_crash_title">JadOO DSP 上次发生了崩溃</string>
+    <string name="shr_crash_body">分享此报告有助于修复问题，其中只有设备信息和堆栈跟踪，不含个人数据。</string>
+    <string name="shr_crash_share">分享崩溃报告</string>
+    <string name="shr_crash_dismiss">忽略</string>
+
+    <!-- MainActivity: import profile dialog -->
+    <string name="shr_import_title">保存导入的配置</string>
+    <string name="shr_import_body">请为导入的配置命名。它将单独保存，不会更改你当前的设备配置。</string>
+    <string name="shr_import_name_label">配置名称</string>
+    <string name="shr_import_name_empty">请输入名称</string>
+    <string name="shr_import_name_exists">名称已存在，请换一个</string>
+    <string name="shr_save">保存</string>
+    <string name="shr_cancel">取消</string>
+
+    <!-- MainActivity: permissions card -->
+    <string name="shr_perm_title">需要权限</string>
+    <string name="shr_perm_body">JadOO DSP 需要通知权限，才能保持 DSP 引擎持续运行。</string>
+
+    <!-- AppearanceSection -->
+    <string name="shr_mode_brand">品牌</string>
+    <string name="shr_mode_custom">自定义</string>
+    <string name="shr_accent_swatch_desc">强调色色块</string>
+    <string name="shr_tone_title">浅色 / 深色</string>
+    <string name="shr_tone_always_light">始终浅色</string>
+    <string name="shr_tone_always_dark">始终深色</string>
+    <string name="shr_tone_system_dark_now">跟随系统 · 当前为深色</string>
+    <string name="shr_tone_system_light_now">跟随系统 · 当前为浅色</string>
+    <string name="shr_collapse">收起</string>
+    <string name="shr_expand">展开</string>
+    <string name="shr_tone_light">浅色</string>
+    <string name="shr_tone_dark">深色</string>
+    <string name="shr_background">背景</string>
+    <string name="shr_backdrop_dim">暗调</string>
+    <string name="shr_backdrop_tinted">染色</string>
+    <string name="shr_backdrop_black">纯黑</string>
+    <string name="shr_backdrop_black_dark_only">纯黑（深色）</string>
+    <string name="shr_style">样式</string>
+    <string name="shr_style_standard">标准</string>
+
+    <!-- LiquidGlass / JadooDesign -->
+    <string name="shr_selected">已选择</string>
+    <string name="shr_about_title">关于 %1$s</string>
+    <string name="shr_curve_off">响应曲线，平直：JadOO 已关闭</string>
+    <string name="shr_curve_flat">响应曲线，平直</string>
+    <string name="shr_curve_peak">响应曲线，最大变化 %1$s dB，位于 %2$s</string>
+    <string name="shr_curve_hz">%1$s 赫兹</string>
+    <string name="shr_curve_khz">%1$s 千赫兹</string>
+    <string name="shr_power_off_desc">关闭 JadOO</string>
+    <string name="shr_power_on_desc">开启 JadOO</string>
+</resources>

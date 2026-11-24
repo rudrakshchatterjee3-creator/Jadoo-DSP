@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hp_help_body">HearPrint 会在 250 Hz 到 12 kHz 的十一个音高上播放轻柔的提示音，找出你在每个音高上仍能听到的最小音量。然后把你听得较弱的部分提升约一半的差距（相对典型听力）。
+
+它不会让声音变暗：高频从不被削弱，低音的提升也永远不会超过高频。
+
+两只耳朵听到的是同一条曲线，立体声像不会偏移。结果只为当前输出保存，它测量的是你的耳朵和耳机的综合效果。如果开启了 AutoEQ，耳机部分交给 AutoEQ 处理。
+
+**口味档案：**几个问题，然后在你自己的音乐上做 A/B 选择。两个版本的人声音量相同，所以你选的是音色，不是音量。
+
+这是声音设置，不是听力测试，它不能告诉你任何医学上的听力信息。</string>
+    <string name="hp_sub_speaker">仅适用于耳机</string>
+    <string name="hp_sub_none">约 90 秒，让 JadOO 适配你的耳朵</string>
+    <string name="hp_sub_on">已适配你的耳朵</string>
+    <string name="hp_sub_off">HearPrint 已保存，但已关闭</string>
+    <string name="hp_strength">强度</string>
+    <string name="hp_retake">重新进行听力测试</string>
+    <string name="hp_delete">删除</string>
+    <string name="hp_delete_title">删除你的 HearPrint？</string>
+    <string name="hp_delete_body">将移除这副耳机的曲线。你随时可以重新测试。</string>
+    <string name="hp_stop_title">停止测试？</string>
+    <string name="hp_stop_body">不会保存任何内容，声音会恢复正常。</string>
+    <string name="hp_stop_confirm">停止</string>
+    <string name="hp_keep_going">继续</string>
+    <string name="hp_cd_stop">停止测试</string>
+    <string name="hp_intro_headline">你的 HearPrint</string>
+    <string name="hp_intro_body">每个人的听觉都不同，每副耳机的声音也不同。约 90 秒内，JadOO 会了解你如何听到声音的各个部分，并为你调校。</string>
+    <string name="hp_check_headphones">正确佩戴耳机（左右不要戴反）</string>
+    <string name="hp_check_quiet">找一个安静的地方</string>
+    <string name="hp_check_music">测试期间音乐会暂停</string>
+    <string name="hp_need_headphones">请连接耳机后开始。HearPrint 专为耳机设计。</string>
+    <string name="hp_start">开始</string>
+    <string name="hp_not_medical">这不是医学听力检查。</string>
+    <string name="hp_volume_headline">调整音量</string>
+    <string name="hp_volume_body">现在你应该能听到提示音。用音量键调到轻柔但清晰，就像安静的交谈。整个测试中请保持这个音量。</string>
+    <string name="hp_volume_done">这样合适</string>
+    <string name="hp_progress">第 %1$d 个音，共 %2$d 个</string>
+    <string name="hp_test_body">听到提示音时按住按钮，声音一消失就松开。声音会再次出现，这是正常的。</string>
+    <string name="hp_hearing">听得到</string>
+    <string name="hp_hold">听到提示音时按住</string>
+    <string name="hp_state_pressed">已按下</string>
+    <string name="hp_state_released">已松开</string>
+    <string name="hp_result_headline">你的 HearPrint 已就绪</string>
+    <string name="hp_result_body">这是 JadOO 为你做的调校，两只耳朵相同。向上表示你听得较弱的部分会被提升。</string>
+    <string name="hp_note_volume_high">许多音在最小音量下仍能听到，说明音量可能偏高：调低几格后重新测试，结果会更精确。</string>
+    <string name="hp_note_not_heard">有些音即使在最大音量下也没听到。JadOO 只会将其提升到安全上限。</string>
+    <string name="hp_note_unsteady">同一音高的两次检测结果不一致。换个更安静的环境或重新测试，结果会更稳定。</string>
+    <string name="hp_note_steady">你的回答很一致。</string>
+    <string name="hp_save">保存并开启</string>
+    <string name="hp_chart_cd">你的 HearPrint 曲线，两只耳朵相同：最多提升 %1$s dB</string>
+    <string name="hp_note_incomplete">部分音没有得到稳定的回答，因此没有保存任何内容。请在更安静的地方重试，并在提示音消失时立即松开。</string>
+    <string name="hp_note_false_presses">有几次在没有声音时按下了按钮，这可能使结果不够准确；更安静的环境会有帮助。</string>
+    <string name="hp_output_changed_title">输出已更改</string>
+    <string name="hp_output_changed_body">声音切换到了另一个输出设备，因此本次已停止，未保存任何内容。请在你想调节的输出设备上重新开始。</string>
+    <string name="hp_output_changed_ok">好</string>
+</resources>

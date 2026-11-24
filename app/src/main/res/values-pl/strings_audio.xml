@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Foreground-service notification (JadooDspService) -->
+    <string name="aud_notif_channel_name">Silnik JadOO DSP</string>
+    <string name="aud_notif_global_session">Sesja globalna</string>
+    <string name="aud_notif_status_bypass">Silnik włączony · Obejście (brak aktywnych efektów) · %1$s</string>
+    <string name="aud_notif_status_active">DSP działa · %1$s</string>
+    <string name="aud_notif_status_waiting">Silnik włączony · Oczekiwanie na odtwarzanie</string>
+    <string name="aud_notif_status_off">Silnik wyłączony</string>
+
+    <!-- Output device labels (see localizedOutputLabel) -->
+    <string name="aud_out_phone_speaker">Głośnik telefonu</string>
+    <string name="aud_out_wired">Słuchawki przewodowe</string>
+    <string name="aud_out_usb">Audio USB</string>
+    <string name="aud_out_usb_named">USB: %1$s</string>
+    <string name="aud_out_bluetooth_named">Bluetooth: %1$s</string>
+
+    <!-- Surround mode (SurroundMode) -->
+    <string name="aud_surround_off_name">Wyłączone</string>
+    <string name="aud_surround_off_tagline">Bez przetwarzania przestrzennego</string>
+    <string name="aud_surround_traditional_tagline">Naturalna szerokość stereo</string>
+    <string name="aud_surround_front_tagline">Scena wysunięta do przodu</string>
+    <string name="aud_surround_wide_tagline">Immersyjny dźwięk 180°</string>
+    <string name="aud_surround_off_desc">Przetwarzanie przestrzenne wyłączone. Dźwięk jest przepuszczany bez zmian.</string>
+    <string name="aud_surround_traditional_desc">Łagodne nachylenie charakterystyki stereo. Subtelne poszerzenie wysokich tonów, wokal pozostaje na środku. Bez zmęczenia nawet przy długim słuchaniu.</string>
+    <string name="aud_surround_front_desc">Silniejsze poszerzenie stereo. Wyraźniejsze rozdzielenie instrumentów i projekcja do przodu. Wokal pozostaje na środku.</string>
+    <string name="aud_surround_wide_desc">Najszersza scena dźwiękowa. Maksymalne rozproszenie wysokich tonów do filmów, gier i muzyki ambient.</string>
+
+    <!-- DBFB / HDR / SBC mode labels -->
+    <string name="aud_dbfb_off">Wyłączone</string>
+    <string name="aud_dbfb_normal">Normalny</string>
+    <string name="aud_dbfb_high">Wysoki</string>
+    <string name="aud_sbc_classic">Klasyczny</string>
+    <string name="aud_sbc_new">Nowy</string>
+
+    <!-- Device types (DeviceType) -->
+    <string name="aud_device_general">Ogólne</string>
+    <string name="aud_device_iem">Słuchawki dokanałowe (IEM)</string>
+    <string name="aud_device_on_ear">Słuchawki nauszne</string>
+    <string name="aud_device_over_ear">Słuchawki wokółuszne</string>
+    <string name="aud_device_compact_speaker">Głośnik kompaktowy</string>
+    <string name="aud_device_home_speaker">Głośnik domowy</string>
+
+    <!-- Live Chain readouts (AudioChainProbe) -->
+    <string name="aud_fmt_offload">%1$s (offload)</string>
+    <string name="aud_fmt_passthrough">%1$s (przekazywanie bezpośrednie)</string>
+
+    <string name="aud_dev_sco">Bluetooth SCO (połączenie)</string>
+    <string name="aud_dev_speaker">Głośnik</string>
+    <string name="aud_dev_wired">Słuchawki przewodowe</string>
+    <string name="aud_dev_usb">Audio USB</string>
+    <string name="aud_dev_earpiece">Głośnik rozmów</string>
+    <string name="aud_dev_telephony">Telefonia</string>
+    <string name="aud_dev_remote_submix">Zdalny submiks (cast/nagrywanie)</string>
+
+    <string name="aud_path_bit_perfect">Wyjście bit-perfect</string>
+    <string name="aud_path_offload">Offload sprzętowy</string>
+    <string name="aud_path_direct">Wyjście bezpośrednie</string>
+    <string name="aud_path_spatializer">Mikser systemowego spatializera</string>
+    <string name="aud_path_mmap">MMAP (AAudio, tryb wyłączny)</string>
+    <string name="aud_path_deep_buffer">Mikser · głęboki bufor</string>
+    <string name="aud_path_low_latency">Mikser · niskie opóźnienie</string>
+    <string name="aud_path_primary">Mikser · główny</string>
+    <string name="aud_path_duplicating">Mikser powielający</string>
+    <string name="aud_path_mixer">Mikser</string>
+
+    <string name="aud_channels_stereo">Stereo (2.0)</string>
+    <string name="aud_bt_channel_stereo">Stereo</string>
+    <string name="aud_bt_ldac_adaptive">Adaptacyjny</string>
+    <plurals name="aud_channels_count">
+        <item quantity="one">%1$d kanał</item>
+        <item quantity="few">%1$d kanały</item>
+        <item quantity="many">%1$d kanałów</item>
+        <item quantity="other">%1$d kanału</item>
+    </plurals>
+</resources>

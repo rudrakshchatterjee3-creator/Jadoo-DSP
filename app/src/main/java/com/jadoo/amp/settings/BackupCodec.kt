@@ -46,6 +46,11 @@ object BackupCodec {
         s.put("sbcStyle", state.sbcStyle)
         s.put("deviceType", state.deviceType)
         s.put("deviceQualityTier", state.deviceQualityTier)
+        s.put("hearPrintEnabled", state.hearPrintEnabled)
+        s.put("hearPrintStrength", state.hearPrintStrength)
+        s.put("hearPrintProfile", state.hearPrintProfile)
+        s.put("tasteProfile", state.tasteProfile)
+        s.put("graphicEqStash", state.graphicEqStash)
         root.put("sessionState", s)
 
         val presetsArray = JSONArray()
@@ -101,7 +106,14 @@ object BackupCodec {
             sbcModeEnabled = s.optBoolean("sbcModeEnabled", false),
             sbcStyle = s.optString("sbcStyle", "New"),
             deviceType = s.optString("deviceType", "General"),
-            deviceQualityTier = s.optDouble("deviceQualityTier", 0.5).toFloat()
+            deviceQualityTier = s.optDouble("deviceQualityTier", 0.5).toFloat(),
+            hearPrintEnabled = s.optBoolean("hearPrintEnabled", false),
+            hearPrintStrength = s.optDouble("hearPrintStrength", 0.5).toFloat().coerceIn(0f, 1f),
+            hearPrintProfile = s.optString("hearPrintProfile", ""),
+            tasteProfile = s.optString("tasteProfile", ""),
+            // A backup carries no AutoEQ name, so there is no preamp to clear.
+            btAutoEqPreampChecked = true,
+            graphicEqStash = s.optString("graphicEqStash", "")
         )
 
         val presetsArray = root.optJSONArray("eqPresets") ?: JSONArray()

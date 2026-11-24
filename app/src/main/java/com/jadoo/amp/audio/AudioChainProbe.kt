@@ -6,6 +6,8 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.os.Build
 import android.util.Log
+import androidx.annotation.StringRes
+import com.jadoo.amp.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -77,7 +79,20 @@ object AudioChainProbe {
         val channelMode: String?,
         /** LDAC only: the quality mode picked in Developer options. */
         val ldacQuality: String?
-    )
+    ) {
+        /** [channelMode] ("Stereo"/"Mono", English as parsed) in the user's language. */
+        fun channelModeLabel(context: Context): String? = when (channelMode) {
+            "Stereo" -> context.getString(R.string.aud_bt_channel_stereo)
+            "Mono" -> context.getString(R.string.aud_channels_mono)
+            else -> channelMode
+        }
+
+        /** [ldacQuality] in the user's language; the kbps modes are language-neutral. */
+        fun ldacQualityLabel(context: Context): String? = when (ldacQuality) {
+            "Adaptive" -> context.getString(R.string.aud_bt_ldac_adaptive)
+            else -> ldacQuality
+        }
+    }
 
     data class NowPlaying(val title: String, val artist: String?)
 
@@ -501,30 +516,47 @@ object AudioChainProbe {
 
     // ── Display helpers ─────────────────────────────────────────────────
 
-    /** audio_format_t as printed in hex in the track table. */
-    fun describeFormat(code: Int): String = when (code) {
-        0x1 -> "16-bit PCM"
-        0x2 -> "8-bit PCM"
-        0x3 -> "32-bit PCM"
-        0x4 -> "24-bit PCM (8.24)"
-        0x5 -> "32-bit float"
-        0x6 -> "24-bit PCM"
+    /** Trailing note on compressed formats; [res] is a "%1$s (...)" template. */
+    private enum class FormatNote(val en: String, @StringRes val res: Int) {
+        Offload("offload", R.string.aud_fmt_offload),
+        Passthrough("passthrough", R.string.aud_fmt_passthrough)
+    }
+
+    private fun formatParts(code: Int): Pair<String, FormatNote?> = when (code) {
+        0x1 -> "16-bit PCM" to null
+        0x2 -> "8-bit PCM" to null
+        0x3 -> "32-bit PCM" to null
+        0x4 -> "24-bit PCM (8.24)" to null
+        0x5 -> "32-bit float" to null
+        0x6 -> "24-bit PCM" to null
         else -> when (code ushr 24) {
-            0x01 -> "MP3 (offload)"
-            0x04, 0x05, 0x06, 0x1E, 0x25 -> "AAC (offload)"
-            0x07 -> "Vorbis (offload)"
-            0x08 -> "Opus (offload)"
-            0x09 -> "Dolby Digital (passthrough)"
-            0x0A -> if (code and 0x1 != 0) "Dolby Atmos E-AC-3 (passthrough)" else "Dolby Digital Plus (passthrough)"
-            0x0B, 0x0C -> "DTS (passthrough)"
-            0x0D -> "IEC 61937 (passthrough)"
-            0x0E -> "Dolby TrueHD (passthrough)"
-            0x1B -> "FLAC (offload)"
-            0x1C -> "ALAC (offload)"
-            0x22 -> "Dolby AC-4 (passthrough)"
-            0x24 -> "Dolby MAT (passthrough)"
-            else -> String.format("format 0x%08X", code)
+            0x01 -> "MP3" to FormatNote.Offload
+            0x04, 0x05, 0x06, 0x1E, 0x25 -> "AAC" to FormatNote.Offload
+            0x07 -> "Vorbis" to FormatNote.Offload
+            0x08 -> "Opus" to FormatNote.Offload
+            0x09 -> "Dolby Digital" to FormatNote.Passthrough
+            0x0A -> (if (code and 0x1 != 0) "Dolby Atmos E-AC-3" else "Dolby Digital Plus") to FormatNote.Passthrough
+            0x0B, 0x0C -> "DTS" to FormatNote.Passthrough
+            0x0D -> "IEC 61937" to FormatNote.Passthrough
+            0x0E -> "Dolby TrueHD" to FormatNote.Passthrough
+            0x1B -> "FLAC" to FormatNote.Offload
+            0x1C -> "ALAC" to FormatNote.Offload
+            0x22 -> "Dolby AC-4" to FormatNote.Passthrough
+            0x24 -> "Dolby MAT" to FormatNote.Passthrough
+            else -> String.format("format 0x%08X", code) to null
         }
+    }
+
+    /** audio_format_t as printed in hex in the track table. */
+    fun describeFormat(code: Int): String {
+        val (name, note) = formatParts(code)
+        return if (note == null) name else "$name (${note.en})"
+    }
+
+    /** [describeFormat] with the offload/passthrough note in the user's language. */
+    fun describeFormat(context: Context, code: Int): String {
+        val (name, note) = formatParts(code)
+        return if (note == null) name else context.getString(note.res, name)
     }
 
     /** "AUDIO_FORMAT_PCM_16_BIT" or "PCM_16_BIT" → "16-bit PCM". */
@@ -538,33 +570,72 @@ object AudioChainProbe {
         else -> name.removePrefix("AUDIO_FORMAT_").replace('_', ' ')
     }
 
-    fun describeDevice(device: String): String = when {
-        device.startsWith("BLUETOOTH_A2DP") -> "Bluetooth A2DP"
-        device.startsWith("BLE_") -> "Bluetooth LE Audio"
-        device.startsWith("BLUETOOTH_SCO") -> "Bluetooth SCO (call)"
-        device == "SPEAKER" || device == "SPEAKER_SAFE" -> "Speaker"
-        device.startsWith("WIRED") -> "Wired headphones"
-        device.startsWith("USB") -> "USB audio"
-        device.startsWith("HDMI") -> "HDMI"
-        device == "EARPIECE" -> "Earpiece"
-        device == "TELEPHONY_TX" -> "Telephony"
-        device == "REMOTE_SUBMIX" -> "Remote submix (cast/record)"
-        else -> device.lowercase().replace('_', ' ')
+    private enum class DeviceLabel(val en: String, @StringRes val res: Int) {
+        A2dp("Bluetooth A2DP", R.string.aud_dev_a2dp),
+        BleAudio("Bluetooth LE Audio", R.string.aud_dev_ble_audio),
+        Sco("Bluetooth SCO (call)", R.string.aud_dev_sco),
+        Speaker("Speaker", R.string.aud_dev_speaker),
+        Wired("Wired headphones", R.string.aud_dev_wired),
+        Usb("USB audio", R.string.aud_dev_usb),
+        Hdmi("HDMI", R.string.aud_dev_hdmi),
+        Earpiece("Earpiece", R.string.aud_dev_earpiece),
+        Telephony("Telephony", R.string.aud_dev_telephony),
+        RemoteSubmix("Remote submix (cast/record)", R.string.aud_dev_remote_submix)
+    }
+
+    private fun deviceLabel(device: String): DeviceLabel? = when {
+        device.startsWith("BLUETOOTH_A2DP") -> DeviceLabel.A2dp
+        device.startsWith("BLE_") -> DeviceLabel.BleAudio
+        device.startsWith("BLUETOOTH_SCO") -> DeviceLabel.Sco
+        device == "SPEAKER" || device == "SPEAKER_SAFE" -> DeviceLabel.Speaker
+        device.startsWith("WIRED") -> DeviceLabel.Wired
+        device.startsWith("USB") -> DeviceLabel.Usb
+        device.startsWith("HDMI") -> DeviceLabel.Hdmi
+        device == "EARPIECE" -> DeviceLabel.Earpiece
+        device == "TELEPHONY_TX" -> DeviceLabel.Telephony
+        device == "REMOTE_SUBMIX" -> DeviceLabel.RemoteSubmix
+        else -> null
+    }
+
+    fun describeDevice(device: String): String =
+        deviceLabel(device)?.en ?: device.lowercase().replace('_', ' ')
+
+    /** [describeDevice] in the user's language (unknown devices stay as the raw name). */
+    fun describeDevice(context: Context, device: String): String =
+        deviceLabel(device)?.let { context.getString(it.res) } ?: device.lowercase().replace('_', ' ')
+
+    private enum class PathLabel(val en: String, @StringRes val res: Int) {
+        BitPerfect("Bit-perfect output", R.string.aud_path_bit_perfect),
+        Offload("Hardware offload", R.string.aud_path_offload),
+        Direct("Direct output", R.string.aud_path_direct),
+        Spatializer("System spatializer mixer", R.string.aud_path_spatializer),
+        Mmap("MMAP (AAudio exclusive)", R.string.aud_path_mmap),
+        DeepBuffer("Mixer · deep buffer", R.string.aud_path_deep_buffer),
+        LowLatency("Mixer · low latency", R.string.aud_path_low_latency),
+        Primary("Mixer · primary", R.string.aud_path_primary),
+        Duplicating("Duplicating mixer", R.string.aud_path_duplicating),
+        Mixer("Mixer", R.string.aud_path_mixer)
+    }
+
+    private fun pathLabel(thread: OutputThreadInfo): PathLabel = when {
+        thread.type == "BIT_PERFECT" || "BIT_PERFECT" in thread.flags -> PathLabel.BitPerfect
+        thread.type == "OFFLOAD" || "COMPRESS_OFFLOAD" in thread.flags -> PathLabel.Offload
+        thread.type == "DIRECT" || "DIRECT" in thread.flags -> PathLabel.Direct
+        thread.type == "SPATIALIZER" || "SPATIALIZER" in thread.flags -> PathLabel.Spatializer
+        thread.type.startsWith("MMAP") -> PathLabel.Mmap
+        "DEEP_BUFFER" in thread.flags -> PathLabel.DeepBuffer
+        "FAST" in thread.flags -> PathLabel.LowLatency
+        "PRIMARY" in thread.flags -> PathLabel.Primary
+        thread.type == "DUPLICATING" -> PathLabel.Duplicating
+        else -> PathLabel.Mixer
     }
 
     /** Human description of the mixing path, from thread type + output flags. */
-    fun describePath(thread: OutputThreadInfo): String = when {
-        thread.type == "BIT_PERFECT" || "BIT_PERFECT" in thread.flags -> "Bit-perfect output"
-        thread.type == "OFFLOAD" || "COMPRESS_OFFLOAD" in thread.flags -> "Hardware offload"
-        thread.type == "DIRECT" || "DIRECT" in thread.flags -> "Direct output"
-        thread.type == "SPATIALIZER" || "SPATIALIZER" in thread.flags -> "System spatializer mixer"
-        thread.type.startsWith("MMAP") -> "MMAP (AAudio exclusive)"
-        "DEEP_BUFFER" in thread.flags -> "Mixer · deep buffer"
-        "FAST" in thread.flags -> "Mixer · low latency"
-        "PRIMARY" in thread.flags -> "Mixer · primary"
-        thread.type == "DUPLICATING" -> "Duplicating mixer"
-        else -> "Mixer"
-    }
+    fun describePath(thread: OutputThreadInfo): String = pathLabel(thread).en
+
+    /** [describePath] in the user's language. */
+    fun describePath(context: Context, thread: OutputThreadInfo): String =
+        context.getString(pathLabel(thread).res)
 
     /** Bit depth part of [describeFormat] for PCM, e.g. "16-bit" / "32-bit float". */
     fun describeBitDepth(code: Int): String? = when (code) {
@@ -584,6 +655,20 @@ object AudioChainProbe {
         else -> "${Integer.bitCount(mask)} channels"
     }
 
-    fun formatRate(hz: Int): String =
-        if (hz % 1000 == 0) "${hz / 1000} kHz" else String.format(java.util.Locale.US, "%.1f kHz", hz / 1000f)
+    /** [describeChannels] in the user's language. */
+    fun describeChannels(context: Context, mask: Int): String = when (mask) {
+        0x1 -> context.getString(R.string.aud_channels_mono)
+        0x3 -> context.getString(R.string.aud_channels_stereo)
+        0x3F -> "5.1"
+        0x63F -> "7.1"
+        else -> Integer.bitCount(mask).let {
+            context.resources.getQuantityString(R.plurals.aud_channels_count, it, it)
+        }
+    }
+
+    fun formatRate(hz: Int): String = formatRate(hz, java.util.Locale.US)
+
+    /** [formatRate] with the decimal separator of [locale] ("44,1 kHz" in German/French/Polish). */
+    fun formatRate(hz: Int, locale: java.util.Locale): String =
+        if (hz % 1000 == 0) "${hz / 1000} kHz" else String.format(locale, "%.1f kHz", hz / 1000f)
 }

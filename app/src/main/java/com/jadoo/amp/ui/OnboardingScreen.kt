@@ -1,13 +1,9 @@
 package com.jadoo.amp.ui
 
-import androidx.compose.animation.core.EaseInOutCubic
+import androidx.annotation.StringRes
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -21,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
@@ -30,46 +25,65 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import com.jadoo.amp.ui.theme.BrandPalette
-import com.jadoo.amp.ui.theme.BrandScheme
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.ui.graphics.graphicsLayer
+import com.jadoo.amp.R
+import com.jadoo.amp.ui.components.Cine
+import com.jadoo.amp.ui.components.areaUnder
+import com.jadoo.amp.ui.components.breathe
+import com.jadoo.amp.ui.components.frac
+import com.jadoo.amp.ui.components.glowStroke
+import com.jadoo.amp.ui.components.hash01
+import com.jadoo.amp.ui.components.mix
+import com.jadoo.amp.ui.components.pointAt
+import com.jadoo.amp.ui.components.rememberSceneClock
+import com.jadoo.amp.ui.components.seg
+import com.jadoo.amp.ui.components.smoothPath
+import com.jadoo.amp.ui.components.spark
+import com.jadoo.amp.ui.components.trimmed
+import com.jadoo.amp.ui.theme.BrandPalette
+import com.jadoo.amp.ui.theme.BrandScheme
 import com.jadoo.amp.ui.theme.JadooTheme
 import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.sin
 
 // ── Page data ────────────────────────────────────────────────────────────────
 
 private data class OnboardingPage(
-    val tag: String,
-    val headline: String,
-    val body: String,
+    @StringRes val tag: Int,
+    @StringRes val headline: Int,
+    @StringRes val body: Int,
     val accentColor: Color,
     val visual: OnboardingVisual
 )
@@ -93,63 +107,77 @@ private enum class OnboardingVisual {
 // so the sequence has a direction and every page still belongs to JadOO.
 private val onboardingPages = listOf(
     OnboardingPage(
-        tag = "JADOO DSP",
-        headline = "Every app.\nBetter sound.",
-        body = "JadOO processes the audio of whatever is playing - your music app, video, games - live, on the phone.",
+        tag = R.string.scr_onb_tag_1,
+        headline = R.string.scr_onb_headline_1,
+        body = R.string.scr_onb_body_1,
         accentColor = BrandPalette.Gold,
         visual = OnboardingVisual.Waveform
     ),
     OnboardingPage(
-        tag = "HEADPHONE CORRECTION",
-        headline = "Your headphones,\nmeasured.",
-        body = "Pick your model from 8,000+ lab measurements and JadOO corrects its response toward a neutral target.",
+        tag = R.string.scr_onb_tag_2,
+        headline = R.string.scr_onb_headline_2,
+        body = R.string.scr_onb_body_2,
         accentColor = Color(0xFFE8C67A),   // gold, lifted and softened
         visual = OnboardingVisual.Headphones
     ),
     OnboardingPage(
-        tag = "TONE · CHARACTER · SPACE",
-        headline = "Then make it\nyours.",
-        body = "A 15-band graphic EQ, 16 parametric filters, analog bass, tube warmth and a wider stage that keeps vocals centred.",
+        tag = R.string.scr_onb_tag_3,
+        headline = R.string.scr_onb_headline_3,
+        body = R.string.scr_onb_body_3,
         accentColor = Color(0xFFA6CFC4),   // the one cool counterweight, as in the scheme
         visual = OnboardingVisual.EqBars
     ),
     OnboardingPage(
-        tag = "PRIVATE",
-        headline = "Nothing leaves\nyour phone.",
-        body = "No account, no cloud, no subscription. Allow notifications when asked - they keep the engine running.",
+        tag = R.string.scr_onb_tag_4,
+        headline = R.string.scr_onb_headline_4,
+        body = R.string.scr_onb_body_4,
         accentColor = BrandPalette.Gold,   // returns home
         visual = OnboardingVisual.Constellation
     )
 )
 
 // ── Root composable ──────────────────────────────────────────────────────────
+//
+// Directed like a title sequence. One frame clock drives everything; each page
+// gets its own "cut" time, restarted whenever it becomes the page being swiped
+// to, and every element (the visual's acts, the tag, each headline line, the
+// body) enters on its own beat of that time. The clock is read in draw and
+// layer blocks only, so the screen redraws without recomposing.
 
 @Composable
 fun OnboardingScreen(onFinished: () -> Unit) {
     val pagerState = rememberPagerState(pageCount = { onboardingPages.size })
     val scope = rememberCoroutineScope()
     val currentPage = pagerState.currentPage
-    // The glow and the button follow the page being swiped TO, blending as
-    // the finger moves rather than snapping when the page settles.
     val accent by animateColorAsState(onboardingPages[pagerState.targetPage].accentColor,
-                                      tween(450), label = "onboarding_accent")
+                                      tween(600), label = "onboarding_accent")
+    val clock = rememberSceneClock()
+    val motion = JadooTheme.motion.enabled
+    val cutAt = remember { mutableStateMapOf<Int, Float>() }
+    LaunchedEffect(pagerState.targetPage) { cutAt[pagerState.targetPage] = clock.value }
+    fun pageTime(index: Int): Float =
+        if (!motion) Cine.SETTLED_S else (clock.value - (cutAt[index] ?: clock.value)).coerceAtLeast(0f)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(BrandScheme.Dark.background)
     ) {
-        // Ambient radial glow behind content
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(
-                brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                    listOf(accent.copy(alpha = 0.16f), Color.Transparent),
-                    center = Offset(size.width * 0.5f, size.height * 0.28f),
-                    radius = size.minDimension * 0.95f
-                ),
-                radius = size.minDimension * 0.95f,
-                center = Offset(size.width * 0.5f, size.height * 0.28f)
-            )
+        // Aurora: three slow pools of light in the page's colour, drifting on
+        // incommensurate periods so the sky never visibly repeats.
+        Canvas(Modifier.fillMaxSize()) {
+            val t = clock.value
+            fun pool(cx: Float, cy: Float, r: Float, a: Float) {
+                val c = Offset(size.width * cx, size.height * cy)
+                drawCircle(Brush.radialGradient(listOf(accent.copy(alpha = a), Color.Transparent), c, size.minDimension * r),
+                    size.minDimension * r, c)
+            }
+            pool(0.5f + 0.12f * sin(t * 0.11f), 0.22f + 0.04f * cos(t * 0.09f), 1.0f, 0.17f)
+            pool(0.15f + 0.08f * cos(t * 0.07f), 0.55f + 0.06f * sin(t * 0.13f), 0.7f, 0.07f)
+            pool(0.92f + 0.06f * sin(t * 0.05f), 0.38f + 0.07f * sin(t * 0.08f), 0.6f, 0.06f)
+            // Bottom vignette so the copy always sits on deep ground.
+            drawRect(Brush.verticalGradient(listOf(Color.Transparent, BrandScheme.Dark.background.copy(alpha = 0.85f)),
+                size.height * 0.45f, size.height))
         }
 
         Column(
@@ -158,7 +186,6 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // Skip row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -167,22 +194,20 @@ fun OnboardingScreen(onFinished: () -> Unit) {
             ) {
                 if (currentPage < onboardingPages.size - 1) {
                     TextButton(onClick = onFinished) {
-                        Text("Skip", color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp)
+                        Text(stringResource(R.string.scr_onb_skip), color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp)
                     }
                 }
             }
 
-            // Pager
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.weight(1f)
             ) { index ->
-                // Signed distance of this page from the centre, -1..1 while swiping.
                 val offset = (pagerState.currentPage - index) + pagerState.currentPageOffsetFraction
-                PageContent(page = onboardingPages[index], offset = offset)
+                PageContent(page = onboardingPages[index], offset = offset, time = { pageTime(index) },
+                            clock = { clock.value })
             }
 
-            // Dots + button
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -205,7 +230,19 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(54.dp),
+                        .height(54.dp)
+                        .drawWithContent {
+                            drawContent()
+                            // A slow sheen across the button, once every few seconds.
+                            if (motion) {
+                                val u = frac(clock.value / 4.2f)
+                                if (u < 0.35f) {
+                                    val x = size.width * (u / 0.35f) * 1.4f - size.width * 0.2f
+                                    drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.22f), Color.Transparent),
+                                        x - 60f, x + 60f), Offset(x - 60f, 0f), Size(120f, size.height))
+                                }
+                            }
+                        },
                     shape = RoundedCornerShape(27.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = accent,
@@ -213,7 +250,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                     )
                 ) {
                     Text(
-                        text = if (isLast) "Start listening" else "Continue",
+                        text = stringResource(if (isLast) R.string.scr_onb_start else R.string.scr_onb_continue),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -234,8 +271,8 @@ private fun PageDots(pageCount: Int, current: Int, accentColor: Color) {
         for (i in 0 until pageCount) {
             val selected = i == current
             val widthDp by animateFloatAsState(
-                targetValue = if (selected) 24f else 8f,
-                animationSpec = tween(280, easing = FastOutSlowInEasing),
+                targetValue = if (selected) 28f else 8f,
+                animationSpec = tween(420, easing = FastOutSlowInEasing),
                 label = "dot_$i"
             )
             Box(
@@ -244,7 +281,8 @@ private fun PageDots(pageCount: Int, current: Int, accentColor: Color) {
                     .height(8.dp)
                     .clip(CircleShape)
                     .background(
-                        if (selected) accentColor else Color.White.copy(alpha = 0.22f)
+                        if (selected) Brush.horizontalGradient(listOf(accentColor, accentColor.copy(alpha = 0.6f)))
+                        else Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.22f)))
                     )
             )
         }
@@ -254,35 +292,24 @@ private fun PageDots(pageCount: Int, current: Int, accentColor: Color) {
 // ── Page layout ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun PageContent(page: OnboardingPage, offset: Float) {
-    val infinite = rememberInfiniteTransition(label = "pg")
-    val pulse by infinite.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            tween(3200, easing = EaseInOutCubic), RepeatMode.Reverse
-        ),
-        label = "pulse"
-    )
+private fun PageContent(page: OnboardingPage, offset: Float, time: () -> Float, clock: () -> Float) {
     val motion = JadooTheme.motion.enabled
-    val distance = kotlin.math.abs(offset).coerceIn(0f, 1f)
+    val distance = abs(offset).coerceIn(0f, 1f)
 
-    // Scrollable with fixed gaps, never competing weights: on short screens
-    // or long pages the spacers used to collapse and jam visual into text.
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp)
     ) {
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(8.dp))
 
         // Parallax: the visual drifts at a third of the page's speed and
-        // shrinks a touch as it leaves, so pages read as layered depth
-        // rather than flat slides. Off under reduced motion.
+        // recedes a touch as it leaves.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(240.dp)
+                .height(260.dp)
                 .graphicsLayer {
                     if (motion) {
                         translationX = offset * size.width * 0.66f
@@ -293,44 +320,52 @@ private fun PageContent(page: OnboardingPage, offset: Float) {
                 },
             contentAlignment = Alignment.Center
         ) {
-            Box(Modifier.size(220.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                val t = time()
+                val g = clock()
                 when (page.visual) {
-                    OnboardingVisual.Waveform      -> WaveformVisual(page.accentColor, pulse)
-                    OnboardingVisual.Headphones    -> HeadphonesVisual(page.accentColor, pulse)
-                    OnboardingVisual.EqBars        -> EqBarsVisual(page.accentColor, pulse)
-                    OnboardingVisual.Surround      -> SurroundVisual(page.accentColor, pulse)
-                    OnboardingVisual.Constellation -> ConstellationVisual(page.accentColor, pulse)
+                    OnboardingVisual.Waveform      -> lensScene(page.accentColor, t, g)
+                    OnboardingVisual.Headphones    -> measureScene(page.accentColor, t, g)
+                    OnboardingVisual.EqBars        -> shapeScene(page.accentColor, t, g)
+                    OnboardingVisual.Surround      -> lensScene(page.accentColor, t, g)
+                    OnboardingVisual.Constellation -> privateScene(page.accentColor, t, g)
                 }
             }
         }
 
-        Spacer(Modifier.height(36.dp))
+        Spacer(Modifier.height(32.dp))
 
+        val lines = stringResource(page.headline).split("\n")
         Column(Modifier.graphicsLayer {
             if (motion) translationX = offset * 48.dp.toPx()
             alpha = 1f - distance
         }) {
             Text(
-                page.tag,
+                stringResource(page.tag).uppercase(),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = page.accentColor,
-                letterSpacing = 1.4.sp
+                letterSpacing = 1.6.sp,
+                modifier = Modifier.reveal(time, 0.35f, 10.dp.value)
             )
             Spacer(Modifier.height(12.dp))
-            Text(
-                page.headline,
-                fontSize = 36.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                lineHeight = 42.sp
-            )
+            lines.forEachIndexed { i, line ->
+                Text(
+                    line,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    lineHeight = 42.sp,
+                    modifier = Modifier.reveal(time, 0.5f + i * 0.12f, 22.dp.value)
+                )
+            }
             Spacer(Modifier.height(16.dp))
             Text(
-                page.body,
+                stringResource(page.body),
                 fontSize = 17.sp,
                 color = Color.White.copy(alpha = 0.72f),
-                lineHeight = 25.sp
+                lineHeight = 25.sp,
+                modifier = Modifier.reveal(time, 0.75f + lines.size * 0.12f, 14.dp.value)
             )
         }
 
@@ -338,192 +373,219 @@ private fun PageContent(page: OnboardingPage, offset: Float) {
     }
 }
 
-// ── Visuals ──────────────────────────────────────────────────────────────────
+/** Fades and rises into place on its beat of the page's [time]. */
+private fun Modifier.reveal(time: () -> Float, at: Float, riseDp: Float): Modifier = graphicsLayer {
+    val a = seg(time(), at, 0.9f)
+    alpha = a
+    translationY = (1f - a) * riseDp * density
+}
 
-@Composable
-private fun WaveformVisual(accent: Color, pulse: Float) {
-    val infinite = rememberInfiniteTransition(label = "wv")
-    val phase by infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = (2.0 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing)),
-        label = "phase"
-    )
-    Canvas(Modifier.fillMaxSize()) {
-        val w = size.width; val h = size.height; val mid = h / 2f
+// ── Scenes ───────────────────────────────────────────────────────────────────
+// Each takes the page's cut time [t] (its entrance) and the free-running
+// clock [g] (its life once settled).
 
-        data class WaveSpec(val amp: Float, val freq: Float, val off: Float, val alpha: Float, val sw: Float)
-        val waves = listOf(
-            WaveSpec(0.26f, 1.0f, 0.0f, 0.90f, 3.0f),
-            WaveSpec(0.16f, 1.7f, 0.9f, 0.60f, 2.2f),
-            WaveSpec(0.09f, 2.4f, 1.8f, 0.35f, 1.6f)
-        )
-        waves.forEach { ws ->
-            val a = ws.amp * h * (0.75f + 0.25f * pulse)
-            val path = Path()
-            var first = true
-            for (xi in 0..w.toInt() step 2) {
-                val y = mid + a * sin(ws.freq * xi * 2.0 * PI / w + phase + ws.off).toFloat()
-                if (first) { path.moveTo(xi.toFloat(), y); first = false }
-                else path.lineTo(xi.toFloat(), y)
-            }
-            drawPath(path, accent.copy(alpha = ws.alpha), style = Stroke(ws.sw, cap = StrokeCap.Round))
+/**
+ * "Every app. Better sound." A ragged grey signal flows in from the left,
+ * passes through a ring of light (JadOO), and leaves as a smooth golden
+ * ribbon.
+ */
+private fun DrawScope.lensScene(accent: Color, t: Float, g: Float) {
+    val mid = size.height * 0.5f
+    val lensX = size.width * 0.5f
+    val enter = seg(t, 0.0f, 1.4f, Cine.Draw)
+    val lensIn = seg(t, 0.3f, 1.0f)
+    val warm = seg(t, 0.9f, 1.4f)
+    val n = 140
+    fun raw(x: Float): Float {
+        val u = x / size.width
+        return sin(u * 26f - g * 3.1f) * 0.55f + sin(u * 61f - g * 5.3f) * 0.25f + sin(u * 113f + g * 2f) * 0.12f
+    }
+    fun clean(x: Float, k: Float): Float = sin(x / size.width * 14f - g * 1.9f + k) * (0.62f + 0.12f * k)
+
+    // Raw: left of the lens only.
+    val rawPath = Path().apply {
+        for (i in 0..n) {
+            val x = lensX * i / n
+            val y = mid + raw(x) * size.height * 0.16f
+            if (i == 0) moveTo(x, y) else lineTo(x, y)
         }
-        val cx = w / 2f
-        drawCircle(accent, 5f + 2f * pulse, Offset(cx, mid))
-        drawCircle(accent.copy(0.20f), 20f + 8f * pulse, Offset(cx, mid))
+    }
+    glowStroke(rawPath.trimmed(enter), Color.White.copy(alpha = 0.38f), 1.6f, glow = 0.2f)
+
+    // Polished ribbons: right of the lens, layered.
+    for (k in 0..2) {
+        val xs = FloatArray(60) { lensX + (size.width - lensX) * it / 59f }
+        val ys = FloatArray(60) {
+            val fade = (it / 59f).let { u -> 1f - u * 0.15f }
+            mid + clean(xs[it], k * 0.9f) * size.height * (0.24f - k * 0.05f) * warm * fade
+        }
+        val p = smoothPath(xs, ys)
+        glowStroke(p, Brush.horizontalGradient(listOf(Color.White, accent, accent.copy(alpha = 0.3f)), lensX, size.width),
+            3f - k * 0.8f, glow = (1f - k * 0.3f) * warm, alpha = warm * (1f - k * 0.28f))
+    }
+
+    // The lens: a ring of light with a slow breathing halo.
+    val r = size.height * 0.30f * (0.6f + 0.4f * lensIn)
+    val c = Offset(lensX, mid)
+    drawCircle(Brush.radialGradient(listOf(accent.copy(alpha = 0.30f * lensIn), Color.Transparent), c, r * 2.2f), r * 2.2f, c)
+    drawArc(Brush.sweepGradient(listOf(accent, Color.White, accent.copy(alpha = 0.2f), accent), c),
+        startAngle = g * 40f, sweepAngle = 360f * lensIn, useCenter = false,
+        topLeft = Offset(c.x - r, c.y - r), size = Size(r * 2, r * 2), style = Stroke(2.4f, cap = StrokeCap.Round))
+    drawCircle(accent.copy(alpha = 0.18f * lensIn), r * (0.82f + 0.05f * breathe(g, 3f)), c, style = Stroke(1f))
+    spark(c, Color.White, 3.2f, lensIn * (0.7f + 0.3f * breathe(g, 2.2f)))
+
+    // Motes riding out on the ribbon.
+    for (i in 0 until 10) {
+        val u = frac(g * (0.08f + 0.05f * hash01(i, 1)) + hash01(i, 2))
+        val x = lensX + (size.width - lensX) * u
+        val y = mid + clean(x, hash01(i, 3) * 1.8f) * size.height * 0.22f * warm + (hash01(i, 4) - 0.5f) * 18f
+        spark(Offset(x, y), accent, 1.4f + hash01(i, 5), warm * sin(u * PI.toFloat()) * 0.9f)
     }
 }
 
-@Composable
-private fun HeadphonesVisual(accent: Color, pulse: Float) {
-    val infinite = rememberInfiniteTransition(label = "hp")
-    val ring by infinite.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2000, easing = EaseInOutCubic), RepeatMode.Reverse),
-        label = "ring"
-    )
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-        Canvas(Modifier.fillMaxSize()) {
-            val c = Offset(size.width / 2f, size.height / 2f)
-            drawCircle(accent.copy(0.05f + 0.04f * ring), size.minDimension * 0.42f, c)
-            drawCircle(accent.copy(0.03f + 0.02f * ring), size.minDimension * 0.50f, c)
-            // Sound arcs
-            listOf(0.62f, 0.76f).forEachIndexed { i, rf ->
-                val r = size.minDimension * (rf + 0.04f * ring)
-                drawArc(
-                    accent.copy(alpha = (0.45f - i * 0.18f) * ring),
-                    startAngle = 195f, sweepAngle = 150f, useCenter = false,
-                    topLeft = Offset(c.x - r, c.y - r),
-                    size = Size(r * 2, r * 2),
-                    style = Stroke(2.4f - i * 0.5f)
-                )
-                drawArc(
-                    accent.copy(alpha = (0.45f - i * 0.18f) * ring),
-                    startAngle = -15f, sweepAngle = -150f, useCenter = false,
-                    topLeft = Offset(c.x - r, c.y - r),
-                    size = Size(r * 2, r * 2),
-                    style = Stroke(2.4f - i * 0.5f)
-                )
-            }
-        }
-        Icon(Icons.Filled.Headphones, null, Modifier.size(90.dp), accent.copy(0.80f + 0.20f * pulse))
+/**
+ * "Your headphones, measured." A headphone's measured response draws on,
+ * ragged; a scanning beam passes and corrects it onto the target.
+ */
+private fun DrawScope.measureScene(accent: Color, t: Float, g: Float) {
+    val top = size.height * 0.12f
+    val bottom = size.height * 0.88f
+    val mid = (top + bottom) / 2f
+    val grid = seg(t, 0f, 0.8f)
+    for (i in 0..6) {
+        val x = size.width * i / 6f
+        drawLine(Color.White.copy(alpha = 0.06f * grid), Offset(x, top), Offset(x, bottom), 1f)
+    }
+    for (i in 0..4) {
+        val y = mix(top, bottom, i / 4f)
+        drawLine(Color.White.copy(alpha = 0.06f * grid), Offset(0f, y), Offset(size.width, y), 1f)
+    }
+    val n = 64
+    val xs = FloatArray(n + 1) { size.width * it / n }
+    fun measured(u: Float): Float =
+        0.55f * exp(-((u - 0.12f) / 0.10f).let { it * it }) - 0.35f * exp(-((u - 0.46f) / 0.08f).let { it * it }) +
+        0.75f * exp(-((u - 0.68f) / 0.05f).let { it * it }) - 0.5f * exp(-((u - 0.80f) / 0.04f).let { it * it }) +
+        0.3f * sin(u * 31f) * u - 0.6f * ((u - 0.9f).coerceAtLeast(0f) * 10f)
+    fun target(u: Float) = 0.22f * exp(-((u - 0.06f) / 0.12f).let { it * it }) - 0.15f * ((u - 0.85f).coerceAtLeast(0f) * 6.6f)
+    val amp = (bottom - top) * 0.32f
+    val draw = seg(t, 0.2f, 1.2f, Cine.Draw)
+    // The beam sweeps once on entrance, then every 7 s.
+    val sweepT = if (t < 1.4f) 0f else frac((t - 1.4f) / 7f) * 7f
+    val beam = (sweepT / 1.8f).coerceIn(0f, 1f)
+    val beamX = size.width * Cine.InOut.transform(beam)
+    val correctedBy = { u: Float -> if (t < 1.4f) 0f else if (sweepT >= 1.8f) 1f else smooth(u * size.width, beamX) }
+    val ys = FloatArray(n + 1) { val u = it / n.toFloat(); mid - mix(measured(u), target(u), correctedBy(u)) * amp }
+    val curve = smoothPath(xs, ys)
+    val targetPath = smoothPath(xs, FloatArray(n + 1) { mid - target(it / n.toFloat()) * amp })
+    drawPath(targetPath.trimmed(draw), accent.copy(alpha = 0.35f), style = Stroke(1.4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 7f))))
+    drawPath(areaUnder(curve, 0f, size.width, bottom), Brush.verticalGradient(listOf(accent.copy(alpha = 0.16f * draw), Color.Transparent), top, bottom))
+    glowStroke(curve.trimmed(draw), Brush.horizontalGradient(listOf(accent, Color.White.copy(alpha = 0.85f)), beamX - 1f, beamX + 1f), 2.6f, glow = 0.9f)
+    if (t >= 1.4f && sweepT < 1.9f) {
+        val a = (1f - ((sweepT - 1.6f) / 0.3f).coerceIn(0f, 1f))
+        drawRect(Brush.horizontalGradient(listOf(Color.Transparent, accent.copy(alpha = 0.22f * a), Color.Transparent), beamX - 50f, beamX + 50f),
+            Offset(beamX - 50f, top), Size(100f, bottom - top))
+        drawLine(Color.White.copy(alpha = 0.8f * a), Offset(beamX, top), Offset(beamX, bottom), 1.4f)
+        val u = (beamX / size.width).coerceIn(0f, 1f)
+        spark(Offset(beamX, mid - target(u) * amp), Color.White, 3f, a)
     }
 }
 
-@Composable
-private fun EqBarsVisual(accent: Color, pulse: Float) {
-    val BAR_COUNT = 15
-    val infinite = rememberInfiniteTransition(label = "eq")
-    val heights = (0 until BAR_COUNT).map { i ->
-        infinite.animateFloat(
-            initialValue = 0.12f + (i % 4) * 0.08f,
-            targetValue  = 0.45f + (i % 5) * 0.11f,
-            animationSpec = infiniteRepeatable(
-                tween(1100 + i * 70, easing = EaseInOutCubic), RepeatMode.Reverse
-            ),
-            label = "h$i"
-        )
-    }
-    Canvas(Modifier.fillMaxSize()) {
-        val w = size.width; val h = size.height
-        val barW = w / (BAR_COUNT * 1.7f)
-        val step  = w / BAR_COUNT.toFloat()
-        heights.forEachIndexed { i, ha ->
-            val bh = h * (ha.value + 0.08f * pulse)
-            val x  = i * step + step / 2f - barW / 2f
-            val top = (h - bh) / 2f
-            drawRoundRect(
-                accent.copy(0.7f + 0.3f * pulse),
-                Offset(x, top),
-                Size(barW, bh),
-                CornerRadius(barW / 2)
-            )
-        }
-    }
+private fun DrawScope.smooth(x: Float, edge: Float): Float {
+    val w = size.width * 0.08f
+    val v = ((edge - x) / w + 0.5f).coerceIn(0f, 1f)
+    return v * v * (3f - 2f * v)
 }
 
-@Composable
-private fun SurroundVisual(accent: Color, pulse: Float) {
-    val infinite = rememberInfiniteTransition(label = "sv")
-    val rot by infinite.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(9000, easing = LinearEasing)),
-        label = "rot"
+/**
+ * "Then make it yours." Fifteen bands on their tracks; the curve through
+ * their knobs reshapes itself, band by band, through three tunings.
+ */
+private fun DrawScope.shapeScene(accent: Color, t: Float, g: Float) {
+    val bands = 15
+    val top = size.height * 0.10f
+    val bottom = size.height * 0.90f
+    val mid = (top + bottom) / 2f
+    val step = size.width / bands
+    val shapes = arrayOf(
+        floatArrayOf(4f, 3.6f, 2.8f, 1.6f, 0.6f, 0f, -0.6f, -0.8f, -0.4f, 0.4f, 1.4f, 2.4f, 3f, 3.4f, 3.6f),
+        floatArrayOf(3f, 3.4f, 3.2f, 2.6f, 1.8f, 1.2f, 0.6f, 0f, -0.4f, -0.8f, -1.2f, -1.6f, -2f, -2.4f, -2.6f),
+        floatArrayOf(-2f, -1.8f, -1.4f, -0.8f, 0f, 0.6f, 1.6f, 2.6f, 3.2f, 3f, 2.2f, 1.2f, 0.4f, 0f, -0.4f)
     )
-    Canvas(Modifier.fillMaxSize()) {
-        val c = Offset(size.width / 2f, size.height / 2f)
-        val r = size.minDimension * 0.38f
-
-        listOf(0.55f, 0.72f, 0.88f).forEachIndexed { i, frac ->
-            val ar = r * frac
-            val alpha = (0.38f - i * 0.08f) + 0.10f * pulse
-            val start = rot * (0.4f + i * 0.25f)
-            // Left arc
-            drawArc(accent.copy(alpha), start - 20f, 200f, false,
-                    Offset(c.x - ar, c.y - ar), Size(ar * 2, ar * 2), style = Stroke(2.2f + i * 0.4f))
-            // Right arc (mirrored)
-            drawArc(accent.copy(alpha), start + 160f, 200f, false,
-                    Offset(c.x - ar, c.y - ar), Size(ar * 2, ar * 2), style = Stroke(2.2f + i * 0.4f))
-        }
-        // Center dot
-        drawCircle(accent.copy(0.25f + 0.12f * pulse), r * 0.14f, c)
-        drawCircle(accent, r * 0.055f, c)
-
-        // Orbiting particles
-        for (d in 0 until 6) {
-            val angle = (d * 60f + rot * 1.6f) * PI.toFloat() / 180f
-            val dx = c.x + r * 0.94f * cos(angle)
-            val dy = c.y + r * 0.94f * sin(angle)
-            val pa = 0.35f + 0.45f * ((sin(angle + pulse * PI.toFloat()) + 1f) / 2f)
-            drawCircle(accent.copy(pa), 3.5f, Offset(dx, dy))
-        }
+    val per = 3.2f
+    val life = (t - 1.0f).coerceAtLeast(0f)
+    val idx = (life / per).toInt()
+    val within = frac(life / per)
+    val a = shapes[idx % 3]; val b = shapes[(idx + 1) % 3]
+    val pxDb = (bottom - top) / 10f
+    val xs = FloatArray(bands) { step * it + step / 2f }
+    val ys = FloatArray(bands) { i ->
+        val rise = seg(t, 0.15f + i * 0.04f, 0.8f)
+        // Each band moves a beat after the one to its left: the wave runs across.
+        val m = seg(within, 0.55f + i * 0.018f, 0.3f, Cine.InOut)
+        mid - mix(a[i], b[i], m) * pxDb * rise
     }
+    val trackA = seg(t, 0f, 0.7f)
+    for (i in 0 until bands) {
+        drawLine(Color.White.copy(alpha = 0.08f * trackA), Offset(xs[i], top), Offset(xs[i], bottom), 3f, cap = StrokeCap.Round)
+        drawLine(Brush.verticalGradient(listOf(accent.copy(alpha = 0.7f), accent.copy(alpha = 0.15f)), ys[i], mid),
+            Offset(xs[i], mid), Offset(xs[i], ys[i]), 3f, cap = StrokeCap.Round)
+    }
+    val curve = smoothPath(xs, ys)
+    val draw = seg(t, 0.5f, 1.1f, Cine.Draw)
+    drawPath(areaUnder(curve, xs.first(), xs.last(), bottom), Brush.verticalGradient(listOf(accent.copy(alpha = 0.18f * draw), Color.Transparent), top, bottom))
+    glowStroke(curve.trimmed(draw), Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.9f), accent, Color.White.copy(alpha = 0.9f))), 2.8f, glow = 1f)
+    for (i in 0 until bands) {
+        val k = seg(t, 0.3f + i * 0.04f, 0.6f)
+        drawCircle(BrandScheme.Dark.background, 6f * k, Offset(xs[i], ys[i]))
+        drawCircle(accent.copy(alpha = k), 6f * k, Offset(xs[i], ys[i]), style = Stroke(2f))
+    }
+    // A light runs along the curve.
+    if (draw >= 1f) spark(curve.pointAt(frac(g * 0.16f)), Color.White, 2.4f, 0.8f)
 }
 
-@Composable
-private fun ConstellationVisual(accent: Color, pulse: Float) {
-    val infinite = rememberInfiniteTransition(label = "cs")
-    val twinkle by infinite.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1900, easing = EaseInOutCubic), RepeatMode.Reverse),
-        label = "tw"
-    )
-    val stars = remember {
-        listOf(
-            0.18f to 0.12f, 0.50f to 0.06f, 0.80f to 0.18f,
-            0.10f to 0.44f, 0.34f to 0.36f, 0.66f to 0.28f,
-            0.90f to 0.48f, 0.20f to 0.70f, 0.50f to 0.60f,
-            0.76f to 0.74f, 0.38f to 0.86f, 0.62f to 0.92f
-        )
+/**
+ * "Nothing leaves your phone." A phone draws itself; sound ripples inside
+ * it, and the motes that drift to its edge turn back.
+ */
+private fun DrawScope.privateScene(accent: Color, t: Float, g: Float) {
+    val h = size.height * 0.92f
+    val w = h * 0.52f
+    val left = (size.width - w) / 2f
+    val topY = (size.height - h) / 2f
+    val r = w * 0.16f
+    val outline = Path().apply {
+        addRoundRect(androidx.compose.ui.geometry.RoundRect(left, topY, left + w, topY + h, CornerRadius(r)))
     }
-    val edges = remember {
-        listOf(0 to 1, 1 to 2, 0 to 3, 3 to 4, 4 to 5, 5 to 6,
-               4 to 8, 7 to 8, 8 to 9, 8 to 10, 10 to 11)
+    val draw = seg(t, 0f, 1.3f, Cine.Draw)
+    val fill = seg(t, 0.8f, 0.9f)
+    drawPath(outline, Brush.verticalGradient(listOf(accent.copy(alpha = 0.10f * fill), Color.Transparent), topY, topY + h))
+    glowStroke(outline.trimmed(draw), Brush.verticalGradient(listOf(accent, Color.White.copy(alpha = 0.6f), accent), topY, topY + h), 2.2f, glow = 0.8f)
+    val c = Offset(left + w / 2f, topY + h * 0.48f)
+    // Ripples, kept inside: they fade before they reach the edge.
+    for (k in 0..3) {
+        val life = frac(g * 0.3f + k / 4f)
+        val rr = life * w * 0.46f
+        drawCircle(accent.copy(alpha = (1f - life) * 0.45f * fill), rr, c, style = Stroke(1.4f))
     }
-    Canvas(Modifier.fillMaxSize()) {
-        val w = size.width; val h = size.height
-        edges.forEach { (a, b) ->
-            drawLine(
-                accent.copy(0.18f + 0.07f * pulse),
-                Offset(stars[a].first * w, stars[a].second * h),
-                Offset(stars[b].first * w, stars[b].second * h),
-                strokeWidth = 1.1f
-            )
+    spark(c, Color.White, 3.6f, fill * (0.75f + 0.25f * breathe(g, 2.4f)))
+    // Motes bouncing inside the frame: they reach the wall and turn back.
+    val inset = r * 0.6f
+    val bx0 = left + inset; val bx1 = left + w - inset
+    val by0 = topY + inset; val by1 = topY + h - inset
+    for (i in 0 until 12) {
+        fun bounce(v: Float, lo: Float, hi: Float): Float {
+            val span = hi - lo
+            val p = frac(v / (2f * span)) * 2f * span
+            return lo + if (p < span) p else 2f * span - p
         }
-        stars.forEachIndexed { i, (sx, sy) ->
-            val t = (twinkle + i * 0.083f) % 1f
-            val sr = 2.8f + 2f * t
-            val sa = 0.45f + 0.55f * t
-            val pos = Offset(sx * w, sy * h)
-            drawCircle(accent.copy(sa), sr, pos)
-            drawCircle(accent.copy(sa * 0.22f), sr * 2.8f, pos)
-        }
-        // Central bright star
-        val cx = w / 2f; val cy = h * 0.54f
-        val cr = 5.5f + 2.5f * pulse
-        drawCircle(accent, cr, Offset(cx, cy))
-        drawCircle(accent.copy(0.28f + 0.18f * pulse), cr * 3f, Offset(cx, cy))
-        drawCircle(accent.copy(0.08f + 0.06f * pulse), cr * 6.5f, Offset(cx, cy))
+        val vx = (40f + 60f * hash01(i, 1)) * (if (hash01(i, 2) > 0.5f) 1f else -1f)
+        val vy = (30f + 70f * hash01(i, 3)) * (if (hash01(i, 4) > 0.5f) 1f else -1f)
+        val x = bounce(hash01(i, 5) * 400f + g * vx, bx0, bx1)
+        val y = bounce(hash01(i, 6) * 400f + g * vy, by0, by1)
+        val nearWall = minOf(x - bx0, bx1 - x, y - by0, by1 - y)
+        val hit = (1f - (nearWall / 10f).coerceIn(0f, 1f))
+        spark(Offset(x, y), if (hit > 0.3f) Color.White else accent, 1.6f + hit * 1.4f, fill * (0.55f + 0.45f * hit))
     }
+    // Speaker slot and camera, quiet detail.
+    drawRoundRect(Color.White.copy(alpha = 0.25f * fill), Offset(c.x - w * 0.14f, topY + h * 0.05f), Size(w * 0.28f, 4f), CornerRadius(2f))
 }

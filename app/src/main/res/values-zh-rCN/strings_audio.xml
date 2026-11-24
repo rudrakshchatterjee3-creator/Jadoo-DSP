@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="aud_notif_channel_name">JadOO DSP 引擎</string>
+    <string name="aud_notif_global_session">全局会话</string>
+    <string name="aud_notif_status_bypass">引擎已开启 · 旁路（无任何效果生效）· %1$s</string>
+    <string name="aud_notif_status_active">DSP 运行中 · %1$s</string>
+    <string name="aud_notif_status_waiting">引擎已开启 · 等待播放</string>
+    <string name="aud_notif_status_off">引擎已关闭</string>
+
+    <string name="aud_out_phone_speaker">手机扬声器</string>
+    <string name="aud_out_wired">有线耳机</string>
+    <string name="aud_out_usb">USB 音频</string>
+    <string name="aud_out_usb_named">USB：%1$s</string>
+    <string name="aud_out_bluetooth_named">蓝牙：%1$s</string>
+
+    <string name="aud_surround_off_name">关闭</string>
+    <string name="aud_surround_off_tagline">无空间处理</string>
+    <string name="aud_surround_traditional_tagline">自然的立体声宽度</string>
+    <string name="aud_surround_front_tagline">前方投射</string>
+    <string name="aud_surround_wide_tagline">沉浸式 180° 声场</string>
+    <string name="aud_surround_off_desc">空间处理已关闭，音频原样通过。</string>
+    <string name="aud_surround_traditional_desc">平滑的立体声声像倾斜。高频略微展宽，人声固定在中央。长时间聆听不易疲劳。</string>
+    <string name="aud_surround_front_desc">更强的立体声扩展。乐器分离更清晰，声音向前投射，人声保持居中。</string>
+    <string name="aud_surround_wide_desc">最宽的声场。高频扩散最大，适合电影、游戏和氛围音乐。</string>
+
+    <string name="aud_dbfb_off">关闭</string>
+    <string name="aud_dbfb_normal">标准</string>
+    <string name="aud_dbfb_high">强</string>
+    <string name="aud_sbc_classic">经典</string>
+    <string name="aud_sbc_new">新版</string>
+
+    <string name="aud_device_general">通用</string>
+    <string name="aud_device_iem">入耳式监听耳机</string>
+    <string name="aud_device_on_ear">贴耳式耳机</string>
+    <string name="aud_device_over_ear">包耳式耳机</string>
+    <string name="aud_device_compact_speaker">便携音箱</string>
+    <string name="aud_device_home_speaker">家用音箱</string>
+
+    <string name="aud_fmt_offload">%1$s（硬件卸载）</string>
+    <string name="aud_fmt_passthrough">%1$s（直通）</string>
+
+    <string name="aud_dev_sco">蓝牙 SCO（通话）</string>
+    <string name="aud_dev_speaker">扬声器</string>
+    <string name="aud_dev_wired">有线耳机</string>
+    <string name="aud_dev_usb">USB 音频</string>
+    <string name="aud_dev_earpiece">听筒</string>
+    <string name="aud_dev_telephony">电话</string>
+    <string name="aud_dev_remote_submix">远程混音（投屏/录制）</string>
+
+    <string name="aud_path_bit_perfect">Bit-perfect 输出</string>
+    <string name="aud_path_offload">硬件卸载</string>
+    <string name="aud_path_direct">直接输出</string>
+    <string name="aud_path_spatializer">系统空间音频混音器</string>
+    <string name="aud_path_mmap">MMAP（AAudio 独占）</string>
+    <string name="aud_path_deep_buffer">混音器 · 深度缓冲</string>
+    <string name="aud_path_low_latency">混音器 · 低延迟</string>
+    <string name="aud_path_primary">混音器 · 主输出</string>
+    <string name="aud_path_duplicating">复制混音器</string>
+    <string name="aud_path_mixer">混音器</string>
+
+    <string name="aud_channels_stereo">立体声（2.0）</string>
+    <string name="aud_bt_channel_stereo">立体声</string>
+    <string name="aud_bt_ldac_adaptive">自适应</string>
+    <plurals name="aud_channels_count">
+        <item quantity="other">%1$d 个声道</item>
+    </plurals>
+</resources>

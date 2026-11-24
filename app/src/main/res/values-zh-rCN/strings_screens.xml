@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Common -->
+    <string name="scr_cd_back">返回</string>
+    <string name="scr_cd_close">关闭</string>
+    <string name="scr_reset">重置</string>
+    <string name="scr_cancel">取消</string>
+    <string name="scr_off">关闭</string>
+    <string name="scr_on">开启</string>
+    <string name="scr_yes">是</string>
+    <string name="scr_no">否</string>
+    <string name="scr_preamp">前级增益</string>
+
+    <!-- Parametric EQ screen -->
+    <string name="scr_peq_summary">已开启 %1$d/%2$d 个滤波器 · 前级增益 %3$s</string>
+    <string name="scr_peq_headphone_correction">耳机校正</string>
+    <string name="scr_peq_load_autoeq">加载实测的 AutoEQ 配置</string>
+    <string name="scr_peq_tab_parametric">参数</string>
+    <string name="scr_peq_tab_graphic">图形</string>
+    <string name="scr_peq_tab_table">表格</string>
+    <string name="scr_peq_filters">滤波器</string>
+    <string name="scr_peq_filter_n">滤波器 %1$d</string>
+    <string name="scr_peq_no_band">未选择频段</string>
+    <string name="scr_peq_filter_type">滤波器类型</string>
+    <string name="scr_peq_parameters">参数</string>
+    <string name="scr_peq_freq">频率</string>
+    <string name="scr_peq_gain">增益</string>
+    <string name="scr_peq_graph_band">频段 %1$d：%2$d Hz（%3$s dB）| %4$s</string>
+    <string name="scr_peq_band_n">频段 %1$d</string>
+    <string name="scr_peq_active_bands">已启用频段</string>
+    <string name="scr_peq_peak_gain">峰值增益</string>
+    <string name="scr_peq_peak_freq">峰值频率</string>
+    <string name="scr_peq_flat">平直</string>
+    <string name="scr_peq_col_type">类型</string>
+    <string name="scr_peq_col_freq">频率</string>
+    <string name="scr_peq_col_gain">增益</string>
+    <string name="scr_peq_col_on">开启</string>
+    <string name="scr_peq_enable_next">启用下一个可用频段</string>
+    <string name="scr_peq_reset_title">重置所有频段？</string>
+    <string name="scr_peq_reset_text">这将停用全部 %1$d 个 PEQ 频段，并恢复其默认值。</string>
+
+    <!-- Headphone EQ (AutoEQ) screen -->
+    <string name="scr_ae_title">耳机 EQ</string>
+    <string name="scr_ae_search_hint">搜索 8,000+ 款耳机和 IEM</string>
+    <string name="scr_ae_clear_search">清除搜索</string>
+    <string name="scr_ae_list_failed">耳机列表下载失败。</string>
+    <string name="scr_ae_check_connection">请检查网络连接后重试。</string>
+    <string name="scr_ae_try_again">重试</string>
+    <string name="scr_ae_loading">正在加载耳机列表…</string>
+    <string name="scr_ae_no_match">没有与“%1$s”匹配的耳机。</string>
+    <string name="scr_ae_connected_now">当前已连接</string>
+    <string name="scr_ae_explainer">AutoEQ 的校正会将你的耳机调向中性目标曲线，数据由独立实验室测得。多数型号有多个实验室的数据，排在首位的是 AutoEQ 最信任的一个。</string>
+    <string name="scr_ae_data_credit">数据：Jaakko Pasanen 的 AutoEQ（MIT 许可证）。</string>
+    <plurals name="scr_ae_more_labs">
+        <item quantity="other">%1$s + 另外 %2$d 个实验室</item>
+    </plurals>
+    <string name="scr_ae_profile_failed">此配置下载失败。请选择其他实验室，或稍后重试。</string>
+    <plurals name="scr_ae_preamp_filters">
+        <item quantity="other">前级增益 %1$s · %2$d 个滤波器</item>
+    </plurals>
+    <string name="scr_ae_measured_by">测量方</string>
+    <string name="scr_ae_measured_by_lab">测量方：%1$s</string>
+    <string name="scr_ae_hide_filters">隐藏滤波器</string>
+    <string name="scr_ae_show_filters">显示滤波器</string>
+    <string name="scr_ae_replaces">将替换 %1$s 的参数 EQ。过窄的滤波器会被 JadOO 的 15 频段引擎平滑处理。</string>
+    <string name="scr_ae_apply">应用到参数 EQ</string>
+    <string name="scr_ae_back_to_search">返回搜索</string>
+
+    <!-- Live Chain / signal path -->
+    <string name="scr_chain_limited">受限视图</string>
+    <string name="scr_chain_grant_dump">授予 DUMP 权限以追踪音频流：%1$s</string>
+    <string name="scr_chain_tracing">正在追踪…</string>
+    <string name="scr_chain_nothing_playing">未在播放</string>
+    <string name="scr_chain_start_playback">开始播放即可追踪信号路径。</string>
+    <string name="scr_chain_skipped">%1$s - JadOO 可能被绕过</string>
+    <string name="scr_chain_turn_off_offload">请在播放器中关闭硬件卸载、独占或 Bit-perfect 输出。</string>
+    <string name="scr_chain_not_on_output">JadOO 未接入此输出</string>
+    <string name="scr_chain_reattach">暂停后再继续播放，JadOO 即可重新接入。</string>
+    <string name="scr_chain_resampled_once">已重采样一次 · %1$s → %2$s</string>
+    <string name="scr_chain_resampled_detail">Android 会将音频流转换为输出端的采样率。这在手机上属正常现象；USB DAC 以来源采样率运行可避免重采样。</string>
+    <string name="scr_chain_rate_matched">全程采样率一致</string>
+    <string name="scr_chain_note_sbc">SBC Enhancement 已开启，但当前编解码器为 %1$s。请将其关闭，它会衰减 %1$s 本可保留的高频。</string>
+    <string name="scr_chain_note_spatial">系统空间音频和 Surround+ 都在拓宽声场，请二选一。</string>
+    <string name="scr_chain_no_app">无应用</string>
+    <string name="scr_chain_jadoo_off">JadOO 已关闭</string>
+    <string name="scr_chain_open">打开信号路径</string>
+    <string name="scr_chain_card_resampled">%1$s → %2$s，已重采样</string>
+    <string name="scr_chain_title">信号路径</string>
+    <string name="scr_chain_stage_source">来源</string>
+    <string name="scr_chain_not_playing">未在播放</string>
+    <string name="scr_chain_needs_dump">需要 DUMP</string>
+    <string name="scr_chain_package">包名</string>
+    <string name="scr_chain_sample_format">采样格式</string>
+    <string name="scr_chain_channels">声道</string>
+    <string name="scr_chain_audio_session">音频会话</string>
+    <string name="scr_chain_not_attached">JadOO 未接入此输出</string>
+    <string name="scr_chain_bypassed">已旁路 · 未开启任何功能</string>
+    <plurals name="scr_chain_features_on">
+        <item quantity="other">已开启 %d 项功能</item>
+    </plurals>
+    <string name="scr_chain_in_path">在音频路径中</string>
+    <string name="scr_chain_unknown">未知</string>
+    <string name="scr_chain_processing">处理</string>
+    <string name="scr_chain_input_gain">输入增益</string>
+    <string name="scr_chain_headroom_trim">预留余量</string>
+    <string name="scr_chain_output_gain">输出增益</string>
+    <string name="scr_chain_output_gain_value">%1$s，安全限幅器已开启</string>
+    <string name="scr_chain_wire_resampled">已重采样 %1$s → %2$s</string>
+    <string name="scr_chain_stage_mixer">Android 混音器</string>
+    <string name="scr_chain_system_mixer">系统混音器</string>
+    <string name="scr_chain_mixing_format">混音格式</string>
+    <string name="scr_chain_hw_buffer">硬件缓冲区</string>
+    <string name="scr_chain_track_latency">音轨延迟</string>
+    <string name="scr_chain_output_thread">输出线程</string>
+    <string name="scr_chain_stage_output">输出</string>
+    <string name="scr_chain_route">路由</string>
+    <string name="scr_chain_codec">编解码器</string>
+    <string name="scr_chain_codec_channels">编解码器声道</string>
+    <string name="scr_chain_spatial">系统空间音频</string>
+    <string name="scr_chain_spatial_unsupported">此处不支持</string>
+    <string name="scr_chain_spatial_on_tracking">开启 · 支持头部追踪</string>
+    <string name="scr_chain_hide_details">隐藏详情</string>
+    <string name="scr_chain_show_details">显示详情</string>
+
+    <!-- Onboarding -->
+    <string name="scr_onb_tag_2">耳机校正</string>
+    <string name="scr_onb_tag_3">音色 · 个性 · 空间</string>
+    <string name="scr_onb_tag_4">隐私</string>
+    <string name="scr_onb_headline_1">所有应用，\n声音更好。</string>
+    <string name="scr_onb_headline_2">你的耳机，\n精准测量。</string>
+    <string name="scr_onb_headline_3">再调成\n你的风格。</string>
+    <string name="scr_onb_headline_4">数据绝不\n离开手机。</string>
+    <string name="scr_onb_body_1">JadOO 会在手机上实时处理正在播放的任何音频，无论是音乐应用、视频还是游戏。</string>
+    <string name="scr_onb_body_2">从 8,000+ 份实验室测量数据中选择你的型号，JadOO 会将其响应校正至中性目标曲线。</string>
+    <string name="scr_onb_body_3">15 频段图形 EQ、16 个参数滤波器、Analog Bass、Tube，以及保持人声居中的更宽声场。</string>
+    <string name="scr_onb_body_4">无需账号，无云端，无订阅。请在弹出提示时允许通知，这样引擎才能持续运行。</string>
+    <string name="scr_onb_skip">跳过</string>
+    <string name="scr_onb_continue">继续</string>
+    <string name="scr_onb_start">开始聆听</string>
+
+    <!-- Help illustrations (captions are drawn upper-case in the canvas) -->
+    <string name="scr_ill_bands">频段：%1$d</string>
+    <string name="scr_ill_unity">1 kHz · 始终 0 dB</string>
+    <string name="scr_ill_music">音乐</string>
+    <string name="scr_ill_podcast">播客</string>
+    <string name="ill2_as_recorded">原始录音</string>
+    <string name="ill2_air_lift">空气感提升，5–20 kHz</string>
+    <string name="ill2_dbfb">低音提升，强拍收住</string>
+    <string name="ill2_hdr_peaks">峰值不变</string>
+    <string name="ill2_hdr_quiet">安静部分压低</string>
+    <string name="ill2_analog_body">饱满度提升，峰值收住</string>
+    <string name="ill2_pultec">Pultec 提升与凹陷</string>
+    <string name="ill2_vocals_centre">人声保持居中</string>
+    <string name="ill2_wider">两侧更宽</string>
+    <string name="ill2_bloom">低频饱满</string>
+    <string name="ill2_soft_top">高频更柔和</string>
+    <string name="ill2_too_low">扬声器放不出</string>
+    <string name="ill2_overtones">泛音提升，90–300 Hz</string>
+    <string name="ill2_presence">临场感提升，2–8 kHz</string>
+    <string name="ill2_any_shape">一个频段，任意形状</string>
+    <string name="ill2_flicker">水声般的闪烁</string>
+    <string name="ill2_bits">比特稳定，用在听得到的地方</string>
+    <string name="ill2_loudness">调低音量：低音和高音补回来</string>
+    <string name="ill2_per_app">每个应用保留自己的声音</string>
+    <string name="ill2_hp_tones">每个音高能听到的最小音量</string>
+    <string name="ill2_hp_lift">补回约一半的差距</string>
+</resources>

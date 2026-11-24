@@ -61,6 +61,10 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.jadoo.amp.R
 import com.jadoo.amp.audio.AutoEq
 import com.jadoo.amp.audio.DigitalFilterEngine
 import com.jadoo.amp.ui.theme.JadooTheme
@@ -151,17 +155,17 @@ fun AutoEqScreen(
 
     val glass = LocalUiStyle.current == UiStyle.LiquidGlass
     val titleRow: @Composable RowScope.() -> Unit = {
-        IconButton(onClick = onNavigateBack) { Icon(Icons.Default.Close, "Close") }
-        Text("Headphone EQ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        IconButton(onClick = onNavigateBack) { Icon(Icons.Default.Close, stringResource(R.string.scr_cd_close)) }
+        Text(stringResource(R.string.scr_ae_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
     }
     val searchField: @Composable (Modifier) -> Unit = { m ->
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Search 8,000+ headphones and IEMs") },
+            placeholder = { Text(stringResource(R.string.scr_ae_search_hint)) },
             leadingIcon = { Icon(Icons.Default.Search, null) },
             trailingIcon = if (query.isNotEmpty()) {
-                { IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Clear search") } }
+                { IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, stringResource(R.string.scr_ae_clear_search)) } }
             } else null,
             singleLine = true,
             shape = RoundedCornerShape(16.dp),
@@ -173,22 +177,22 @@ fun AutoEqScreen(
         when {
             indexError -> Column(Modifier.align(Alignment.Center).padding(top = top).padding(32.dp),
                                  horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("The headphone list didn't download.", style = MaterialTheme.typography.titleMedium)
-                Text("Check your connection and try again.", style = MaterialTheme.typography.bodyMedium,
+                Text(stringResource(R.string.scr_ae_list_failed), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.scr_ae_check_connection), style = MaterialTheme.typography.bodyMedium,
                      color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = { reloadKey++ }) { Text("Try again") }
+                TextButton(onClick = { reloadKey++ }) { Text(stringResource(R.string.scr_ae_try_again)) }
             }
             entries == null -> Column(Modifier.align(Alignment.Center).padding(top = top),
                                       horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(12.dp))
-                Text("Loading the headphone list…", style = MaterialTheme.typography.bodyMedium,
+                Text(stringResource(R.string.scr_ae_loading), style = MaterialTheme.typography.bodyMedium,
                      color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             query.isBlank() -> Box(Modifier.padding(top = top)) {
                 EmptySearch(suggestedQuery(currentOutputDevice)) { query = it }
             }
-            models.isEmpty() -> Text("No headphone matches \"$query\".",
+            models.isEmpty() -> Text(stringResource(R.string.scr_ae_no_match, query),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = top).padding(24.dp))
@@ -247,17 +251,16 @@ private fun EmptySearch(suggestion: String?, onPick: (String) -> Unit) {
                     Icon(Icons.Default.Headphones, null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(14.dp))
                     Column {
-                        Text("Connected now", style = MaterialTheme.typography.labelMedium,
+                        Text(stringResource(R.string.scr_ae_connected_now), style = MaterialTheme.typography.labelMedium,
                              color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(suggestion, style = MaterialTheme.typography.titleMedium)
                     }
                 }
             }
         }
-        Text("Corrections from AutoEQ tune your headphone toward a neutral target, measured by " +
-             "independent labs. Most models have several labs - the first is the one AutoEQ trusts most.",
+        Text(stringResource(R.string.scr_ae_explainer),
              style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Data: AutoEQ by Jaakko Pasanen (MIT licence).", style = MaterialTheme.typography.bodySmall,
+        Text(stringResource(R.string.scr_ae_data_credit), style = MaterialTheme.typography.bodySmall,
              color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     }
@@ -273,8 +276,7 @@ private fun ModelRow(model: Model, onClick: () -> Unit) {
                 Text(model.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
                      maxLines = 2, overflow = TextOverflow.Ellipsis)
                 val labs = model.entries.map { it.source }.distinct()
-                Text(if (labs.size == 1) model.entries.first().sourceLabel
-                     else "${labs.first()} + ${labs.size - 1} more lab${if (labs.size > 2) "s" else ""}",
+                Text(labsLine(model, labs),
                      style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -285,8 +287,7 @@ private fun ModelRow(model: Model, onClick: () -> Unit) {
         Text(model.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
              maxLines = 2, overflow = TextOverflow.Ellipsis)
         val labs = model.entries.map { it.source }.distinct()
-        Text(if (labs.size == 1) model.entries.first().sourceLabel
-             else "${labs.first()} + ${labs.size - 1} more lab${if (labs.size > 2) "s" else ""}",
+        Text(labsLine(model, labs),
              style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     HorizontalDivider(Modifier.padding(start = 24.dp),
@@ -329,14 +330,15 @@ private fun ProfileScreen(
                 val p = profile
                 when {
                     p != null -> ResponseCurve(p, Modifier.fillMaxSize())
-                    failed -> Text("This profile didn't download. Pick another lab or try again later.",
+                    failed -> Text(stringResource(R.string.scr_ae_profile_failed),
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.align(Alignment.Center))
                     else -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 }
             }
             profile?.let { p ->
-                Text(String.format(Locale.US, "Preamp %+.1f dB · %d filters", p.preampDb, p.bands.size),
+                Text(pluralStringResource(R.plurals.scr_ae_preamp_filters, p.bands.size,
+                         String.format(Locale.US, "%+.1f dB", p.preampDb), p.bands.size),
                      style = MaterialTheme.typography.bodyMedium.merge(tabular),
                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                      modifier = Modifier.padding(top = 8.dp))
@@ -344,7 +346,7 @@ private fun ProfileScreen(
 
             if (model.entries.size > 1) {
                 Spacer(Modifier.height(20.dp))
-                Text("Measured by", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.scr_ae_measured_by), style = MaterialTheme.typography.labelLarge)
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     model.entries.forEach { e ->
@@ -356,7 +358,7 @@ private fun ProfileScreen(
                     }
                 }
             } else {
-                Text("Measured by ${entry.sourceLabel}", style = MaterialTheme.typography.bodyMedium,
+                Text(stringResource(R.string.scr_ae_measured_by_lab, entry.sourceLabel), style = MaterialTheme.typography.bodyMedium,
                      color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
             }
 
@@ -365,15 +367,16 @@ private fun ProfileScreen(
                 val chevron = if (showFilters) 180f else 0f
                 Row(Modifier.fillMaxWidth().clickable { showFilters = !showFilters }.heightIn(min = 48.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text("Filters", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                    Icon(Icons.Default.ExpandMore, if (showFilters) "Hide filters" else "Show filters",
+                    Text(stringResource(R.string.scr_peq_filters), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                    Icon(Icons.Default.ExpandMore,
+                         stringResource(if (showFilters) R.string.scr_ae_hide_filters else R.string.scr_ae_show_filters),
                          modifier = Modifier.rotate(chevron))
                 }
                 AnimatedVisibility(showFilters) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         p.bands.forEach { b ->
                             Row {
-                                Text(filterTypeLabel(b.type), style = MaterialTheme.typography.bodyMedium,
+                                Text(stringResource(filterTypeLabel(b.type)), style = MaterialTheme.typography.bodyMedium,
                                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                                      modifier = Modifier.width(96.dp))
                                 Text(String.format(Locale.US, "%,.0f Hz   %+.1f dB   Q %.2f",
@@ -387,15 +390,14 @@ private fun ProfileScreen(
             Spacer(Modifier.height(if (glass) 4.dp else 24.dp))
     }
     val applyPanel: @Composable ColumnScope.() -> Unit = {
-            Text("Replaces the Parametric EQ for $currentOutputDevice. Very narrow filters are smoothed " +
-                 "by JadOO's 15-band engine.",
+            Text(stringResource(R.string.scr_ae_replaces, com.jadoo.amp.audio.localizedOutputLabel(LocalContext.current, currentOutputDevice)),
                  style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
             Button(onClick = { profile?.let { onApply(it, "${model.name} · ${entry.source}") } },
                    enabled = profile != null,
                    border = jadooTonalButtonBorder(),
                    modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text("Apply to Parametric EQ")
+                Text(stringResource(R.string.scr_ae_apply))
             }
     }
 
@@ -408,8 +410,8 @@ private fun ProfileScreen(
             modifier = Modifier.fillMaxSize(),
             header = {
                 GlassTopBar {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to search") }
-                    Text("Headphone EQ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.scr_ae_back_to_search)) }
+                    Text(stringResource(R.string.scr_ae_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 }
             }
         ) { top ->
@@ -433,7 +435,7 @@ private fun ProfileScreen(
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to search") }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.scr_ae_back_to_search)) }
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())
                 .padding(horizontal = JadooTheme.dimens.screenPadding + 4.dp), content = profileBody)
@@ -444,16 +446,23 @@ private fun ProfileScreen(
     }
 }
 
-private fun filterTypeLabel(type: DigitalFilterEngine.FilterType) = when (type) {
-    DigitalFilterEngine.FilterType.Peak -> "Peak"
-    DigitalFilterEngine.FilterType.LowShelf -> "Low shelf"
-    DigitalFilterEngine.FilterType.HighShelf -> "High shelf"
-    DigitalFilterEngine.FilterType.LowPass -> "Low pass"
-    DigitalFilterEngine.FilterType.HighPass -> "High pass"
-    DigitalFilterEngine.FilterType.BandPass -> "Band pass"
-    DigitalFilterEngine.FilterType.Notch -> "Notch"
-    DigitalFilterEngine.FilterType.AllPass -> "All pass"
+@StringRes
+private fun filterTypeLabel(type: DigitalFilterEngine.FilterType): Int = when (type) {
+    DigitalFilterEngine.FilterType.Peak -> R.string.scr_filter_peak
+    DigitalFilterEngine.FilterType.LowShelf -> R.string.scr_filter_low_shelf
+    DigitalFilterEngine.FilterType.HighShelf -> R.string.scr_filter_high_shelf
+    DigitalFilterEngine.FilterType.LowPass -> R.string.scr_filter_low_pass
+    DigitalFilterEngine.FilterType.HighPass -> R.string.scr_filter_high_pass
+    DigitalFilterEngine.FilterType.BandPass -> R.string.scr_filter_band_pass
+    DigitalFilterEngine.FilterType.Notch -> R.string.scr_filter_notch
+    DigitalFilterEngine.FilterType.AllPass -> R.string.scr_filter_all_pass
 }
+
+/** "Lab A" for one lab, "Lab A + 2 more labs" for several. */
+@Composable
+private fun labsLine(model: Model, labs: List<String>): String =
+    if (labs.size == 1) model.entries.first().sourceLabel
+    else pluralStringResource(R.plurals.scr_ae_more_labs, labs.size - 1, labs.first(), labs.size - 1)
 
 /** The correction's exact biquad response with preamp, 20 Hz-20 kHz, ±12 dB, decade gridlines. */
 @Composable

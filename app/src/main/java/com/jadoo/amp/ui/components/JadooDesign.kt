@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -73,6 +74,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jadoo.amp.R
 import com.jadoo.amp.audio.DpResponse
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -210,7 +212,7 @@ fun FeatureRow(
                          modifier = if (titleContrastTint) Modifier.glassLabelTint() else Modifier)
                     if (onHelpClick != null) {
                         IconButton(onClick = onHelpClick, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Info, "About $title", modifier = Modifier.size(16.dp),
+                            Icon(Icons.Default.Info, stringResource(R.string.shr_about_title, title), modifier = Modifier.size(16.dp),
                                  tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -267,7 +269,7 @@ fun NavRow(
                 Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 if (onHelpClick != null) {
                     IconButton(onClick = onHelpClick, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Info, "About $title", modifier = Modifier.size(16.dp),
+                        Icon(Icons.Default.Info, stringResource(R.string.shr_about_title, title), modifier = Modifier.size(16.dp),
                              tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -309,7 +311,7 @@ fun SettingToggleRow(
         }
         if (onHelpClick != null) {
             IconButton(onClick = onHelpClick) {
-                Icon(Icons.Default.Info, "About $title", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Default.Info, stringResource(R.string.shr_about_title, title), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Switch(checked = checked, onCheckedChange = null, colors = jadooSwitchColors())
@@ -483,10 +485,11 @@ fun ResponseCurveHero(
     val peak = (0 until n).maxByOrNull { abs(to[it]) } ?: 0
     val peakDb = to[peak]
     val peakHz = freqs[peak]
-    val peakLabel = if (peakHz >= 1000f) "%.1f kilohertz".format(peakHz / 1000f) else "%.0f hertz".format(peakHz)
-    val description = if (!active) "Response curve, flat: JadOO off"
-        else if (abs(peakDb) < 0.3f) "Response curve, flat"
-        else "Response curve, largest change ${"%+.1f".format(peakDb)} dB at $peakLabel"
+    val peakLabel = if (peakHz >= 1000f) stringResource(R.string.shr_curve_khz, "%.1f".format(peakHz / 1000f))
+                    else stringResource(R.string.shr_curve_hz, "%.0f".format(peakHz))
+    val description = if (!active) stringResource(R.string.shr_curve_off)
+        else if (abs(peakDb) < 0.3f) stringResource(R.string.shr_curve_flat)
+        else stringResource(R.string.shr_curve_peak, "%+.1f".format(peakDb), peakLabel)
 
     Canvas(modifier.semantics { contentDescription = description }) {
         val labelBand = 18.dp.toPx()
@@ -556,6 +559,7 @@ fun PowerButton(on: Boolean, onToggle: (Boolean) -> Unit, modifier: Modifier = M
         if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         tween(300), label = "power_fg")
     val press by animateFloatAsState(if (on) 1f else 0.94f, JadooTheme.motion.expressive, label = "power_pop")
+    val powerDescription = stringResource(if (on) R.string.shr_power_off_desc else R.string.shr_power_on_desc)
     Box(
         modifier
             .size(72.dp)
@@ -577,7 +581,7 @@ fun PowerButton(on: Boolean, onToggle: (Boolean) -> Unit, modifier: Modifier = M
             level = GlassLevel.Floating,
             prominent = on,
             modifier = Modifier.size(60.dp).scale(press)
-                .semantics { contentDescription = if (on) "Turn JadOO off" else "Turn JadOO on" }
+                .semantics { contentDescription = powerDescription }
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.PowerSettingsNew, null, tint = iconColor, modifier = Modifier.size(28.dp))

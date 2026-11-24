@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hp_help_body">HearPrint odtwarza ciche sygnały na jedenastu wysokościach, od 250 Hz do 12 kHz, i dla każdej znajduje najcichszy poziom, który jeszcze słyszysz. Potem podbija obszary, które słyszysz gorzej, o około połowę różnicy względem typowego słuchu.
+
+Dźwięk nigdy nie staje się przez to ciemniejszy: góry nie są obcinane, a bas nigdy nie dostaje większego podbicia niż góra.
+
+Oba uszy słyszą tę samą krzywą, więc obraz stereo się nie przesuwa. Zapisuje się tylko dla tego wyjścia i mierzy uszy razem ze słuchawkami. Jeśli AutoEQ jest włączony, on zajmuje się częścią słuchawek.
+
+**Profil gustu:** kilka pytań, potem porównania A/B na twojej muzyce. Wokal w obu wersjach ma ten sam poziom, wybierasz więc brzmienie, nie głośność.
+
+To ustawienie brzmienia, nie badanie słuchu, i nic nie mówi o słuchu w sensie medycznym.</string>
+    <string name="hp_sub_speaker">Tylko dla słuchawek</string>
+    <string name="hp_sub_none">Dopasowanie JadOO do uszu w około 90 sekund</string>
+    <string name="hp_sub_on">Dopasowane do uszu</string>
+    <string name="hp_sub_off">HearPrint zapisany, ale wyłączony</string>
+    <string name="hp_strength">Siła</string>
+    <string name="hp_retake">Powtórz test słuchu</string>
+    <string name="hp_delete">Usuń</string>
+    <string name="hp_delete_title">Usunąć HearPrint?</string>
+    <string name="hp_delete_body">Krzywa dla tych słuchawek zostanie usunięta. Test można powtórzyć w każdej chwili.</string>
+    <string name="hp_stop_title">Zakończyć test?</string>
+    <string name="hp_stop_body">Nic nie zostanie zapisane, a dźwięk wróci do normy.</string>
+    <string name="hp_stop_confirm">Zakończ</string>
+    <string name="hp_keep_going">Kontynuuj</string>
+    <string name="hp_cd_stop">Zakończ test</string>
+    <string name="hp_intro_headline">Twój HearPrint</string>
+    <string name="hp_intro_body">Każdy słyszy inaczej i każde słuchawki brzmią inaczej. W około 90 sekund JadOO poznaje, jak słychać każdą część dźwięku, i dopasowuje się do słuchacza.</string>
+    <string name="hp_check_headphones">Załóż słuchawki właściwą stroną</string>
+    <string name="hp_check_quiet">Znajdź ciche miejsce</string>
+    <string name="hp_check_music">Muzyka zostanie wstrzymana na czas testu</string>
+    <string name="hp_need_headphones">Podłącz słuchawki, aby zacząć. HearPrint jest przeznaczony do słuchawek.</string>
+    <string name="hp_start">Rozpocznij</string>
+    <string name="hp_not_medical">To nie jest medyczne badanie słuchu.</string>
+    <string name="hp_volume_headline">Ustaw głośność</string>
+    <string name="hp_volume_body">Teraz powinny być słyszalne sygnały. Przyciskami głośności ustaw je cicho, ale wyraźnie, jak spokojną rozmowę. Zachowaj tę głośność do końca testu.</string>
+    <string name="hp_volume_done">Tak jest dobrze</string>
+    <string name="hp_progress">Dźwięk %1$d z %2$d</string>
+    <string name="hp_test_body">Przytrzymaj przycisk, dopóki słychać sygnały. Puść, gdy tylko ucichną. Wrócą, to normalne.</string>
+    <string name="hp_hearing">Słyszę</string>
+    <string name="hp_hold">Przytrzymaj, gdy słychać sygnały</string>
+    <string name="hp_state_pressed">Wciśnięty</string>
+    <string name="hp_state_released">Zwolniony</string>
+    <string name="hp_result_headline">HearPrint gotowy</string>
+    <string name="hp_result_body">Tak JadOO dostroi Twój dźwięk, jednakowo dla obu uszu. W górę oznacza, że słabiej słyszana część zostanie podbita.</string>
+    <string name="hp_note_volume_high">Wiele dźwięków było słychać nawet na najcichszym poziomie. Głośność była zapewne wysoka: ścisz o kilka stopni i powtórz test, aby uzyskać dokładniejszy wynik.</string>
+    <string name="hp_note_not_heard">Niektórych dźwięków nie było słychać nawet na najgłośniejszym poziomie. JadOO podbija je tylko do bezpiecznego limitu.</string>
+    <string name="hp_note_unsteady">Dwa pomiary tej samej wysokości dźwięku się różnią. Cichsze miejsce lub powtórzenie testu może dać stabilniejszy wynik.</string>
+    <string name="hp_note_steady">Odpowiedzi były spójne.</string>
+    <string name="hp_save">Zapisz i włącz</string>
+    <string name="hp_chart_cd">Twoja krzywa HearPrint, jednakowa dla obu uszu: do %1$s dB podbicia</string>
+    <string name="hp_note_incomplete">Dla niektórych dźwięków nie uzyskano stabilnej odpowiedzi, więc nic nie zapisano. Spróbuj ponownie w cichszym miejscu i puść przycisk, gdy tylko sygnały ucichną.</string>
+    <string name="hp_note_false_presses">Przycisk został kilka razy wciśnięty, gdy nic nie grało. To może rozmyć wynik; pomaga cichsze miejsce.</string>
+    <string name="hp_output_changed_title">Zmieniono wyjście</string>
+    <string name="hp_output_changed_body">Dźwięk przeszedł na inne wyjście, więc ten przebieg został zatrzymany. Nic nie zapisano. Zacznij ponownie na wyjściu, które chcesz dostroić.</string>
+    <string name="hp_output_changed_ok">OK</string>
+</resources>

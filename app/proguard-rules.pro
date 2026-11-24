@@ -14,3 +14,9 @@
 -keep class android.media.audiofx.Visualizer$** { *; }
 
 # Add any custom ProGuard rules here.
+
+# LiteRT-LM (JadOO AI): its native engine calls back into these classes by
+# name and parses JSON with Gson reflection; the AAR ships no keep rules.
+-keep class com.google.ai.edge.litertlm.** { *; }
+-keep class com.google.gson.** { *; }
+-dontwarn com.google.ai.edge.litertlm.**

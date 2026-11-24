@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dash_off">Désactivé</string>
+    <string name="dash_cancel">Annuler</string>
+    <string name="dash_save">Enregistrer</string>
+    <string name="dash_delete">Supprimer</string>
+    <string name="dash_done">Terminé</string>
+    <string name="dash_close">Fermer</string>
+    <string name="dash_back">Retour</string>
+    <string name="dash_settings">Paramètres</string>
+    <string name="dash_remove">Retirer</string>
+    <string name="dash_load">Charger</string>
+    <string name="dash_share">Partager</string>
+    <string name="dash_selected">Sélectionné</string>
+    <string name="dash_device_phone_speaker">Haut-parleur du téléphone</string>
+    <string name="dash_device_wired_headphones">Casque filaire</string>
+    <string name="dash_hero_standby">En veille</string>
+    <string name="dash_hero_processing">Traitement actif</string>
+    <string name="dash_hero_tap_power_speaker">Appuyer sur le bouton Marche pour traiter le son du haut-parleur</string>
+    <string name="dash_hero_tap_power_device">Appuyer sur le bouton Marche pour traiter le son sur %1$s</string>
+    <string name="dash_waiting_playback">En attente de lecture</string>
+    <string name="dash_nothing_on">Aucune fonction activée</string>
+    <string name="dash_chip_app_suffix">%1$s · appli</string>
+    <string name="dash_tonal_response">Réponse tonale</string>
+    <string name="dash_in_out_db">Entrée %1$s · Sortie %2$s dB</string>
+    <string name="dash_hide_gain">Masquer le gain</string>
+    <string name="dash_show_gain">Afficher le gain</string>
+    <string name="dash_gain_deck_title">Gain d’entrée et de sortie</string>
+    <string name="dash_reset_all">Tout réinitialiser</string>
+    <string name="dash_pre_gain">Pré-gain</string>
+    <string name="dash_post_gain">Post-gain</string>
+    <string name="dash_group_signal_path">Chaîne de signal</string>
+    <string name="dash_group_tone">Tonalité</string>
+    <string name="dash_group_character">Caractère</string>
+    <string name="dash_group_space">Espace</string>
+    <string name="dash_group_level">Niveau</string>
+    <string name="dash_headphone_correction">Correction du casque</string>
+    <string name="dash_group_device_type">Type d’appareil</string>
+    <string name="dash_group_sound">Son</string>
+    <string name="dash_group_appearance">Apparence</string>
+    <string name="dash_group_backup">Sauvegarde</string>
+    <string name="dash_group_diagnostics">Diagnostic</string>
+    <string name="dash_group_system">Système</string>
+    <string name="dash_correct_model">Corriger %1$s</string>
+    <string name="dash_correct_headphones">Corriger le casque</string>
+    <string name="dash_correct_hint">Trouver sa courbe EQ mesurée dans la base AutoEQ</string>
+    <string name="dash_bt_tip_title">Plus de marge pour le Bluetooth</string>
+    <string name="dash_bt_tip_body">En Bluetooth, les écouteurs reçoivent en permanence le volume maximal&#160;; JadOO abaisse donc son entrée de %1$.1f dB pour éviter que les boosts ne saturent. Activer «&#160;Désactiver le volume absolu&#160;» dans les options pour les développeurs, puis reconnecter : le volume du téléphone crée alors cette marge à la place.</string>
+    <string name="dash_not_now">Plus tard</string>
+    <string name="dash_open_settings">Ouvrir les paramètres</string>
+    <string name="dash_dev_options_toast">Appuyer 7 fois sur «&#160;Numéro de build&#160;» (ou «&#160;Numéro de version&#160;») pour débloquer les options pour les développeurs, puis revenir</string>
+    <string name="dash_geq_sub_on">15 bandes · appuyer sur le graphique pour agrandir</string>
+    <string name="dash_geq_sub_off">Égaliseur à 15 bandes</string>
+    <string name="dash_peq_sub">16 filtres avec Q et types de filtre</string>
+    <string name="dash_edit_filters">Modifier les filtres</string>
+    <string name="dash_search_headphones">Parmi plus de 8 000 casques mesurés</string>
+    <string name="dash_ab_blocked">Indisponible avec Front Stage</string>
+    <string name="dash_ab_on">Drive, chaleur et graves Pultec</string>
+    <string name="dash_ab_off">Graves façon matériel vintage</string>
+    <string name="dash_warmth">Chaleur</string>
+    <string name="dash_drift">Dérive</string>
+    <string name="dash_pultec_inactive">Pultec EQ · inactif tant que Mobile Bass est activé</string>
+    <string name="dash_pultec_freq">Fréquence Pultec EQ</string>
+    <string name="dash_boost">Boost</string>
+    <string name="dash_cut">Atténuation</string>
+    <string name="dash_reset_defaults">Rétablir les valeurs par défaut</string>
+    <string name="dash_intensity">Intensité</string>
+    <string name="dash_tube_on">Rondeur chaude, aigus adoucis</string>
+    <string name="dash_tube_off">Son d’ampli à lampes</string>
+    <string name="dash_dbfb_off">Sous-graves adaptés au niveau</string>
+    <string name="dash_dbfb_on">Graves dynamiques · %1$s</string>
+    <string name="dash_hires_on">Air · soie · présence</string>
+    <string name="dash_hires_off">Plus d’air et d’éclat dans les aigus</string>
+    <string name="dash_exciter_on">Ajoute de la présence et de l’éclat</string>
+    <string name="dash_exciter_off">Clarté dans la plage 2–8 kHz</string>
+    <string name="dash_hdr_on">%1$s · redonne de l’impact</string>
+    <string name="dash_hdr_off">Aère les masters surcompressés</string>
+    <string name="dash_mode_dbfb_normal">Normal</string>
+    <string name="dash_mode_dbfb_high">Élevé</string>
+    <string name="dash_mode_hdr_pure">Pur</string>
+    <string name="dash_mode_hdr_restoration">Restauration</string>
+    <string name="dash_mode_sbc_classic">Classique</string>
+    <string name="dash_mode_sbc_new">Nouveau</string>
+    <string name="dash_mode_surround_traditional">Traditionnel</string>
+    <string name="dash_tagline_off">Aucun traitement spatial</string>
+    <string name="dash_tagline_traditional">Largeur stéréo naturelle</string>
+    <string name="dash_tagline_front">Projection frontale</string>
+    <string name="dash_tagline_wide">Son immersif à 180°</string>
+    <string name="dash_surround_off_hint">Désactivé · choisir une scène</string>
+    <string name="dash_loudness_off">Préserve l’équilibre à faible volume</string>
+    <string name="dash_loudness_at_ref">Au niveau de référence · aucune correction</string>
+    <string name="dash_loudness_below_ref">%1$d dB sous la référence · compensation en cours</string>
+    <string name="dash_amount">Dosage</string>
+    <string name="dash_reference_level">Niveau de référence</string>
+    <string name="dash_loudness_note">Régler la référence sur le volume réel de l’équipement au maximum. Enregistrée par sortie&#160;; n’amplifie jamais au-delà de la référence.</string>
+    <string name="dash_mobile_bass_on">Restaure les graves manquants</string>
+    <string name="dash_mobile_bass_off">Des graves plus riches via le haut-parleur intégré</string>
+    <string name="dash_sbc_on">%1$s · pour l’encodeur SBC</string>
+    <string name="dash_sbc_off">Pour casques SBC uniquement</string>
+    <string name="dash_dt_general">Général</string>
+    <string name="dash_dt_iem">Intra-auriculaires (IEM)</string>
+    <string name="dash_dt_on_ear">Casque supra-auriculaire</string>
+    <string name="dash_dt_over_ear">Casque circum-auriculaire</string>
+    <string name="dash_dt_compact_speaker">Enceinte compacte</string>
+    <string name="dash_dt_home_speaker">Enceinte de salon</string>
+    <string name="dash_eq_title">EQ à 15 bandes</string>
+    <string name="dash_eq_subtitle">Enregistrer et rappeler des courbes personnalisées</string>
+    <string name="dash_eq_close">Fermer l’éditeur EQ</string>
+    <string name="dash_overwrite_named">Écraser « %1$s »</string>
+    <string name="dash_eq_reset_flat_paren">Réinitialiser (plat)</string>
+    <string name="dash_eq_reset_flat">Remettre à plat</string>
+    <string name="dash_eq_overwrite_current">Écraser avec l’EQ actuel</string>
+    <string name="dash_eq_save_current">Enregistrer l’EQ actuel</string>
+    <string name="dash_preset_acoustic">Acoustique</string>
+    <string name="dash_preset_bass">Graves</string>
+    <string name="dash_preset_beats">Beats</string>
+    <string name="dash_preset_classic">Classique</string>
+    <string name="dash_preset_clear">Clair</string>
+    <string name="dash_preset_soulful_mids">Médiums soul</string>
+    <string name="dash_save_preset">Enregistrer le préréglage</string>
+    <string name="dash_preset_name">Nom du préréglage</string>
+    <string name="dash_updates">Mises à jour</string>
+    <string name="dash_installed_version">Version installée : %1$s</string>
+    <string name="dash_unknown">inconnue</string>
+    <string name="dash_find_headphone">Trouver un casque</string>
+    <string name="dash_find_headphone_sub">Plus de 8 000 casques et IEM mesurés · AutoEQ</string>
+    <string name="dash_applied_to">Appliquée à %1$s · appuyer pour modifier</string>
+    <string name="dash_remove_correction">Supprimer la correction</string>
+    <string name="dash_correction_note">Les corrections sont enregistrées par appareil de sortie et chargées dans le Parametric EQ, où elles peuvent être affinées.</string>
+    <string name="dash_driver_locked">Verrouillé sur Général pour le haut-parleur du téléphone. Mobile Bass s’y adapte déjà.</string>
+    <string name="dash_driver_hint">Adapte les fonctions de graves et d’aigus à ce que le transducteur peut restituer.</string>
+    <string name="dash_gs_title">Gain staging précis</string>
+    <string name="dash_gs_on_trim">Entrée %1$.1f dB pour éviter que les boosts ne saturent</string>
+    <string name="dash_gs_on_room">Les boosts disposent de marge pour que les morceaux forts ne saturent pas</string>
+    <string name="dash_gs_legacy_ceiling">Ancien mode : plafond du limiteur %1$.1f dB, sans protection contre la saturation</string>
+    <string name="dash_gs_legacy">Ancien mode : le plafond du limiteur baisse du total des boosts</string>
+    <string name="dash_keep_loudness">Conserver le volume maximal</string>
+    <string name="dash_keep_loudness_on">Pas de baisse de volume au maximum · les morceaux forts peuvent saturer</string>
+    <string name="dash_keep_loudness_off">Filaire, DAC et haut-parleur · évite la baisse au volume maximal</string>
+    <string name="dash_per_app_title">Profils par appli</string>
+    <string name="dash_per_app_hint">Lancer une lecture pour donner à l’appli ses propres paramètres.</string>
+    <string name="dash_own_profile_for">Profil propre pour %1$s</string>
+    <string name="dash_own_profile_on">Ses propres paramètres sur chaque sortie</string>
+    <string name="dash_own_profile_off">Utilise les paramètres communs de cette sortie</string>
+    <string name="dash_export_settings">Exporter les paramètres</string>
+    <string name="dash_export_settings_sub">Tous les paramètres et préréglages dans un seul fichier</string>
+    <string name="dash_import_settings">Importer les paramètres</string>
+    <string name="dash_import_settings_sub">Restaurer à partir d’un fichier de sauvegarde</string>
+    <string name="dash_send_diagnostics">Envoyer les diagnostics</string>
+    <string name="dash_send_diagnostics_sub">Consulter un rapport de journaux et de paramètres, puis le partager si besoin</string>
+    <string name="dash_diag_text">Version de l’appareil et de l’appli, paramètres actuels, dernier plantage le cas échéant et journal récent de JadOO. Aucun contenu audio, titre de morceau ni donnée personnelle. Rien n’est envoyé tant que l’on n’appuie pas sur « Partager ».</string>
+    <string name="dash_diag_error">Impossible de créer le rapport : %1$s</string>
+    <string name="dash_collecting">Collecte en cours…</string>
+    <string name="dash_live_stream">Données du flux en direct</string>
+    <string name="dash_dump_granted">DUMP accordé · chaîne de signal complète</string>
+    <string name="dash_dump_optional">Autorisation DUMP facultative via adb</string>
+    <string name="dash_surround_title">Mode Surround</string>
+    <string name="dash_surround_subtitle">Élargissement par EQ, sans rééchantillonnage</string>
+    <string name="dash_help_dump_title">Autorisation DUMP</string>
+    <string name="dash_help_per_app_title">Profils par appli</string>
+    <string name="dash_help_gs_title">Gain staging précis</string>
+    <string name="dash_help_hires_body">Plus d’air et d’éclat en haut, sans toucher à l’égaliseur.
+
+Au-dessus de 5 kHz, la remontée arrive par paliers : environ +2,5 dB au début, jusqu’à +5,5 dB au-dessus de 14,5 kHz. Elle rend plus brillant ce qui est déjà là. Elle ne peut pas récupérer les détails qu’un fichier compressé a déjà perdus.</string>
+    <string name="dash_help_dbfb_body">Donne plus de poids et de punch aux basses sous environ 260 Hz.
+
+• **Normal** – une légère remontée
+• **High** – plus profond et plus affirmé</string>
+    <string name="dash_help_hdr_body">Rend un peu d’espace à la musique très compressée.
+
+• **Pure** – presque transparent. Le limiteur n’intervient que sur les crêtes.
+• **Restoration** – abaisse encore les passages les plus faibles, pour que le calme et le fort soient plus écartés.</string>
+    <string name="dash_help_analog_bass_body">Des basses à la couleur des vieux appareils : compression dans le grave, plus une correction façon Pultec. Cela copie le son de ces appareils, pas leur circuit.
+
+• **Drive** – compresse plus fort, pour un grave plus dense
+• **Warmth** – ajoute du corps
+• **Drift** – la souplesse avec laquelle la compression s’installe
+• **Pultec** – une remontée des graves avec un creux juste au-dessus</string>
+    <string name="dash_help_surround_body">Élargit l’image stéréo par la seule correction d’égalisation. Les voix restent au centre.
+
+• **Traditional** – un peu plus large
+• **Front Stage** – ramène la voix devant, comme des enceintes face à vous
+• **Ultra Wide** – le plus spacieux</string>
+    <string name="dash_help_dump_body">Optionnel. Aide JadOO à trouver la session audio de l’application qui joue, quand la recherche normale d’Android la manque.
+
+À accorder une fois depuis un ordinateur :
+
+**adb shell pm grant com.jadoo.amp android.permission.DUMP**</string>
+    <string name="dash_help_tube_body">Un caractère chaud d’ampli à lampes, bon pour les morceaux fins ou aux sonorités clinques. C’est de la couleur seulement : un grave rond et des aigus plus doux. La vraie saturation à lampes n’est pas possible sur Android, c’est ce qui s’en approche le plus.</string>
+    <string name="dash_help_mobile_bass_body">Rend le petit haut-parleur de ton téléphone plus plein. Il ne descend pas vraiment dans les graves, alors on relève les notes juste au-dessus, qu’il peut reproduire.
+
+N’apparaît que lorsque le son sort par le haut-parleur du téléphone.</string>
+    <string name="dash_help_exciter_body">Ajoute présence et clarté entre 2 et 8 kHz, là où vivent les voix et les attaques.
+
+C’est une remontée douce, pas de nouveaux harmoniques. Poussé trop loin sur des morceaux brillants, cela peut devenir dur. Fonctionne sur toutes les sorties.</string>
+    <string name="dash_help_peq_body">Jusqu’à 16 filtres en plus de l’égaliseur graphique.
+
+Le moteur les applique sur les mêmes 15 bandes que l’égaliseur graphique : les filtres étroits ressortent donc plus larges que réglés. La courbe de l’écran d’accueil montre ce qui est réellement appliqué.</string>
+    <string name="dash_help_sbc_body">Deux versions pour le Bluetooth SBC. Choisis celle qui te plaît le plus.
+
+• **Classic** – plus lumineux et plus ouvert
+• **New** – prépare le signal avant le codec, pour des cymbales plus nettes et moins de sifflement aqueux
+
+SBC répartit ses bits selon le niveau et refait ce partage toutes les 3 ms. New réduit le tout haut, où les bits coûtent cher et s’entendent peu, et stabilise les aigus pour qu’ils ne se délitent pas.
+
+Réservé au SBC. Si tes écouteurs prennent en charge LDAC, LHDC ou aptX HD, utilise plutôt l’un de ceux-là.</string>
+    <string name="dash_help_loudness_body">Le grave et les aigus s’effacent à bas volume, parce que l’oreille fonctionne ainsi. Ce réglage les rétablit quand tu baisses le volume, pour que l’équilibre reste le même.
+
+## Niveau de référence
+Le niveau réel de ton matériel à plein volume. Règle-le à l’oreille, avec un morceau que tu connais.
+
+## Quantité
+La force de la correction. Baisse-la si la pleine force est trop.</string>
+    <string name="dash_help_per_app_body">Donne à chaque application ses propres réglages, activés dès qu’elle se met à jouer. Par exemple une accentuation de la voix pour les podcasts et la courbe complète pour la musique.
+
+Enregistré par application et par sortie.</string>
+    <string name="dash_help_gs_body">Les hausses ont besoin de marge au-dessus des morceaux forts, sinon elles saturent.
+
+## Activé (recommandé)
+Sur filaire et haut-parleur, l’entrée est réduite juste assez pour que le morceau reste aussi fort qu’avec les effets coupés. En Bluetooth, les hausses ne reculent que sur les moments les plus forts : rien n’est baissé.
+
+## Garder le volume plein
+Filaire, DAC et haut-parleur uniquement. Les effets ne baissent plus le volume à fond, mais les morceaux forts peuvent saturer. Le Bluetooth n’est pas concerné.
+
+## Désactivé
+Aucune protection. Des morceaux forts peuvent saturer avec plusieurs hausses actives. Utile seulement pour comparer avec les anciennes versions.</string>
+    <plurals name="dash_features_on">
+        <item quantity="one">%1$d fonction</item>
+        <item quantity="many">%1$d fonctions</item>
+        <item quantity="other">%1$d fonctions</item>
+    </plurals>
+</resources>

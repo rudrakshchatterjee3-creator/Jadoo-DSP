@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Common -->
+    <string name="scr_cd_back">Back</string>
+    <string name="scr_cd_close">Close</string>
+    <string name="scr_reset">Reset</string>
+    <string name="scr_cancel">Cancel</string>
+    <string name="scr_off">Off</string>
+    <string name="scr_on">On</string>
+    <string name="scr_yes">Yes</string>
+    <string name="scr_no">No</string>
+    <string name="scr_preamp">Preamp</string>
+
+    <!-- Parametric EQ screen -->
+    <string name="scr_peq_title" translatable="false">Parametric EQ</string>
+    <string name="scr_peq_summary">%1$d of %2$d filters on · preamp %3$s</string>
+    <string name="scr_peq_headphone_correction">Headphone correction</string>
+    <string name="scr_peq_load_autoeq">Load a measured AutoEQ profile</string>
+    <string name="scr_peq_tab_parametric">Parametric</string>
+    <string name="scr_peq_tab_graphic">Graphic</string>
+    <string name="scr_peq_tab_table">Table</string>
+    <string name="scr_peq_filters">Filters</string>
+    <string name="scr_peq_filter_n">Filter %1$d</string>
+    <string name="scr_peq_no_band">No band selected</string>
+    <string name="scr_peq_filter_type">Filter type</string>
+    <string name="scr_peq_parameters">Parameters</string>
+    <string name="scr_peq_freq">Freq</string>
+    <string name="scr_peq_gain">Gain</string>
+    <string name="scr_peq_q" translatable="false">Q</string>
+    <string name="scr_peq_graph_band">Band %1$d: %2$d Hz (%3$s dB) | %4$s</string>
+    <string name="scr_peq_band_n">Band %1$d</string>
+    <string name="scr_peq_active_bands">Active Bands</string>
+    <string name="scr_peq_peak_gain">Peak Gain</string>
+    <string name="scr_peq_peak_freq">Peak Freq</string>
+    <string name="scr_peq_flat">Flat</string>
+    <string name="scr_peq_col_type">Type</string>
+    <string name="scr_peq_col_freq">Freq</string>
+    <string name="scr_peq_col_gain">Gain</string>
+    <string name="scr_peq_col_on">On</string>
+    <string name="scr_peq_bypass" translatable="false">BYPASS</string>
+    <string name="scr_peq_enable_next">Enable next available band</string>
+    <string name="scr_peq_reset_title">Reset all bands?</string>
+    <string name="scr_peq_reset_text">This will disable all %1$d PEQ bands and restore their default values.</string>
+
+    <!-- Filter-type names: standard EQ vocabulary, kept in English in every language -->
+    <string name="scr_filter_peak" translatable="false">Peak</string>
+    <string name="scr_filter_low_shelf" translatable="false">Low shelf</string>
+    <string name="scr_filter_high_shelf" translatable="false">High shelf</string>
+    <string name="scr_filter_low_pass" translatable="false">Low pass</string>
+    <string name="scr_filter_high_pass" translatable="false">High pass</string>
+    <string name="scr_filter_band_pass" translatable="false">Band pass</string>
+    <string name="scr_filter_notch" translatable="false">Notch</string>
+    <string name="scr_filter_all_pass" translatable="false">All pass</string>
+
+    <!-- Headphone EQ (AutoEQ) screen -->
+    <string name="scr_ae_title">Headphone EQ</string>
+    <string name="scr_ae_search_hint">Search 8,000+ headphones and IEMs</string>
+    <string name="scr_ae_clear_search">Clear search</string>
+    <string name="scr_ae_list_failed">The headphone list didn\'t download.</string>
+    <string name="scr_ae_check_connection">Check your connection and try again.</string>
+    <string name="scr_ae_try_again">Try again</string>
+    <string name="scr_ae_loading">Loading the headphone list…</string>
+    <string name="scr_ae_no_match">No headphone matches \"%1$s\".</string>
+    <string name="scr_ae_connected_now">Connected now</string>
+    <string name="scr_ae_explainer">Corrections from AutoEQ tune your headphone toward a neutral target, measured by independent labs. Most models have several labs - the first is the one AutoEQ trusts most.</string>
+    <string name="scr_ae_data_credit">Data: AutoEQ by Jaakko Pasanen (MIT licence).</string>
+    <plurals name="scr_ae_more_labs">
+        <item quantity="one">%1$s + %2$d more lab</item>
+        <item quantity="other">%1$s + %2$d more labs</item>
+    </plurals>
+    <string name="scr_ae_profile_failed">This profile didn\'t download. Pick another lab or try again later.</string>
+    <plurals name="scr_ae_preamp_filters">
+        <item quantity="one">Preamp %1$s · %2$d filter</item>
+        <item quantity="other">Preamp %1$s · %2$d filters</item>
+    </plurals>
+    <string name="scr_ae_measured_by">Measured by</string>
+    <string name="scr_ae_measured_by_lab">Measured by %1$s</string>
+    <string name="scr_ae_hide_filters">Hide filters</string>
+    <string name="scr_ae_show_filters">Show filters</string>
+    <string name="scr_ae_replaces">Replaces the Parametric EQ for %1$s. Very narrow filters are smoothed by JadOO\'s 15-band engine.</string>
+    <string name="scr_ae_apply">Apply to Parametric EQ</string>
+    <string name="scr_ae_back_to_search">Back to search</string>
+
+    <!-- Live Chain / signal path -->
+    <string name="scr_chain_limited">Limited view</string>
+    <string name="scr_chain_grant_dump">Grant DUMP to trace the stream: %1$s</string>
+    <string name="scr_chain_tracing">Tracing…</string>
+    <string name="scr_chain_nothing_playing">Nothing playing</string>
+    <string name="scr_chain_start_playback">Start playback to trace the path.</string>
+    <string name="scr_chain_skipped">%1$s - JadOO may be skipped</string>
+    <string name="scr_chain_turn_off_offload">Turn off offload, exclusive or bit-perfect output in the player.</string>
+    <string name="scr_chain_not_on_output">JadOO isn\'t on this output</string>
+    <string name="scr_chain_reattach">Pause and resume playback so JadOO can re-attach.</string>
+    <string name="scr_chain_resampled_once">Resampled once · %1$s → %2$s</string>
+    <string name="scr_chain_resampled_detail">Android converts the stream to the output\'s rate. Normal on phones; a USB DAC running at the source rate avoids it.</string>
+    <string name="scr_chain_rate_matched">Rate matched end to end</string>
+    <string name="scr_chain_note_sbc">SBC Enhancement is on but the codec is %1$s. Turn it off - it rolls off treble %1$s can keep.</string>
+    <string name="scr_chain_note_spatial">System spatial audio and Surround+ are both widening the sound. Pick one.</string>
+    <string name="scr_chain_no_app">No app</string>
+    <string name="scr_chain_jadoo_off">JadOO off</string>
+    <string name="scr_chain_open">Open signal path</string>
+    <string name="scr_chain_card_resampled">%1$s → %2$s, resampled</string>
+    <string name="scr_chain_title">Signal path</string>
+    <string name="scr_chain_stage_source">Source</string>
+    <string name="scr_chain_not_playing">Not playing</string>
+    <string name="scr_chain_needs_dump">Needs DUMP</string>
+    <string name="scr_chain_package">Package</string>
+    <string name="scr_chain_sample_format">Sample format</string>
+    <string name="scr_chain_channels">Channels</string>
+    <string name="scr_chain_audio_session">Audio session</string>
+    <string name="scr_chain_not_attached">JadOO not attached to this output</string>
+    <string name="scr_chain_bypassed">Bypassed · nothing switched on</string>
+    <plurals name="scr_chain_features_on">
+        <item quantity="one">%d feature on</item>
+        <item quantity="other">%d features on</item>
+    </plurals>
+    <string name="scr_chain_in_path">In audio path</string>
+    <string name="scr_chain_unknown">Unknown</string>
+    <string name="scr_chain_processing">Processing</string>
+    <string name="scr_chain_input_gain">Input gain</string>
+    <string name="scr_chain_headroom_trim">Headroom trim</string>
+    <string name="scr_chain_output_gain">Output gain</string>
+    <string name="scr_chain_output_gain_value">%1$s, safety limiter on</string>
+    <string name="scr_chain_wire_resampled">Resampled %1$s → %2$s</string>
+    <string name="scr_chain_stage_mixer">Android mixer</string>
+    <string name="scr_chain_system_mixer">System mixer</string>
+    <string name="scr_chain_mixing_format">Mixing format</string>
+    <string name="scr_chain_hw_buffer">Hardware buffer</string>
+    <string name="scr_chain_hw_buffer_value" translatable="false">%1$s frames · %2$s</string>
+    <string name="scr_chain_track_latency">Track latency</string>
+    <string name="scr_chain_output_thread">Output thread</string>
+    <string name="scr_chain_stage_output">Output</string>
+    <string name="scr_chain_route">Route</string>
+    <string name="scr_chain_codec">Codec</string>
+    <string name="scr_chain_codec_channels">Codec channels</string>
+    <string name="scr_chain_spatial">System spatial audio</string>
+    <string name="scr_chain_spatial_unsupported">Not supported here</string>
+    <string name="scr_chain_spatial_on_tracking">On · head tracking available</string>
+    <string name="scr_chain_hide_details">Hide details</string>
+    <string name="scr_chain_show_details">Show details</string>
+
+    <!-- Onboarding -->
+    <string name="scr_onb_tag_1" translatable="false">JadOO DSP</string>
+    <string name="scr_onb_tag_2">Headphone correction</string>
+    <string name="scr_onb_tag_3">Tone · Character · Space</string>
+    <string name="scr_onb_tag_4">Private</string>
+    <string name="scr_onb_headline_1">Every app.\nBetter sound.</string>
+    <string name="scr_onb_headline_2">Your headphones,\nmeasured.</string>
+    <string name="scr_onb_headline_3">Then make it\nyours.</string>
+    <string name="scr_onb_headline_4">Nothing leaves\nyour phone.</string>
+    <string name="scr_onb_body_1">JadOO processes the audio of whatever is playing - your music app, video, games - live, on the phone.</string>
+    <string name="scr_onb_body_2">Pick your model from 8,000+ lab measurements and JadOO corrects its response toward a neutral target.</string>
+    <string name="scr_onb_body_3">A 15-band graphic EQ, 16 parametric filters, analog bass, tube warmth and a wider stage that keeps vocals centred.</string>
+    <string name="scr_onb_body_4">No account, no cloud, no subscription. Allow notifications when asked - they keep the engine running.</string>
+    <string name="scr_onb_skip">Skip</string>
+    <string name="scr_onb_continue">Continue</string>
+    <string name="scr_onb_start">Start listening</string>
+
+    <!-- Help illustrations (captions are drawn upper-case in the canvas) -->
+    <string name="scr_ill_bands">Bands: %1$d</string>
+    <string name="scr_ill_unity">1 kHz · always 0 dB</string>
+    <string name="scr_ill_music">music</string>
+    <string name="scr_ill_podcast">podcast</string>
+    <string name="ill2_as_recorded">As recorded</string>
+    <string name="ill2_air_lift">Air lift, 5–20 kHz</string>
+    <string name="ill2_dbfb">Bass lifted, loud hits held back</string>
+    <string name="ill2_hdr_peaks">Peaks untouched</string>
+    <string name="ill2_hdr_quiet">Quiet parts pushed down</string>
+    <string name="ill2_analog_body">Body lifted, peaks held</string>
+    <string name="ill2_pultec">Pultec boost and dip</string>
+    <string name="ill2_vocals_centre">Vocals stay centred</string>
+    <string name="ill2_wider">Wider sides</string>
+    <string name="ill2_bloom">Low bloom</string>
+    <string name="ill2_soft_top">Softer top</string>
+    <string name="ill2_too_low">Too low for the speaker</string>
+    <string name="ill2_overtones">Overtones lifted, 90–300 Hz</string>
+    <string name="ill2_presence">Presence lift, 2–8 kHz</string>
+    <string name="ill2_any_shape">One band, any shape</string>
+    <string name="ill2_flicker">Watery flicker</string>
+    <string name="ill2_bits">Steady bits, spent where you hear</string>
+    <string name="ill2_loudness">Turn it down: bass and treble come back</string>
+    <string name="ill2_per_app">Each app keeps its own sound</string>
+    <string name="ill2_hp_tones">Quietest level heard at each pitch</string>
+    <string name="ill2_hp_lift">About half the difference lifted</string>
+</resources>

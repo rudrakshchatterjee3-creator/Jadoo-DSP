@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hp_title" translatable="false">HearPrint</string>
+    <string name="hp_help_body">HearPrint plays soft beeps at eleven pitches, from 250 Hz to 12 kHz, and finds the quietest one you still hear at each. It then lifts the parts you hear less by about half the gap to typical hearing.
+
+It never makes the sound darker: treble is never cut, and bass never gets more lift than treble.
+
+Both ears hear the same curve, so the stereo image stays put. It\'s saved for this output only, and it measures your ears and headphones together. If AutoEQ is on, it leaves the headphone part to AutoEQ.
+
+**Taste profile:** a few questions, then A/B choices on your own music. The voice stays the same level in both, so you\'re choosing tone, not volume.
+
+It\'s a sound setting, not a hearing test, and it can\'t tell you anything medical.</string>
+    <string name="hp_sub_speaker">For headphones only</string>
+    <string name="hp_sub_none">Tune JadOO to your ears in about 90 seconds</string>
+    <string name="hp_sub_on">Tuned to your ears</string>
+    <string name="hp_sub_off">Your HearPrint is saved but off</string>
+    <string name="hp_strength">Strength</string>
+    <string name="hp_retake">Retake hearing test</string>
+    <string name="hp_delete">Delete</string>
+    <string name="hp_delete_title">Delete your HearPrint?</string>
+    <string name="hp_delete_body">The curve for these headphones is removed. You can take the test again any time.</string>
+    <string name="hp_stop_title">Stop the test?</string>
+    <string name="hp_stop_body">Nothing is saved, and your sound goes back to normal.</string>
+    <string name="hp_stop_confirm">Stop</string>
+    <string name="hp_keep_going">Keep going</string>
+    <string name="hp_cd_stop">Stop test</string>
+    <string name="hp_intro_headline">Your HearPrint</string>
+    <string name="hp_intro_body">Everyone hears differently, and every pair of headphones sounds different. In about 90 seconds, JadOO learns how you hear each part of the sound and tunes itself to you.</string>
+    <string name="hp_check_headphones">Wear your headphones the right way round</string>
+    <string name="hp_check_quiet">Find a quiet place</string>
+    <string name="hp_check_music">Your music pauses during the test</string>
+    <string name="hp_need_headphones">Connect headphones to start. HearPrint is made for headphones.</string>
+    <string name="hp_start">Start</string>
+    <string name="hp_not_medical">Not a medical hearing test.</string>
+    <string name="hp_volume_headline">Set your volume</string>
+    <string name="hp_volume_body">You should hear beeps now. Use the volume buttons until they are soft but clear, like a quiet conversation. Keep this volume for the whole test.</string>
+    <string name="hp_volume_done">Sounds right</string>
+    <string name="hp_progress">Tone %1$d of %2$d</string>
+    <string name="hp_test_body">Hold the button while you hear beeps. Let go as soon as they fade away. They come back; that is normal.</string>
+    <string name="hp_hearing">Hearing it</string>
+    <string name="hp_hold">Hold while you hear beeps</string>
+    <string name="hp_state_pressed">Pressed</string>
+    <string name="hp_state_released">Released</string>
+    <string name="hp_result_headline">Your HearPrint is ready</string>
+    <string name="hp_result_body">This is how JadOO will tune your sound, the same for both ears. Up means a part you hear less gets lifted.</string>
+    <string name="hp_note_volume_high">Many tones were still heard at the quietest level. Your volume was probably high: turn it down a few steps and retake for a sharper result.</string>
+    <string name="hp_note_not_heard">Some tones weren’t heard even at the loudest level. JadOO lifts them only up to its safe limit.</string>
+    <string name="hp_note_unsteady">Your two checks at the same pitch differed. A quieter room or a retake may give a steadier result.</string>
+    <string name="hp_note_steady">Your answers were consistent.</string>
+    <string name="hp_save">Save and turn on</string>
+    <string name="hp_chart_cd">Your HearPrint curve, the same for both ears: up to %1$s dB lift</string>
+    <string name="hp_note_incomplete">Some tones didn’t get a steady answer, so nothing was saved. Try again somewhere quieter and let go as soon as the beeps fade.</string>
+    <string name="hp_note_false_presses">You pressed a few times while nothing was playing. That can blur the result; a quieter room helps.</string>
+    <string name="hp_output_changed_title">Output changed</string>
+    <string name="hp_output_changed_body">The sound moved to another output, so this run stopped. Nothing was saved. Start again on the output you want to tune.</string>
+    <string name="hp_output_changed_ok">OK</string>
+</resources>

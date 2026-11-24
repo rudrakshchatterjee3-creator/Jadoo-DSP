@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Foreground-service notification (JadooDspService) -->
+    <string name="aud_notif_channel_name">JadOO DSP Engine</string>
+    <string name="aud_notif_global_session">Globale Sitzung</string>
+    <string name="aud_notif_status_bypass">Engine ein · Bypass (keine Effekte aktiv) · %1$s</string>
+    <string name="aud_notif_status_active">DSP aktiv · %1$s</string>
+    <string name="aud_notif_status_waiting">Engine ein · Warte auf Wiedergabe</string>
+    <string name="aud_notif_status_off">Engine aus</string>
+
+    <!-- Output device labels (see localizedOutputLabel) -->
+    <string name="aud_out_phone_speaker">Smartphone-Lautsprecher</string>
+    <string name="aud_out_wired">Kabelgebundene Kopfhörer</string>
+    <string name="aud_out_usb">USB-Audio</string>
+    <string name="aud_out_usb_named">USB: %1$s</string>
+    <string name="aud_out_bluetooth_named">Bluetooth: %1$s</string>
+
+    <!-- Surround mode (SurroundMode) -->
+    <string name="aud_surround_off_name">Aus</string>
+    <string name="aud_surround_off_tagline">Keine räumliche Verarbeitung</string>
+    <string name="aud_surround_traditional_tagline">Natürliche Stereobreite</string>
+    <string name="aud_surround_front_tagline">Projektion nach vorn</string>
+    <string name="aud_surround_wide_tagline">Immersiver 180°-Klang</string>
+    <string name="aud_surround_off_desc">Räumliche Verarbeitung aus. Das Audiosignal wird unverändert durchgereicht.</string>
+    <string name="aud_surround_traditional_desc">Sanfte Stereo-Neigung. Dezente Verbreiterung der Höhen, Gesang bleibt fest in der Mitte. Ermüdungsfrei auch bei langem Hören.</string>
+    <string name="aud_surround_front_desc">Stärkere Stereo-Erweiterung. Klarere Instrumententrennung mit Projektion nach vorn. Gesang bleibt zentriert.</string>
+    <string name="aud_surround_wide_desc">Breiteste Klangbühne. Maximale Verbreiterung der Höhen für Filme, Games und Ambient-Musik.</string>
+
+    <!-- DBFB / HDR / SBC mode labels -->
+    <string name="aud_dbfb_off">Aus</string>
+    <string name="aud_dbfb_normal">Normal</string>
+    <string name="aud_dbfb_high">Hoch</string>
+    <string name="aud_sbc_classic">Klassisch</string>
+    <string name="aud_sbc_new">Neu</string>
+
+    <!-- Device types (DeviceType) -->
+    <string name="aud_device_general">Allgemein</string>
+    <string name="aud_device_iem">In-Ear-Monitor</string>
+    <string name="aud_device_on_ear">On-Ear-Kopfhörer</string>
+    <string name="aud_device_over_ear">Over-Ear-Kopfhörer</string>
+    <string name="aud_device_compact_speaker">Kompaktlautsprecher</string>
+    <string name="aud_device_home_speaker">Heimlautsprecher</string>
+
+    <!-- Live Chain readouts (AudioChainProbe) -->
+    <string name="aud_fmt_offload">%1$s (Offload)</string>
+    <string name="aud_fmt_passthrough">%1$s (Durchleitung)</string>
+
+    <string name="aud_dev_sco">Bluetooth SCO (Anruf)</string>
+    <string name="aud_dev_speaker">Lautsprecher</string>
+    <string name="aud_dev_wired">Kabelgebundene Kopfhörer</string>
+    <string name="aud_dev_usb">USB-Audio</string>
+    <string name="aud_dev_earpiece">Hörmuschel</string>
+    <string name="aud_dev_telephony">Telefonie</string>
+    <string name="aud_dev_remote_submix">Remote-Submix (Cast/Aufnahme)</string>
+
+    <string name="aud_path_bit_perfect">Bit-Perfect-Ausgabe</string>
+    <string name="aud_path_offload">Hardware-Offload</string>
+    <string name="aud_path_direct">Direkte Ausgabe</string>
+    <string name="aud_path_spatializer">System-Spatializer-Mixer</string>
+    <string name="aud_path_mmap">MMAP (AAudio exklusiv)</string>
+    <string name="aud_path_deep_buffer">Mixer · tiefer Puffer</string>
+    <string name="aud_path_low_latency">Mixer · niedrige Latenz</string>
+    <string name="aud_path_primary">Mixer · primär</string>
+    <string name="aud_path_duplicating">Duplizierender Mixer</string>
+    <string name="aud_path_mixer">Mixer</string>
+
+    <string name="aud_channels_stereo">Stereo (2.0)</string>
+    <string name="aud_bt_channel_stereo">Stereo</string>
+    <string name="aud_bt_ldac_adaptive">Adaptiv</string>
+    <plurals name="aud_channels_count">
+        <item quantity="one">%1$d Kanal</item>
+        <item quantity="other">%1$d Kanäle</item>
+    </plurals>
+</resources>

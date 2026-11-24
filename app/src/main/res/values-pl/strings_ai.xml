@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_title">JadOO AI</string>
+    <string name="ai_pitch">Mała SI, która działa na Twoim telefonie. Powiedz jej cokolwiek: o swoim dniu, ulubionej muzyce, o tym, co przeszkadza Ci w dźwięku. Zamienia Twoje słowa w punkt startowy profilu gustu.</string>
+    <string name="ai_private">Prywatnie: działa na telefonie. Nic, co napiszesz, go nie opuszcza.</string>
+    <string name="ai_size">Jedno pobranie %1$s MB, z serwerów Google i Hugging Face. Zalecane Wi-Fi.</string>
+    <string name="ai_model">Qwen3 0.6B od zespołu Qwen, na LiteRT-LM od Google. Oba otwarte (Apache 2.0).</string>
+    <string name="ai_install">Zainstaluj JadOO AI · %1$s MB</string>
+    <string name="ai_pause">Wstrzymaj pobieranie</string>
+    <string name="ai_done">Gotowe</string>
+    <string name="ai_remove">Usuń JadOO AI</string>
+    <string name="ai_ready">JadOO AI jest gotowa. Pisz cokolwiek w profilu gustu.</string>
+    <string name="ai_unsupported">JadOO AI wymaga 64-bitowego telefonu ARM, a ten nim nie jest. Profil gustu działa bez niej.</string>
+    <string name="ai_fail_network">Pobieranie przerwane. Sprawdź połączenie i dotknij Zainstaluj, aby kontynuować.</string>
+    <string name="ai_fail_storage">Za mało miejsca. JadOO AI potrzebuje ok. 600 MB podczas instalacji.</string>
+    <string name="ai_fail_corrupt">Pobrany plik nie zgadzał się z sumą kontrolną, więc został usunięty i nic nie uruchomiono. Dotknij Zainstaluj, aby spróbować ponownie.</string>
+    <string name="ai_progress">%1$s z %2$s MB</string>
+    <string name="ai_checking">Sprawdzanie pobranych plików…</string>
+    <string name="ai_invite_title">Powiedz JadOO cokolwiek</string>
+    <string name="ai_invite_body">Zainstaluj JadOO AI i pisz swobodnie: o swoim dniu, muzyce, o tym, co lubisz i co przeszkadza. Działa na telefonie. Albo pomiń, i tak decydują wybory.</string>
+    <string name="ai_invite_button">Pobierz JadOO AI</string>
+    <string name="ai_invite_progress">Instalacja… zobacz postęp</string>
+    <string name="ai_words_hint">Pisz cokolwiek: o dniu, muzyce, co lubisz, co przeszkadza…</string>
+    <string name="ai_understand">Niech JadOO AI to przeczyta</string>
+    <string name="ai_read_again">Przeczytaj ponownie</string>
+    <string name="ai_reading">JadOO AI czyta…</string>
+    <string name="ai_read_failed">JadOO AI tym razem nie zdołała tego przeczytać. Nic nie szkodzi: decydują wybory.</string>
+</resources>

@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dash_off">关闭</string>
+    <string name="dash_cancel">取消</string>
+    <string name="dash_save">保存</string>
+    <string name="dash_delete">删除</string>
+    <string name="dash_done">完成</string>
+    <string name="dash_close">关闭</string>
+    <string name="dash_back">返回</string>
+    <string name="dash_settings">设置</string>
+    <string name="dash_remove">移除</string>
+    <string name="dash_load">加载</string>
+    <string name="dash_share">分享</string>
+    <string name="dash_selected">已选择</string>
+    <string name="dash_device_phone_speaker">手机扬声器</string>
+    <string name="dash_device_wired_headphones">有线耳机</string>
+    <string name="dash_hero_standby">待机中</string>
+    <string name="dash_hero_processing">处理中</string>
+    <string name="dash_hero_tap_power_speaker">点按电源键处理扬声器音频</string>
+    <string name="dash_hero_tap_power_device">点按电源键处理 %1$s 的音频</string>
+    <string name="dash_waiting_playback">等待播放</string>
+    <string name="dash_nothing_on">未开启任何功能</string>
+    <string name="dash_chip_app_suffix">%1$s · 应用</string>
+    <string name="dash_tonal_response">频率响应</string>
+    <string name="dash_in_out_db">输入 %1$s · 输出 %2$s dB</string>
+    <string name="dash_hide_gain">隐藏增益</string>
+    <string name="dash_show_gain">显示增益</string>
+    <string name="dash_gain_deck_title">输入与输出增益</string>
+    <string name="dash_reset_all">全部重置</string>
+    <string name="dash_pre_gain">前级增益</string>
+    <string name="dash_post_gain">后级增益</string>
+    <string name="dash_group_signal_path">信号路径</string>
+    <string name="dash_group_tone">音色</string>
+    <string name="dash_group_character">个性</string>
+    <string name="dash_group_space">空间</string>
+    <string name="dash_group_level">电平</string>
+    <string name="dash_headphone_correction">耳机校正</string>
+    <string name="dash_group_device_type">设备类型</string>
+    <string name="dash_group_sound">音效</string>
+    <string name="dash_group_appearance">外观</string>
+    <string name="dash_group_backup">备份</string>
+    <string name="dash_group_diagnostics">诊断</string>
+    <string name="dash_group_system">系统</string>
+    <string name="dash_correct_model">校正 %1$s</string>
+    <string name="dash_correct_headphones">校正你的耳机</string>
+    <string name="dash_correct_hint">在 AutoEQ 数据库中查找其实测 EQ</string>
+    <string name="dash_bt_tip_title">为蓝牙预留更多余量</string>
+    <string name="dash_bt_tip_body">你的耳机始终以满音量输出，因此 JadOO 将其输入降低了 %1$.1f dB，避免增益提升导致削波。请在开发者选项中开启“禁用绝对音量”并重新连接：之后将由手机音量来预留这部分余量。</string>
+    <string name="dash_not_now">暂不</string>
+    <string name="dash_open_settings">打开设置</string>
+    <string name="dash_dev_options_toast">连续点按版本号（部分机型为“OS 版本”）7 次即可解锁开发者选项，然后再回来</string>
+    <string name="dash_geq_sub_on">15 个频段 · 点按曲线图展开</string>
+    <string name="dash_geq_sub_off">15 段均衡器</string>
+    <string name="dash_peq_sub">16 个滤波器，支持 Q 值与滤波器类型</string>
+    <string name="dash_edit_filters">编辑滤波器</string>
+    <string name="dash_search_headphones">搜索 8,000+ 款实测耳机</string>
+    <string name="dash_ab_blocked">Front Stage 下不可用</string>
+    <string name="dash_ab_on">Drive、温暖感与 Pultec 低频</string>
+    <string name="dash_ab_off">复古硬件低音</string>
+    <string name="dash_warmth">温暖感</string>
+    <string name="dash_drift">Drift</string>
+    <string name="dash_pultec_inactive">Pultec EQ · Mobile Bass 开启时不生效</string>
+    <string name="dash_pultec_freq">Pultec EQ 频率</string>
+    <string name="dash_boost">提升</string>
+    <string name="dash_cut">衰减</string>
+    <string name="dash_reset_defaults">恢复默认设置</string>
+    <string name="dash_intensity">强度</string>
+    <string name="dash_tube_on">温润弥漫，高频柔化</string>
+    <string name="dash_tube_off">电子管功放音色</string>
+    <string name="dash_dbfb_off">随电平变化的超低频</string>
+    <string name="dash_dbfb_on">动态低频 · %1$s</string>
+    <string name="dash_hires_on">空气感 · 丝滑 · 临场感</string>
+    <string name="dash_hires_off">高频更通透、更闪亮</string>
+    <string name="dash_exciter_on">增添临场感与闪亮感</string>
+    <string name="dash_exciter_off">提升 2-8 kHz 频段的清晰度</string>
+    <string name="dash_hdr_on">%1$s · 找回冲击力</string>
+    <string name="dash_hdr_off">让被过度压缩的母带重新舒展</string>
+    <string name="dash_mode_dbfb_normal">标准</string>
+    <string name="dash_mode_dbfb_high">强</string>
+    <string name="dash_mode_hdr_pure">Pure</string>
+    <string name="dash_mode_hdr_restoration">Restoration</string>
+    <string name="dash_mode_sbc_classic">经典</string>
+    <string name="dash_mode_sbc_new">新版</string>
+    <string name="dash_mode_surround_traditional">Traditional</string>
+    <string name="dash_tagline_off">无空间处理</string>
+    <string name="dash_tagline_traditional">自然的立体声宽度</string>
+    <string name="dash_tagline_front">前方投射</string>
+    <string name="dash_tagline_wide">沉浸式 180° 声场</string>
+    <string name="dash_surround_off_hint">关闭 · 请选择声场</string>
+    <string name="dash_loudness_off">低音量下保持频率平衡</string>
+    <string name="dash_loudness_at_ref">处于参考电平 · 无需校正</string>
+    <string name="dash_loudness_below_ref">低于参考电平 %1$d dB · 补偿中</string>
+    <string name="dash_amount">幅度</string>
+    <string name="dash_reference_level">参考电平</string>
+    <string name="dash_loudness_note">请将参考电平设为你的设备在最大音量下的实际响度。按输出设备分别保存；绝不会提升到参考电平以上。</string>
+    <string name="dash_mobile_bass_on">正在找回缺失的低频</string>
+    <string name="dash_mobile_bass_off">让内置扬声器的低音更饱满</string>
+    <string name="dash_sbc_on">%1$s · 针对 SBC 编码器优化</string>
+    <string name="dash_sbc_off">仅适用于 SBC 耳机</string>
+    <string name="dash_dt_general">通用</string>
+    <string name="dash_dt_iem">入耳式监听耳机</string>
+    <string name="dash_dt_on_ear">贴耳式耳机</string>
+    <string name="dash_dt_over_ear">包耳式耳机</string>
+    <string name="dash_dt_compact_speaker">便携音箱</string>
+    <string name="dash_dt_home_speaker">家用音箱</string>
+    <string name="dash_eq_title">15 段 EQ</string>
+    <string name="dash_eq_subtitle">保存并调用自定义曲线</string>
+    <string name="dash_eq_close">关闭 EQ 编辑器</string>
+    <string name="dash_overwrite_named">覆盖“%1$s”</string>
+    <string name="dash_eq_reset_flat_paren">重置（平直）</string>
+    <string name="dash_eq_reset_flat">重置为平直</string>
+    <string name="dash_eq_overwrite_current">用当前 EQ 覆盖</string>
+    <string name="dash_eq_save_current">保存当前</string>
+    <string name="dash_preset_acoustic">原声</string>
+    <string name="dash_preset_bass">低音</string>
+    <string name="dash_preset_beats">节拍</string>
+    <string name="dash_preset_classic">经典</string>
+    <string name="dash_preset_clear">清晰</string>
+    <string name="dash_preset_soulful_mids">灵魂中频</string>
+    <string name="dash_save_preset">保存预设</string>
+    <string name="dash_preset_name">预设名称</string>
+    <string name="dash_updates">更新</string>
+    <string name="dash_installed_version">已安装版本 %1$s</string>
+    <string name="dash_unknown">未知</string>
+    <string name="dash_find_headphone">查找你的耳机</string>
+    <string name="dash_find_headphone_sub">8,000+ 款实测耳机与 IEM · AutoEQ</string>
+    <string name="dash_applied_to">已应用于 %1$s · 点按更改</string>
+    <string name="dash_remove_correction">移除校正</string>
+    <string name="dash_correction_note">校正按输出设备分别保存，并会载入 Parametric EQ，你可以在其中继续微调。</string>
+    <string name="dash_driver_locked">手机扬声器下已锁定为“通用”。Mobile Bass 已针对其做了适配。</string>
+    <string name="dash_driver_hint">根据你的单元所能还原的范围，调整低频和高频功能的力度。</string>
+    <string name="dash_gs_title">精确增益结构</string>
+    <string name="dash_gs_on_trim">输入衰减 %1$.1f dB，避免增益提升削波</string>
+    <string name="dash_gs_on_room">为增益提升预留余量，响亮的歌曲不会削波</string>
+    <string name="dash_gs_legacy_ceiling">旧版：限幅器上限 %1$.1f dB，无削波保护</string>
+    <string name="dash_gs_legacy">旧版：限幅器上限随增益提升量等量下降</string>
+    <string name="dash_keep_loudness">保持满响度</string>
+    <string name="dash_keep_loudness_on">最大音量下不降低音量 · 响亮的歌曲可能削波</string>
+    <string name="dash_keep_loudness_off">有线、DAC 与扬声器 · 避免最大音量下音量下降</string>
+    <string name="dash_per_app_title">按应用配置</string>
+    <string name="dash_per_app_hint">播放内容后，即可为该应用设置专属配置。</string>
+    <string name="dash_own_profile_for">%1$s 的专属配置</string>
+    <string name="dash_own_profile_on">在所有输出上使用其专属设置</string>
+    <string name="dash_own_profile_off">使用当前输出的共享设置</string>
+    <string name="dash_export_settings">导出设置</string>
+    <string name="dash_export_settings_sub">所有设置和预设合并为一个文件</string>
+    <string name="dash_import_settings">导入设置</string>
+    <string name="dash_import_settings_sub">从备份文件恢复</string>
+    <string name="dash_send_diagnostics">发送诊断信息</string>
+    <string name="dash_send_diagnostics_sub">查看日志和设置报告，仅在你选择时才会分享</string>
+    <string name="dash_diag_text">包含设备与应用版本、当前设置、上次崩溃记录（如有），以及 JadOO 自身的近期日志。不含音频、曲目名称或个人数据。只有点按“分享”后才会发送。</string>
+    <string name="dash_diag_error">无法生成报告：%1$s</string>
+    <string name="dash_collecting">正在收集…</string>
+    <string name="dash_live_stream">实时流数据</string>
+    <string name="dash_dump_granted">已授予 DUMP · 完整信号路径</string>
+    <string name="dash_dump_optional">通过 adb 授予 DUMP（可选）</string>
+    <string name="dash_surround_title">Surround Mode</string>
+    <string name="dash_surround_subtitle">基于 EQ 的声场拓宽，无需重采样</string>
+    <string name="dash_help_dump_title">DUMP 权限</string>
+    <string name="dash_help_per_app_title">按应用配置</string>
+    <string name="dash_help_gs_title">精确增益结构</string>
+    <string name="dash_help_hires_body">让高频更有空气感和光泽，不用动均衡器。
+
+5 kHz 以上分段抬升：开始约 +2.5 dB，14.5 kHz 以上最多 +5.5 dB。它会让本来就有的高频更亮，但找不回压缩文件已经丢掉的细节。</string>
+    <string name="dash_help_dbfb_body">让 250 Hz 左右以下的低音更有分量、更有力度。
+
+• **Normal**：轻微提升
+• **High**：更深、更有力</string>
+    <string name="dash_help_hdr_body">给被压得很死的音乐找回一点空间。
+
+• **Pure**：几乎透明，限制器只压住峰值
+• **Restoration**：把最轻的部分再压低一点，让轻和响的对比更明显。</string>
+    <string name="dash_help_analog_bass_body">模仿老式硬件的低音质感：低频压缩，加上 Pultec 式的均衡。它复刻的是这些设备的声音，而不是电路。
+
+• **Drive**：压得更狠，低频更密实
+• **Warmth**：增加丰满度
+• **Drift**：压缩起效的松紧
+• **Pultec**：低频提升，紧挨着上方有一个凹陷</string>
+    <string name="dash_help_surround_body">只靠均衡塑形来加宽立体声，人声仍然居中。
+
+• **Traditional**：稍微宽一点
+• **Front Stage**：把人声推到前面，像面前的音箱
+• **Ultra Wide**：最开阔</string>
+    <string name="dash_help_dump_body">可选。当系统自带的查找失败时，帮助 JadOO 找到正在播放的应用的音频会话。
+
+在电脑上执行一次即可：
+
+**adb shell pm grant com.jadoo.amp android.permission.DUMP**</string>
+    <string name="dash_help_tube_body">电子管放大器那种温暖的音色，适合单薄或听起来太冷硬的歌曲。它只是音色：低频柔和地鼓起，高频稍微收一点。Android 上做不出真正的电子管饱和，这已经是最接近的了。</string>
+    <string name="dash_help_mobile_bass_body">让手机自带的小喇叭听起来更饱满。它下不到真正的低音，所以把它还能放出来的、略高一些的音提上来。
+
+只有声音从手机喇叭播放时才会出现。</string>
+    <string name="dash_help_exciter_body">在 2–8 kHz 增加临场感和清晰度，人声和瞬态大多在这里。
+
+这是温和的提升，不会生成新的泛音。在亮的歌曲上开太大会变刺耳。所有输出都能用。</string>
+    <string name="dash_help_peq_body">在图形均衡器之外，最多 16 个滤波器。
+
+引擎把它们放到和图形均衡器相同的 15 个频段上，所以窄滤波器会比设定的更宽。主屏幕上的曲线显示的是实际生效的结果。</string>
+    <string name="dash_help_sbc_body">给 SBC 蓝牙的两种风格，选你听着更顺耳的那个。
+
+• **Classic**：更明亮、更开阔
+• **New**：编码前先处理信号，让镲片更顺，水润的嘶嘶声更少
+
+SBC 按响度分配比特，每 3 毫秒重新分配一次。New 会压下最顶端的高频（那里比特昂贵又听不太出来），并稳住高频，让它不至于碎掉。
+
+仅适用于 SBC。如果你的耳机支持 LDAC、LHDC 或 aptX HD，请改用其中之一。</string>
+    <string name="dash_help_loudness_body">耳朵在小音量下本来就听不到低音和高音。你把音量调小时，这个功能把它们补回来，让音色平衡保持不变。
+
+## 参考音量
+你的设备在最大音量时实际能有多响。用一首熟悉的歌，凭耳朵设定。
+
+## 强度
+修正量有多大。满强度如果太多，就调低。</string>
+    <string name="dash_help_per_app_body">让每个应用有自己的设置，它开始播放时自动切换。比如播客用偏重人声的音色，音乐用完整曲线。
+
+按应用和输出分别保存。</string>
+    <string name="dash_help_gs_body">加强的部分需要在响亮的歌曲之上留出余量，否则会削波失真。
+
+## 开启（推荐）
+在有线和扬声器上，输入会被压低到刚好让歌曲和关闭效果时一样响。在蓝牙上，增益只在最响的地方退让，不会整体变小。
+
+## 保持完整音量
+仅限有线、DAC 和扬声器。开启效果后，最大音量下不会再降低音量，但响亮的歌曲可能削波。蓝牙不受影响。
+
+## 关闭
+没有保护。多个增益同时开启时，响亮的歌曲可能削波。只适合和旧版本做对比。</string>
+    <plurals name="dash_features_on">
+        <item quantity="other">%1$d 项功能</item>
+    </plurals>
+</resources>

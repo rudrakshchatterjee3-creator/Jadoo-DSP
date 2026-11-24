@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_title">JadOO AI</string>
+    <string name="ai_pitch">Eine kleine KI, die auf deinem Handy lebt. Erzähl ihr alles: deinen Tag, die Musik, die du liebst, was dich am Klang stört. Sie macht aus deinen Worten den Startpunkt deines Geschmacksprofils.</string>
+    <string name="ai_private">Privat: Sie läuft auf deinem Handy. Nichts, was du schreibst, verlässt es.</string>
+    <string name="ai_size">Ein Download von %1$s MB, von Google und Hugging Face. WLAN empfohlen.</string>
+    <string name="ai_model">Qwen3 0.6B vom Qwen-Team, auf Googles LiteRT-LM. Beides Open Source (Apache 2.0).</string>
+    <string name="ai_install">JadOO AI installieren · %1$s MB</string>
+    <string name="ai_pause">Download pausieren</string>
+    <string name="ai_done">Fertig</string>
+    <string name="ai_remove">JadOO AI entfernen</string>
+    <string name="ai_ready">JadOO AI ist bereit. Schreib im Geschmacksprofil, was du willst.</string>
+    <string name="ai_unsupported">JadOO AI braucht ein 64-Bit-ARM-Handy, und dieses ist keins. Das Geschmacksprofil funktioniert auch ohne.</string>
+    <string name="ai_fail_network">Der Download wurde unterbrochen. Prüf die Verbindung und tippe auf Installieren, um fortzusetzen.</string>
+    <string name="ai_fail_storage">Nicht genug freier Speicher. JadOO AI braucht während der Installation etwa 600 MB.</string>
+    <string name="ai_fail_corrupt">Der Download passte nicht zu seiner Prüfsumme, darum wurde er verworfen und nichts ausgeführt. Tippe auf Installieren, um es erneut zu versuchen.</string>
+    <string name="ai_progress">%1$s von %2$s MB</string>
+    <string name="ai_checking">Download wird geprüft…</string>
+    <string name="ai_invite_title">Erzähl JadOO alles</string>
+    <string name="ai_invite_body">Installiere JadOO AI und schreib frei: deinen Tag, deine Musik, was du liebst und was dich stört. Sie läuft auf deinem Handy. Oder überspring das, deine Entscheidungen zählen sowieso.</string>
+    <string name="ai_invite_button">JadOO AI holen</string>
+    <string name="ai_invite_progress">Wird installiert… Fortschritt ansehen</string>
+    <string name="ai_words_hint">Schreib, was du willst: deinen Tag, deine Musik, was du liebst, was dich stört…</string>
+    <string name="ai_understand">Von JadOO AI lesen lassen</string>
+    <string name="ai_read_again">Erneut lesen</string>
+    <string name="ai_reading">JadOO AI liest…</string>
+    <string name="ai_read_failed">JadOO AI konnte das diesmal nicht lesen. Kein Problem: Deine Entscheidungen zählen.</string>
+</resources>

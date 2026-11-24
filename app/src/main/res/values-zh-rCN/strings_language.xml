@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="lang_group">语言</string>
+    <string name="lang_title">应用语言</string>
+    <string name="lang_system_default">跟随系统</string>
+    <string name="lang_dialog_title">应用语言</string>
+    <string name="lang_dialog_hint">仅更改 JadOO DSP 的语言。帮助文本、菜单和通知会立即切换。</string>
+</resources>

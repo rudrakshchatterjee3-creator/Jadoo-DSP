@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import com.jadoo.amp.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -186,10 +187,10 @@ object ApkUpdater {
         } catch (e: Exception) {
             Log.w(TAG, "Could not read downloaded APK: ${e.message}")
             null
-        } ?: return "The downloaded file is not a valid APK."
+        } ?: return context.getString(R.string.upd_err_invalid_apk)
 
         if (downloaded.packageName != context.packageName) {
-            return "The downloaded APK is for ${downloaded.packageName}, not ${context.packageName}."
+            return context.getString(R.string.upd_err_wrong_package, downloaded.packageName, context.packageName)
         }
 
         val installed = try {
@@ -197,7 +198,7 @@ object ApkUpdater {
         } catch (e: Exception) {
             Log.w(TAG, "Could not read installed package: ${e.message}")
             null
-        } ?: return "Could not read the installed app's signature to compare against."
+        } ?: return context.getString(R.string.upd_err_no_installed_signature)
 
         val downloadedCerts = signatureDigests(
             downloaded.signatures() ?: legacyArchiveSignatures(pm, apk)
@@ -207,13 +208,13 @@ object ApkUpdater {
         )
 
         if (downloadedCerts.isEmpty() || installedCerts.isEmpty()) {
-            return "Could not extract a signing certificate to verify."
+            return context.getString(R.string.upd_err_no_certificate)
         }
         // Set comparison rather than list: signing-certificate rotation can
         // legitimately reorder or extend the set, but an update must still
         // share at least the full installed set.
         if (!downloadedCerts.containsAll(installedCerts)) {
-            return "Signature mismatch — this APK was not signed with the same key as your installed app. Install cancelled."
+            return context.getString(R.string.upd_err_signature_mismatch)
         }
         return null
     }
@@ -294,7 +295,7 @@ object ApkUpdater {
             null
         } catch (e: Exception) {
             Log.e(TAG, "PackageInstaller session failed", e)
-            "Install failed: ${e.message}"
+            context.getString(R.string.upd_err_install_failed, e.message)
         }
     }
 }

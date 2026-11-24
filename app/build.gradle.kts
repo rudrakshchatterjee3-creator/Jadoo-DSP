@@ -17,11 +17,11 @@ android {
         applicationId = "com.jadoo.amp"
         minSdk = 28
         targetSdk = 36
-        versionCode = 16
+        versionCode = 17
         // "-r1" is what UpdateChecker.parseVersion understands as a revision
         // after 1.6.9; a "-hotfix" suffix would parse equal to 1.6.9 and never
         // be offered. The release is titled "v1.6.9-hotfix".
-        versionName = "1.6.9-r1"
+        versionName = "1.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -77,6 +77,11 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        // JadOO AI's engine is downloaded and checked on demand (see JadooAi),
+        // so its 23-27 MB native library is not shipped in the APK.
+        jniLibs {
+            excludes += "**/liblitertlm_jni.so"
+        }
     }
 }
 
@@ -87,6 +92,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(libs.litertlm.android)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)

@@ -1,5 +1,8 @@
 package com.jadoo.amp.audio
 
+import androidx.annotation.StringRes
+import com.jadoo.amp.R
+
 /**
  * Which SBC Enhancement the user wants. Both are kept because they trade
  * differently and the choice is by ear:
@@ -13,6 +16,14 @@ package com.jadoo.amp.audio
 enum class SbcStyle(val displayName: String) {
     Classic("Classic"),
     New("New");
+
+    /** Localized label; [displayName] stays English for logs and tests. */
+    @get:StringRes
+    val displayNameRes: Int
+        get() = when (this) {
+            Classic -> R.string.aud_sbc_classic
+            New     -> R.string.aud_sbc_new
+        }
 
     companion object {
         fun fromName(name: String?): SbcStyle = entries.firstOrNull { it.name == name } ?: New

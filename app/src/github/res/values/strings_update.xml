@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- WhatsNewDialog -->
+    <string name="upd_whats_new">What\'s New</string>
+    <string name="upd_downloading">Downloading… %1$d%%</string>
+    <string name="upd_verifying">Verifying signature…</string>
+    <string name="upd_opening_installer">Opening installer…</string>
+    <string name="upd_open_release_page">Open release page instead</string>
+    <string name="upd_allow_install_then_retry">Allow JadOO DSP to install apps, then tap Install Update again.</string>
+    <string name="upd_download_failed">Download failed. Check your connection.</string>
+    <string name="upd_install_update">Install Update</string>
+    <string name="upd_download_update">Download Update</string>
+    <string name="upd_remind_later">Remind Me Later</string>
+    <string name="upd_made_with_love">Made with Love, by Rudraksh Chatterjee (JadOO)</string>
+
+    <!-- ApkUpdater: verification and install errors -->
+    <string name="upd_err_invalid_apk">The downloaded file is not a valid APK.</string>
+    <string name="upd_err_wrong_package">The downloaded APK is for %1$s, not %2$s.</string>
+    <string name="upd_err_no_installed_signature">Could not read the installed app\'s signature to compare against.</string>
+    <string name="upd_err_no_certificate">Could not extract a signing certificate to verify.</string>
+    <string name="upd_err_signature_mismatch">Signature mismatch — this APK was not signed with the same key as your installed app. Install cancelled.</string>
+    <string name="upd_err_install_failed">Install failed: %1$s</string>
+
+    <!-- InstallResultReceiver: toast and notification -->
+    <string name="upd_install_failed">Update install failed</string>
+    <string name="upd_install_failed_reason">Update install failed: %1$s</string>
+    <string name="upd_channel_name">App updates</string>
+    <string name="upd_notif_title">JadOO DSP update ready</string>
+    <string name="upd_notif_text">Tap to install</string>
+
+    <!-- UpdateChannel: manual update check -->
+    <string name="upd_check_unreachable">Couldn\'t reach the update server. Check your connection and try again.</string>
+    <string name="upd_check_available">Version %1$s is available.</string>
+    <string name="upd_check_latest">You\'re on the latest version.</string>
+    <string name="upd_checking">Checking…</string>
+    <string name="upd_check_button">Check for updates</string>
+    <string name="upd_title">Update available</string>
+    <string name="upd_subtitle">JadOO DSP %1$s is ready to install.</string>
+    <string name="upd_highlights">Highlights</string>
+</resources>

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- MainActivity: battery optimization dialog -->
+    <string name="shr_battery_title">Akku-Optimierung deaktivieren</string>
+    <string name="shr_battery_body_direct">Auf Smartphones mancher Hersteller wird die JadOO-DSP-Engine schon nach wenigen Sekunden beendet. Erlaube JadOO DSP, die Akku-Optimierung zu ignorieren, damit das DSP weiterläuft, solange Musik spielt.</string>
+    <string name="shr_battery_body_settings">Auf Smartphones mancher Hersteller wird die JadOO-DSP-Engine schon nach wenigen Sekunden beendet. Suche auf dem nächsten Bildschirm JadOO DSP und stelle es auf „Nicht optimieren“, damit das DSP weiterläuft, solange Musik spielt.</string>
+    <string name="shr_allow">Zulassen</string>
+    <string name="shr_later">Später</string>
+
+    <string name="shr_crash_title">JadOO DSP ist beim letzten Mal abgestürzt</string>
+    <string name="shr_crash_body">Wenn du diesen Bericht teilst, hilft das bei der Fehlerbehebung – er enthält nur Geräteinfos und einen Stacktrace, keine persönlichen Daten.</string>
+    <string name="shr_crash_share">Absturzbericht teilen</string>
+    <string name="shr_crash_dismiss">Verwerfen</string>
+
+    <string name="shr_import_title">Importiertes Profil speichern</string>
+    <string name="shr_import_body">Gib diesem importierten Profil einen Namen. Es wird separat gespeichert – dein aktuelles Geräteprofil bleibt unverändert.</string>
+    <string name="shr_import_name_label">Profilname</string>
+    <string name="shr_import_name_empty">Bitte gib einen Namen ein</string>
+    <string name="shr_import_name_exists">Name bereits vergeben – wähle einen anderen</string>
+    <string name="shr_save">Speichern</string>
+    <string name="shr_cancel">Abbrechen</string>
+
+    <string name="shr_perm_title">Berechtigungen erforderlich</string>
+    <string name="shr_perm_body">JadOO DSP benötigt die Benachrichtigungsberechtigung, damit die DSP-Engine weiterläuft.</string>
+
+    <string name="shr_mode_brand">Marke</string>
+    <string name="shr_mode_custom">Eigene Farbe</string>
+    <string name="shr_accent_swatch_desc">Akzentfarbe</string>
+    <string name="shr_tone_title">Hell / Dunkel</string>
+    <string name="shr_tone_always_light">Immer hell</string>
+    <string name="shr_tone_always_dark">Immer dunkel</string>
+    <string name="shr_tone_system_dark_now">Folgt dem System · aktuell dunkel</string>
+    <string name="shr_tone_system_light_now">Folgt dem System · aktuell hell</string>
+    <string name="shr_collapse">Zuklappen</string>
+    <string name="shr_expand">Aufklappen</string>
+    <string name="shr_tone_light">Hell</string>
+    <string name="shr_tone_dark">Dunkel</string>
+    <string name="shr_background">Hintergrund</string>
+    <string name="shr_backdrop_dim">Gedimmt</string>
+    <string name="shr_backdrop_tinted">Getönt</string>
+    <string name="shr_backdrop_black">Schwarz</string>
+    <string name="shr_backdrop_black_dark_only">Schwarz (dunkel)</string>
+    <string name="shr_style">Stil</string>
+    <string name="shr_style_standard">Standard</string>
+
+    <string name="shr_selected">Ausgewählt</string>
+    <string name="shr_about_title">Info zu %1$s</string>
+    <string name="shr_curve_off">Frequenzgang, flach: JadOO aus</string>
+    <string name="shr_curve_flat">Frequenzgang, flach</string>
+    <string name="shr_curve_peak">Frequenzgang, größte Änderung %1$s dB bei %2$s</string>
+    <string name="shr_curve_hz">%1$s Hertz</string>
+    <string name="shr_curve_khz">%1$s Kilohertz</string>
+    <string name="shr_power_off_desc">JadOO ausschalten</string>
+    <string name="shr_power_on_desc">JadOO einschalten</string>
+</resources>

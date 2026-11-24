@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hp_help_body">HearPrint spielt leise Töne bei elf Tonhöhen von 250 Hz bis 12 kHz ab und findet bei jeder den leisesten, den du noch hörst. Dann hebt es die Bereiche an, die du schlechter hörst, um etwa die Hälfte des Abstands zum üblichen Gehör.
+
+Der Klang wird dadurch nie dumpfer: Höhen werden nie abgesenkt, und der Bass bekommt nie mehr Anhebung als die Höhen.
+
+Beide Ohren hören dieselbe Kurve, das Stereobild bleibt also stabil. Sie wird nur für diese Ausgabe gespeichert und misst Ohren und Kopfhörer zusammen. Ist AutoEQ an, übernimmt es den Kopfhörer-Anteil.
+
+**Geschmacksprofil:** ein paar Fragen, dann A/B-Vergleiche mit deiner eigenen Musik. Die Stimme bleibt in beiden gleich laut, du wählst also Klang, nicht Lautstärke.
+
+Das ist eine Klangeinstellung, kein Hörtest, und sie sagt nichts medizinisch Gültiges über dein Gehör.</string>
+    <string name="hp_sub_speaker">Nur für Kopfhörer</string>
+    <string name="hp_sub_none">Stimm JadOO in etwa 90 Sekunden auf deine Ohren ab</string>
+    <string name="hp_sub_on">Auf deine Ohren abgestimmt</string>
+    <string name="hp_sub_off">Dein HearPrint ist gespeichert, aber aus</string>
+    <string name="hp_strength">Stärke</string>
+    <string name="hp_retake">Hörtest wiederholen</string>
+    <string name="hp_delete">Löschen</string>
+    <string name="hp_delete_title">HearPrint löschen?</string>
+    <string name="hp_delete_body">Die Kurve für diese Kopfhörer wird entfernt. Du kannst den Test jederzeit wiederholen.</string>
+    <string name="hp_stop_title">Test beenden?</string>
+    <string name="hp_stop_body">Nichts wird gespeichert, und dein Sound ist wieder wie vorher.</string>
+    <string name="hp_stop_confirm">Beenden</string>
+    <string name="hp_keep_going">Weitermachen</string>
+    <string name="hp_cd_stop">Test beenden</string>
+    <string name="hp_intro_headline">Dein HearPrint</string>
+    <string name="hp_intro_body">Jeder hört anders, und jeder Kopfhörer klingt anders. In etwa 90 Sekunden lernt JadOO, wie du jeden Teil des Klangs hörst, und stimmt sich auf dich ab.</string>
+    <string name="hp_check_headphones">Setz die Kopfhörer richtig herum auf</string>
+    <string name="hp_check_quiet">Such dir einen ruhigen Ort</string>
+    <string name="hp_check_music">Deine Musik pausiert während des Tests</string>
+    <string name="hp_need_headphones">Schließ Kopfhörer an, um zu starten. HearPrint ist für Kopfhörer gemacht.</string>
+    <string name="hp_start">Starten</string>
+    <string name="hp_not_medical">Kein medizinischer Hörtest.</string>
+    <string name="hp_volume_headline">Lautstärke einstellen</string>
+    <string name="hp_volume_body">Du solltest jetzt Pieptöne hören. Stell sie mit den Lautstärketasten leise, aber deutlich ein, wie ein ruhiges Gespräch. Behalte diese Lautstärke für den ganzen Test.</string>
+    <string name="hp_volume_done">Passt so</string>
+    <string name="hp_progress">Ton %1$d von %2$d</string>
+    <string name="hp_test_body">Halte die Taste, solange du Pieptöne hörst. Lass los, sobald sie verklingen. Sie kommen wieder, das ist normal.</string>
+    <string name="hp_hearing">Ich höre es</string>
+    <string name="hp_hold">Halten, solange du Pieptöne hörst</string>
+    <string name="hp_state_pressed">Gedrückt</string>
+    <string name="hp_state_released">Losgelassen</string>
+    <string name="hp_result_headline">Dein HearPrint ist fertig</string>
+    <string name="hp_result_body">So stimmt JadOO deinen Klang ab, für beide Ohren gleich. Nach oben heißt: Ein Teil, den du leiser hörst, wird angehoben.</string>
+    <string name="hp_note_volume_high">Viele Töne waren selbst beim leisesten Pegel noch hörbar. Die Lautstärke war wohl hoch: Dreh ein paar Stufen leiser und wiederhole den Test für ein genaueres Ergebnis.</string>
+    <string name="hp_note_not_heard">Manche Töne waren selbst beim lautesten Pegel nicht hörbar. JadOO hebt sie nur bis zu seiner sicheren Grenze an.</string>
+    <string name="hp_note_unsteady">Deine zwei Prüfungen bei derselben Tonhöhe weichen voneinander ab. Ein ruhigerer Raum oder eine Wiederholung kann ein stabileres Ergebnis geben.</string>
+    <string name="hp_note_steady">Deine Antworten waren stimmig.</string>
+    <string name="hp_save">Speichern und einschalten</string>
+    <string name="hp_chart_cd">Deine HearPrint-Kurve, für beide Ohren gleich: bis zu %1$s dB Anhebung</string>
+    <string name="hp_note_incomplete">Bei manchen Tönen gab es keine stabile Antwort, darum wurde nichts gespeichert. Versuch es an einem ruhigeren Ort noch einmal und lass los, sobald die Pieptöne verklingen.</string>
+    <string name="hp_note_false_presses">Du hast ein paar Mal gedrückt, während nichts zu hören war. Das kann das Ergebnis verwischen; ein ruhigerer Raum hilft.</string>
+    <string name="hp_output_changed_title">Ausgabe gewechselt</string>
+    <string name="hp_output_changed_body">Der Ton ist auf eine andere Ausgabe gewechselt, deshalb wurde dieser Durchgang beendet. Es wurde nichts gespeichert. Starte erneut auf der Ausgabe, die du anpassen möchtest.</string>
+    <string name="hp_output_changed_ok">OK</string>
+</resources>

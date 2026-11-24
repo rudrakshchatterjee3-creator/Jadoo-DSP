@@ -1,5 +1,6 @@
 package com.jadoo.amp.ui
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
@@ -12,6 +13,14 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -56,6 +65,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -81,6 +91,7 @@ import kotlinx.coroutines.delay
  * line rather than appearing all at once.
  */
 @Composable
+@SuppressLint("LocalContextGetResourceValueCall") // read in click handlers; a language change recreates the activity
 fun WhatsNewDialog(
     release: ReleaseInfo,
     onDownload: () -> Unit,
@@ -92,50 +103,95 @@ fun WhatsNewDialog(
     // installed it," so it should snooze rather than vanish forever AND
     // rather than reappear instantly on the very next recomposition.
     Dialog(onDismissRequest = onRemindLater, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                AuroraBackground()
+        val glassWindow = com.jadoo.amp.ui.components.GlassDialogWindow()
+        val maxCardHeight = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
+        val scheme = MaterialTheme.colorScheme
+        val clock = com.jadoo.amp.ui.components.rememberSceneClock()
+        val motion = com.jadoo.amp.ui.theme.JadooTheme.motion.enabled
+        Box(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            com.jadoo.amp.ui.components.JadooSurface(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp).heightIn(max = maxCardHeight),
+                shape = RoundedCornerShape(34.dp),
+                color = scheme.surfaceContainer,
+                level = com.jadoo.amp.ui.theme.GlassLevel.Overlay,
+                windowBlur = glassWindow,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), scheme.primary.copy(alpha = 0.10f), Color.White.copy(alpha = 0.05f)))
+                )
+            ) {
+              Box(modifier = Modifier.fillMaxWidth().drawWithContent {
+                    drawContent()
+                    // A soft specular band drifting across the glass, like light
+                    // moving over a lens. Drawn above the content, touches nothing.
+                    if (motion) {
+                        val t = clock.value
+                        val u = (t / 7f) - kotlin.math.floor(t / 7f)
+                        val x = size.width * (u * 1.8f - 0.4f)
+                        drawRect(
+                            Brush.linearGradient(
+                                listOf(Color.Transparent, Color.White.copy(alpha = 0.07f), Color.Transparent),
+                                start = Offset(x - size.width * 0.25f, 0f),
+                                end = Offset(x + size.width * 0.05f, size.height)
+                            )
+                        )
+                    }
+                }) {
+                CardAurora()
 
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 28.dp, vertical = 32.dp),
+                        .padding(horizontal = 22.dp, vertical = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Image(
                         painter = painterResource(R.drawable.ic_jadoo_dsp),
                         contentDescription = null,
+                        modifier = Modifier.size(60.dp).clip(RoundedCornerShape(18.dp))
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        stringResource(R.string.upd_title),
+                        color = scheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 26.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(R.string.upd_subtitle, release.tagName.removePrefix("v")),
+                        color = scheme.onSurfaceVariant,
+                        fontSize = 15.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(18.dp))
+                    HorizontalDivider(color = scheme.onSurface.copy(alpha = 0.10f))
+                    Spacer(Modifier.height(16.dp))
+
+                    Text(
+                        stringResource(R.string.upd_whats_new),
+                        color = scheme.onSurfaceVariant,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Image(
+                        painter = painterResource(R.drawable.upd_banner),
+                        contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier
-                            .size(72.dp)
-                            .clip(RoundedCornerShape(20.dp))
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                            .clip(RoundedCornerShape(22.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(22.dp))
                     )
                     Spacer(Modifier.height(20.dp))
-                    Text(
-                        "What's New",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 28.sp
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    com.jadoo.amp.ui.components.JadooSurface(
-                        shape = RoundedCornerShape(50.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                        level = com.jadoo.amp.ui.theme.GlassLevel.Nested
-                    ) {
-                        Text(
-                            release.tagName,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)
-                        )
-                    }
-                    Spacer(Modifier.height(28.dp))
 
-                    val lines = remember(release.body) { UpdateChecker.changelogLines(release.body) }
+                    val lines = remember(release.body) { UpdateChecker.changelogLines(release.body).take(5) }
                     var revealedCount by remember { mutableIntStateOf(0) }
                     LaunchedEffect(lines) {
                         revealedCount = 0
@@ -144,12 +200,17 @@ fun WhatsNewDialog(
                             revealedCount = i + 1
                         }
                     }
-
-                    // Liquid Glass puts the changelog on a glass card; Standard: a plain Column.
-                    com.jadoo.amp.ui.components.GlassSection {
+                    Text(
+                        stringResource(R.string.upd_highlights),
+                        color = scheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(12.dp))
                     Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         lines.forEachIndexed { index, line ->
                             AnimatedVisibility(
@@ -160,9 +221,8 @@ fun WhatsNewDialog(
                             }
                         }
                     }
-                    }
 
-                    Spacer(Modifier.height(36.dp))
+                    Spacer(Modifier.height(24.dp))
 
                     // ── Lane B: in-app update ─────────────────────────────
                     // Still a package install — Android has no way to swap an
@@ -176,7 +236,7 @@ fun WhatsNewDialog(
 
                     when (val s = state) {
                         is ApkUpdater.State.Downloading -> {
-                            Text("Downloading… ${(s.progress * 100).toInt()}%",
+                            Text(stringResource(R.string.upd_downloading, (s.progress * 100).toInt()),
                                  color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f), fontSize = 13.sp)
                             Spacer(Modifier.height(8.dp))
                             LinearProgressIndicator(
@@ -186,11 +246,11 @@ fun WhatsNewDialog(
                             )
                         }
                         ApkUpdater.State.Verifying -> {
-                            Text("Verifying signature…",
+                            Text(stringResource(R.string.upd_verifying),
                                  color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f), fontSize = 13.sp)
                         }
                         ApkUpdater.State.Installing -> {
-                            Text("Opening installer…",
+                            Text(stringResource(R.string.upd_opening_installer),
                                  color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f), fontSize = 13.sp)
                         }
                         is ApkUpdater.State.Failed -> {
@@ -202,7 +262,7 @@ fun WhatsNewDialog(
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl)))
                                 onDownload()
                             }) {
-                                Text("Open release page instead", color = MaterialTheme.colorScheme.primary)
+                                Text(stringResource(R.string.upd_open_release_page), color = MaterialTheme.colorScheme.primary)
                             }
                         }
                         ApkUpdater.State.Idle -> Unit
@@ -224,7 +284,7 @@ fun WhatsNewDialog(
                                 if (!ApkUpdater.canInstall(context)) {
                                     ApkUpdater.requestInstallPermission(context)
                                     state = ApkUpdater.State.Failed(
-                                        "Allow JadOO DSP to install apps, then tap Install Update again."
+                                        context.getString(R.string.upd_allow_install_then_retry)
                                     )
                                     return@Button
                                 }
@@ -234,7 +294,7 @@ fun WhatsNewDialog(
                                         state = ApkUpdater.State.Downloading(p)
                                     }
                                     if (file == null) {
-                                        state = ApkUpdater.State.Failed("Download failed. Check your connection.")
+                                        state = ApkUpdater.State.Failed(context.getString(R.string.upd_download_failed))
                                         return@launch
                                     }
                                     // Signature check before ANY install is
@@ -273,29 +333,31 @@ fun WhatsNewDialog(
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                            modifier = Modifier.fillMaxWidth()
+                            shape = RoundedCornerShape(28.dp),
+                            modifier = Modifier.fillMaxWidth().height(54.dp)
                         ) {
                             Text(
-                                if (release.apkAssetUrl != null) "Install Update" else "Download Update",
-                                fontWeight = FontWeight.SemiBold
+                                stringResource(if (release.apkAssetUrl != null) R.string.upd_install_update else R.string.upd_download_update),
+                                fontWeight = FontWeight.SemiBold, fontSize = 16.sp
                             )
                         }
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedButton(
+                        Spacer(Modifier.height(6.dp))
+                        TextButton(
                             onClick = onRemindLater,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
                         ) {
-                            Text("Remind Me Later")
+                            Text(stringResource(R.string.upd_remind_later), fontSize = 16.sp)
                         }
                     }
                     Spacer(Modifier.height(18.dp))
                     Text(
-                        "Made with Love, by Rudraksh Chatterjee (JadOO)",
+                        stringResource(R.string.upd_made_with_love),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
                         fontSize = 11.sp,
                         textAlign = TextAlign.Center
                     )
                 }
+              }
             }
         }
     }
@@ -323,53 +385,20 @@ private fun ChangelogLine(text: String) {
     }
 }
 
-/** Three soft, slow-drifting radial-gradient blobs — an abstract "aurora" backdrop. */
+/** Soft, slow-drifting pools of brand colour behind the card content. */
 @Composable
-private fun AuroraBackground() {
-    // The three blob colours now come from the scheme, so the backdrop follows
-    // the theme instead of always being cyan/violet/teal.
+private fun BoxScope.CardAurora() {
     val blobA = MaterialTheme.colorScheme.primary
     val blobB = MaterialTheme.colorScheme.tertiary
-    val blobC = MaterialTheme.colorScheme.secondary
-    val transition = rememberInfiniteTransition(label = "aurora")
-    val phase1 by transition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(22000, easing = LinearEasing), RepeatMode.Restart),
-        label = "phase1"
-    )
-    val phase2 by transition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(28000, easing = LinearEasing), RepeatMode.Restart),
-        label = "phase2"
-    )
-    val phase3 by transition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(34000, easing = LinearEasing), RepeatMode.Restart),
-        label = "phase3"
-    )
-
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
-
-        fun blob(phaseDeg: Float, radiusFrac: Float, color: Color, cx: Float, cy: Float, orbit: Float) {
-            val rad = Math.toRadians(phaseDeg.toDouble())
-            val x = cx + (Math.cos(rad) * orbit).toFloat()
-            val y = cy + (Math.sin(rad) * orbit).toFloat()
-            val r = w * radiusFrac
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(color.copy(alpha = 0.35f), color.copy(alpha = 0f)),
-                    center = Offset(x, y),
-                    radius = r
-                ),
-                radius = r,
-                center = Offset(x, y)
-            )
+    val clock = com.jadoo.amp.ui.components.rememberSceneClock()
+    Canvas(modifier = Modifier.matchParentSize()) {
+        val t = clock.value
+        fun pool(color: Color, cx: Float, cy: Float, r: Float, a: Float) {
+            val c = Offset(size.width * cx, size.height * cy)
+            drawCircle(Brush.radialGradient(listOf(color.copy(alpha = a), Color.Transparent), c, size.width * r), size.width * r, c)
         }
-
-        blob(phase1, 0.55f, blobA, w * 0.25f, h * 0.25f, w * 0.18f)
-        blob(phase2, 0.5f, blobB, w * 0.8f, h * 0.35f, w * 0.15f)
-        blob(phase3, 0.6f, blobC, w * 0.5f, h * 0.85f, w * 0.2f)
+        pool(blobA, 0.25f + 0.08f * kotlin.math.sin(t * 0.20f), 0.06f, 0.75f, 0.24f)
+        pool(blobB, 0.85f + 0.05f * kotlin.math.cos(t * 0.17f), 0.45f + 0.05f * kotlin.math.sin(t * 0.13f), 0.6f, 0.10f)
+        pool(blobA, 0.5f + 0.1f * kotlin.math.cos(t * 0.11f), 1.0f, 0.8f, 0.12f)
     }
 }

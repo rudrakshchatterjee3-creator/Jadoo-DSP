@@ -1,6 +1,12 @@
 ﻿package com.jadoo.amp.ui
 
+import android.annotation.SuppressLint
 import java.util.Locale
+
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.jadoo.amp.R
 
 import android.graphics.Rect
 import android.os.Build
@@ -14,6 +20,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.CancellationException
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import com.jadoo.amp.audio.Taste
+import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -57,6 +69,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.SurroundSound
 import androidx.compose.material.icons.filled.Tune
@@ -148,6 +161,7 @@ import com.jadoo.amp.audio.EqBands
 import com.jadoo.amp.audio.SurroundMode
 import com.jadoo.amp.settings.SavedEqPreset
 import com.jadoo.amp.ui.components.AppearanceSection
+import com.jadoo.amp.ui.components.LanguageSection
 import com.jadoo.amp.ui.components.Entrance
 import com.jadoo.amp.ui.components.FeatureGroup
 import com.jadoo.amp.ui.components.FeatureRow
@@ -191,84 +205,107 @@ private val Presets = mapOf(
     "Soulful Mids" to floatArrayOf(-1f, -0.5f, 0f, 0.5f, 1.5f, 2f, 1.2f, -0.8f, 3f, 3.5f, 3f, 2f, 1f, 0.5f, 0f)
 )
 
+// Preset names double as persisted keys, so only their display is translated.
+private val PresetLabelRes = mapOf(
+    "Acoustic" to R.string.dash_preset_acoustic,
+    "Bass" to R.string.dash_preset_bass,
+    "Beats" to R.string.dash_preset_beats,
+    "Classic" to R.string.dash_preset_classic,
+    "Clear" to R.string.dash_preset_clear,
+    "Soulful Mids" to R.string.dash_preset_soulful_mids
+)
+
+@Composable
+private fun presetLabel(name: String): String =
+    PresetLabelRes[name]?.let { stringResource(it) } ?: name
+
+/** Display text for the output-device labels the service reports (the labels themselves stay English keys). */
+@Composable
+private fun outputDeviceName(label: String): String = when (label) {
+    "Phone Speaker" -> stringResource(R.string.dash_device_phone_speaker)
+    "Wired Headphones" -> stringResource(R.string.dash_device_wired_headphones)
+    else -> label
+}
+
+@Composable
+private fun SurroundMode.labelText(): String = stringResource(
+    when (this) {
+        SurroundMode.Off -> R.string.dash_off
+        SurroundMode.Traditional -> R.string.dash_mode_surround_traditional
+        SurroundMode.Front -> R.string.dash_mode_surround_front
+        SurroundMode.Wide -> R.string.dash_mode_surround_wide
+    }
+)
+
+@Composable
+private fun SurroundMode.taglineText(): String = stringResource(
+    when (this) {
+        SurroundMode.Off -> R.string.dash_tagline_off
+        SurroundMode.Traditional -> R.string.dash_tagline_traditional
+        SurroundMode.Front -> R.string.dash_tagline_front
+        SurroundMode.Wide -> R.string.dash_tagline_wide
+    }
+)
+
+@Composable
+private fun HdrMode.labelText(): String = stringResource(
+    when (this) {
+        HdrMode.Pure -> R.string.dash_mode_hdr_pure
+        HdrMode.Restoration -> R.string.dash_mode_hdr_restoration
+    }
+)
+
+@Composable
+private fun DbfbMode.labelText(): String = stringResource(
+    when (this) {
+        DbfbMode.Off -> R.string.dash_off
+        DbfbMode.Normal -> R.string.dash_mode_dbfb_normal
+        DbfbMode.High -> R.string.dash_mode_dbfb_high
+    }
+)
+
+@Composable
+private fun com.jadoo.amp.audio.SbcStyle.labelText(): String = stringResource(
+    when (this) {
+        com.jadoo.amp.audio.SbcStyle.Classic -> R.string.dash_mode_sbc_classic
+        com.jadoo.amp.audio.SbcStyle.New -> R.string.dash_mode_sbc_new
+    }
+)
+
+@Composable
+private fun com.jadoo.amp.audio.DeviceType.labelText(): String = stringResource(
+    when (this) {
+        com.jadoo.amp.audio.DeviceType.General -> R.string.dash_dt_general
+        com.jadoo.amp.audio.DeviceType.Iem -> R.string.dash_dt_iem
+        com.jadoo.amp.audio.DeviceType.OnEar -> R.string.dash_dt_on_ear
+        com.jadoo.amp.audio.DeviceType.OverEar -> R.string.dash_dt_over_ear
+        com.jadoo.amp.audio.DeviceType.CompactSpeaker -> R.string.dash_dt_compact_speaker
+        com.jadoo.amp.audio.DeviceType.HomeSpeaker -> R.string.dash_dt_home_speaker
+    }
+)
+
 // The seed swatches moved to ui/theme/Color.kt as SeedSwatches, so the brand
 // gold leads the list and the set is shared with the Appearance section.
 
 private sealed class HelpContent(
-    val title: String,
-    val body: String
+    @StringRes val titleRes: Int,
+    @StringRes val bodyRes: Int
 ) {
-    data object HiResUpscaler : HelpContent(
-        title = "Hi-Res Upscaler",
-        body = "Lifts the top octaves for more air and sparkle: +2.5 dB from 5 kHz, rising to +5.5 dB above 14.5 kHz.\n\nIt brightens what's there - it can't bring back detail a compressed file has already lost."
-    )
-
-    data object Dbfb : HelpContent(
-        title = "JadOO DBFB",
-        body = "Adds level-aware sub-bass weight.\n\n• **Normal** - rounded, subtle lift\n• **High** - deeper and more assertive"
-    )
-
-    data object HdrDynamics : HelpContent(
-        title = "HDR Dynamics Restorer",
-        body = "Restores punch to loudness-war audio.\n\n• **Pure** - near-transparent\n• **Restoration** - widens quiet-to-loud range, adds a touch of air"
-    )
-
-    data object AnalogBass : HelpContent(
-        title = "Analog Bass",
-        body = "Vintage hardware-style bass coloring, built from bass compression and EQ.\n\n• **Drive** - compresses the bass harder, for a denser low end\n• **Warmth** - adds bass level\n• **Drift** - softens how the compression eases in\n• **Pultec EQ** - shapes the low end"
-    )
-
-    data object SpatialSurround : HelpContent(
-        title = "JadOO Surround+",
-        body = "Widens the sound through EQ shaping alone - vocals stay centered.\n\n• **Traditional** - natural width\n• **Front Stage** - pushes vocals forward\n• **Ultra Wide** - the most spacious"
-    )
-
-    data object DumpPermission : HelpContent(
-        title = "DUMP permission",
-        body = "Optional - helps detect the active audio session.\n\nGrant via:\n\n**adb shell pm grant com.jadoo.amp android.permission.DUMP**"
-    )
-
-    data object TubeWarmth : HelpContent(
-        title = "Tube Warmth",
-        body = "Valve-amp tonal character - gentle low-end bloom and a soft high-end roll-off. Good for thin or clinical-sounding tracks."
-    )
-
-    data object MobileBass : HelpContent(
-        title = "JadOO Mobile Bass",
-        body = "Adds fuller bass on your phone's own speaker. Won't go as deep as a real subwoofer, but noticeably fuller than stock.\n\nOnly shown when playing through the speaker."
-    )
-
-    data object HarmonicExciter : HelpContent(
-        title = "Harmonic Exciter",
-        body = "Adds presence and sparkle to the 2-8kHz range. Kept gentle on purpose - push it too far on bright tracks and it can edge toward harsh.\n\nWorks on every output."
-    )
-
-    data object DigitalFilters : HelpContent(
-        title = "Parametric EQ",
-        body = "Up to 16 filters - peaks, shelves and passes - on top of the graphic EQ.\n\nThe engine applies them through the same 15 bands as the graphic EQ, so very narrow filters come out broader than set. The curve on the home screen shows what's really applied."
-    )
-
-    data object SbcEnhancement : HelpContent(
-        title = "SBC Enhancement",
-        body = "Two versions - switch by ear.\n\n• **Classic** - the original: lifts 10-16 kHz to push SBC's bits into the treble. Brighter, more open.\n• **New** - conditions the signal for the encoder, described below. Smoother, fewer artifacts.\n\nNew conditions the signal before it reaches the SBC encoder, so the codec has an easier job.\n\nSBC hands its bits out in proportion to how loud each frequency region is, and it re-decides every 3 milliseconds. The top octave is the most expensive region to encode and the least audible, so it is rolled off - that frees bits for the range you actually hear. The 8-12kHz air is lifted slightly to buy the treble back where bits are cheap.\n\nOn top of that the highs are gently peak-controlled. That steadies SBC's bit allocation, which is what stops cymbals and sibilance breaking up into the swirling, watery sound SBC is known for.\n\nEnable only for **SBC** devices - not LDAC, LHDC, or aptX HD. If your headphones support one of those, switching to it beats anything this feature can do."
-    )
-
-    data object LoudnessContour : HelpContent(
-        title = "Loudness Contour",
-        body = "Bass falls away faster than mids at low volume. This tilts the EQ back to compensate as you turn down, so the balance stays put.\n\n## Reference Level\nHow loud your gear actually gets at full volume - set it by ear against a track you know.\n\n## Amount\nScales the whole correction if full strength feels like too much."
-    )
-
-
-    data object PerAppProfiles : HelpContent(
-        title = "Per-app profiles",
-        body = "Gives each app its own DSP settings, switched automatically when it starts playing - e.g. a speech tilt for podcasts, full curve for music.\n\nStored per app and per output device."
-    )
-
-    data object GainStaging : HelpContent(
-        title = "Precise Gain Staging",
-        body = "Every boost (bass, treble, Loudness, Surround, EQ) needs room above a loud song, or its peaks clip.\n\n## On\nOn wired and speaker, the input is trimmed just enough to keep the mix as loud as with the effects off. Below full volume the phone's own volume already makes that room.\n\nBluetooth always arrives at full level, so there boosts are level-aware instead: whole at normal levels, fading out on a song's hottest moments. Nothing is turned down to make room, and turning a feature on doesn't cost volume.\n\n## Keep full loudness\nWired, DAC and speaker only. Skips the input trim, so turning features on no longer lowers the volume when the phone is at full volume. The boosts then have no room, so loud songs can clip. Bluetooth is not affected.\n\n## Off\nNo protection. Loud songs can clip when several boosts are on.\n\nSafe to leave on. Turn off only to compare against how the app used to sound."
-    )
-
+    data object HiResUpscaler : HelpContent(R.string.dash_name_hires, R.string.dash_help_hires_body)
+    data object HearPrint : HelpContent(R.string.hp_title, R.string.hp_help_body)
+    data object Dbfb : HelpContent(R.string.dash_name_dbfb, R.string.dash_help_dbfb_body)
+    data object HdrDynamics : HelpContent(R.string.dash_name_hdr_restorer, R.string.dash_help_hdr_body)
+    data object AnalogBass : HelpContent(R.string.dash_name_analog_bass, R.string.dash_help_analog_bass_body)
+    data object SpatialSurround : HelpContent(R.string.dash_name_surround, R.string.dash_help_surround_body)
+    data object DumpPermission : HelpContent(R.string.dash_help_dump_title, R.string.dash_help_dump_body)
+    data object TubeWarmth : HelpContent(R.string.dash_name_tube, R.string.dash_help_tube_body)
+    data object MobileBass : HelpContent(R.string.dash_name_mobile_bass, R.string.dash_help_mobile_bass_body)
+    data object HarmonicExciter : HelpContent(R.string.dash_name_exciter, R.string.dash_help_exciter_body)
+    data object DigitalFilters : HelpContent(R.string.dash_name_parametric_eq, R.string.dash_help_peq_body)
+    data object SbcEnhancement : HelpContent(R.string.dash_name_sbc, R.string.dash_help_sbc_body)
+    data object LoudnessContour : HelpContent(R.string.dash_name_loudness, R.string.dash_help_loudness_body)
+    data object PerAppProfiles : HelpContent(R.string.dash_help_per_app_title, R.string.dash_help_per_app_body)
+    data object GainStaging : HelpContent(R.string.dash_help_gs_title, R.string.dash_help_gs_body)
 }
 
 /**
@@ -290,22 +327,19 @@ private fun BluetoothHeadroomTip(trimDb: Float, onDismiss: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Bluetooth, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 Spacer(Modifier.width(14.dp))
-                Text("Give Bluetooth more headroom",
+                Text(stringResource(R.string.dash_bt_tip_title),
                      style = MaterialTheme.typography.titleSmall,
                      color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                String.format(Locale.US,
-                    "Your earbuds get full volume all the time, so JadOO lowers its input by %.1f dB " +
-                    "to keep your boosts from clipping. Turn on Disable absolute volume in Developer " +
-                    "options and reconnect: the phone's volume then makes that room instead.", -trimDb),
+                stringResource(R.string.dash_bt_tip_body, -trimDb),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Not now") }
-                TextButton(onClick = { openDeveloperOptions(context) }) { Text("Open settings") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.dash_not_now)) }
+                TextButton(onClick = { openDeveloperOptions(context) }) { Text(stringResource(R.string.dash_open_settings)) }
             }
         }
     }
@@ -318,7 +352,7 @@ private fun openDeveloperOptions(context: android.content.Context) {
                  else android.provider.Settings.ACTION_DEVICE_INFO_SETTINGS
     if (!unlocked) {
         android.widget.Toast.makeText(context,
-            "Tap Build number 7 times to unlock Developer options, then come back",
+            context.getString(R.string.dash_dev_options_toast),
             android.widget.Toast.LENGTH_LONG).show()
     }
     try {
@@ -376,6 +410,7 @@ fun DashboardScreen(
     digitalFilterEnabled: Boolean,
     digitalFilterBandStates: List<com.jadoo.amp.audio.DigitalFilterEngine.BiquadBandState>,
     savedPresets: List<SavedEqPreset>,
+    hearPrint: HearPrintUi? = null,
     themeSettings: com.jadoo.amp.settings.ThemeSettings,
     dumpPermissionEnabled: Boolean,
     deviceType: com.jadoo.amp.audio.DeviceType,
@@ -415,6 +450,9 @@ fun DashboardScreen(
     onSurroundModeChanged: (SurroundMode) -> Unit,
     onBandLevelChanged: (Int, Float) -> Unit,
     onPresetSelected: (FloatArray) -> Unit,
+    /** The Graphic EQ switch is off and its curve is held by the service. */
+    graphicEqOff: Boolean = false,
+    onGraphicEqEnabledChanged: (Boolean) -> Unit = {},
     onSavePreset: (String, FloatArray) -> Unit,
     onDeletePreset: (String) -> Unit,
     // Analog Bass callbacks
@@ -535,8 +573,8 @@ fun DashboardScreen(
     // Derive initial EQ-enabled state from the restored band gains so that after
     // orientation change or process death the toggle correctly reflects what the
     // service is actually applying (instead of always resetting to "off").
-    var graphicEqEnabled by remember { mutableStateOf(bandGains.any { it != 0f }) }
-    var showGraphicEq by remember { mutableStateOf(bandGains.any { it != 0f }) }
+    var graphicEqEnabled by remember(graphicEqOff) { mutableStateOf(!graphicEqOff && bandGains.any { it != 0f }) }
+    var showGraphicEq by remember(graphicEqOff) { mutableStateOf(!graphicEqOff && bandGains.any { it != 0f }) }
     // Promote to "enabled" whenever the service reports non-zero gains (rebind,
     // restore, import). Never demote — the user controls the "off" direction
     // via the toggle. FloatArray uses reference equality so this fires on every
@@ -548,8 +586,10 @@ fun DashboardScreen(
             showGraphicEq = true
         }
     }
-    var savedBandGainsBeforeDisable by remember { mutableStateOf<FloatArray?>(null) }
     var showLiveChain by remember { mutableStateOf(false) }
+    var showHearPrint by remember { mutableStateOf(false) }
+    var showTaste by remember { mutableStateOf(false) }
+    var tasteRetake by remember { mutableStateOf<Int?>(null) }
     var showAutoEq by remember { mutableStateOf(false) }
     var autoEqQuery by remember { mutableStateOf("") }
     // Name of the preset (built-in or custom) the user last selected — now a
@@ -559,12 +599,6 @@ fun DashboardScreen(
     // rest of this function can keep using the nullable convention
     // ExpandedEqDialog already expects.
     val selectedPresetName = selectedPresetName.ifBlank { null }
-    val statusText = when {
-        isAttached && dspBypassed -> "Bypass · ${activePackageName ?: "Session ${sessionId ?: 0}"} (no effects active)"
-        isAttached -> "DSP active · ${activePackageName ?: "Session ${sessionId ?: 0}"}"
-        masterEnabled -> "Waiting for playback"
-        else -> "Engine off"
-    }
 
     // Read-only summary for the pipeline inspector — the switches stay on
     // the cards below; the inspector only names what is switched on.
@@ -578,18 +612,19 @@ fun DashboardScreen(
         postGainDb = postGainDb,
         autoTrimDb = autoTrimDb,
         activeStages = buildList {
-            if (graphicEqEnabled) add(selectedPresetName?.let { "Graphic EQ ($it)" } ?: "Graphic EQ")
-            if (digitalFilterEnabled) add("Parametric EQ")
-            if (loudnessEnabled) add("Loudness Contour")
-            if (surroundMode != SurroundMode.Off) add("Surround+ ${surroundMode.displayName}")
-            if (tubeWarmthEnabled) add("Tube Warmth")
-            if (dbfbMode != DbfbMode.Off) add("DBFB ${dbfbMode.displayName}")
-            if (analogBassEnabled && surroundMode != SurroundMode.Front) add("Analog Bass")
-            if (hdrDynamicsEnabled) add("HDR ${hdrMode.displayName}")
-            if (hiResUpscalerEnabled) add("Hi-Res Upscaler")
-            if (harmonicExciterEnabled) add("Harmonic Exciter")
-            if (mobileBassEnabled && currentOutputDevice == "Phone Speaker") add("Mobile Bass")
-            if (sbcModeEnabled && currentOutputDevice.startsWith("Bluetooth")) add("SBC Enhancement")
+            if (graphicEqEnabled) add(selectedPresetName?.let { "${stringResource(R.string.dash_name_graphic_eq)} (${presetLabel(it)})" } ?: stringResource(R.string.dash_name_graphic_eq))
+            if (digitalFilterEnabled) add(stringResource(R.string.dash_name_parametric_eq))
+            if (hearPrint != null && hearPrint.enabled && !hearPrint.onSpeaker) add(stringResource(R.string.hp_title))
+            if (loudnessEnabled) add(stringResource(R.string.dash_name_loudness))
+            if (surroundMode != SurroundMode.Off) add("Surround+ ${surroundMode.labelText()}")
+            if (tubeWarmthEnabled) add(stringResource(R.string.dash_name_tube))
+            if (dbfbMode != DbfbMode.Off) add("DBFB ${dbfbMode.labelText()}")
+            if (analogBassEnabled && surroundMode != SurroundMode.Front) add(stringResource(R.string.dash_name_analog_bass))
+            if (hdrDynamicsEnabled) add("HDR ${hdrMode.labelText()}")
+            if (hiResUpscalerEnabled) add(stringResource(R.string.dash_name_hires))
+            if (harmonicExciterEnabled) add(stringResource(R.string.dash_name_exciter))
+            if (mobileBassEnabled && currentOutputDevice == "Phone Speaker") add(stringResource(R.string.dash_name_mobile_bass_short))
+            if (sbcModeEnabled && currentOutputDevice.startsWith("Bluetooth")) add(stringResource(R.string.dash_name_sbc))
         },
         outputLabel = currentOutputDevice,
         sbcModeEnabled = sbcModeEnabled,
@@ -769,12 +804,12 @@ fun DashboardScreen(
              modifier = Modifier.weight(1f).padding(start = if (glass) 12.dp else 0.dp))
         StatusChip(
             icon = outputDeviceIcon(currentOutputDevice),
-            text = currentOutputDevice.removePrefix("Bluetooth: ").removePrefix("USB: ")
-                .let { if (perAppProfileActive) "$it · app" else it },
+            text = outputDeviceName(currentOutputDevice.removePrefix("Bluetooth: ").removePrefix("USB: "))
+                .let { if (perAppProfileActive) stringResource(R.string.dash_chip_app_suffix, it) else it },
             onClick = { showLiveChain = true }
         )
         IconButton(onClick = { showSettings = true }) {
-            Icon(Icons.Default.Settings, "Settings")
+            Icon(Icons.Default.Settings, stringResource(R.string.dash_settings))
         }
     }
     Box(Modifier.fillMaxSize().jadooBackdrop()) {
@@ -811,20 +846,23 @@ fun DashboardScreen(
                         Column(Modifier.weight(1f)) {
                             Text(
                                 when {
-                                    !masterEnabled -> "Off"
-                                    dspBypassed || !isAttached -> "Standing by"
-                                    else -> "Processing"
+                                    !masterEnabled -> stringResource(R.string.dash_off)
+                                    dspBypassed || !isAttached -> stringResource(R.string.dash_hero_standby)
+                                    else -> stringResource(R.string.dash_hero_processing)
                                 },
                                 style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 when {
-                                    !masterEnabled -> "Tap power to process ${currentOutputDevice.lowercase().let { if (it == "phone speaker") "the speaker" else currentOutputDevice }}"
-                                    !isAttached -> "Waiting for playback"
-                                    dspBypassed -> "Nothing switched on"
+                                    !masterEnabled ->
+                                        if (currentOutputDevice.equals("Phone Speaker", ignoreCase = true))
+                                            stringResource(R.string.dash_hero_tap_power_speaker)
+                                        else stringResource(R.string.dash_hero_tap_power_device, outputDeviceName(currentOutputDevice))
+                                    !isAttached -> stringResource(R.string.dash_waiting_playback)
+                                    dspBypassed -> stringResource(R.string.dash_nothing_on)
                                     else -> listOfNotNull(activePackageName,
-                                        "${liveChainState.activeStages.size} feature" +
-                                            if (liveChainState.activeStages.size == 1) "" else "s").joinToString(" · ")
+                                        pluralStringResource(R.plurals.dash_features_on,
+                                            liveChainState.activeStages.size, liveChainState.activeStages.size)).joinToString(" · ")
                                 },
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -841,14 +879,16 @@ fun DashboardScreen(
                             .clickable { showGainControls = !showGainControls }
                             .padding(horizontal = 4.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        Text("Tonal response", style = MaterialTheme.typography.labelLarge,
+                        Text(stringResource(R.string.dash_tonal_response), style = MaterialTheme.typography.labelLarge,
                              color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         Text(
-                            String.format(Locale.US, "In %+.1f · Out %+.1f dB", preGainDb, postGainDb),
+                            stringResource(R.string.dash_in_out_db,
+                                String.format(Locale.US, "%+.1f", preGainDb), String.format(Locale.US, "%+.1f", postGainDb)),
                             style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Icon(Icons.Default.ExpandMore, if (showGainControls) "Hide gain" else "Show gain",
+                        Icon(Icons.Default.ExpandMore,
+                             if (showGainControls) stringResource(R.string.dash_hide_gain) else stringResource(R.string.dash_show_gain),
                              tint = MaterialTheme.colorScheme.onSurfaceVariant,
                              modifier = Modifier.size(20.dp).graphicsLayer {
                                  rotationZ = if (showGainControls) 180f else 0f
@@ -872,7 +912,7 @@ fun DashboardScreen(
             // ── Signal path ───────────────────────────────────────────────
             Entrance(1) {
                 Column {
-                    GroupHeader("Signal path")
+                    GroupHeader(stringResource(R.string.dash_group_signal_path))
                     LiveChainCard(state = liveChainState, onOpen = { showLiveChain = true })
                 }
             }
@@ -899,10 +939,11 @@ fun DashboardScreen(
                         Icon(Icons.Default.Headphones, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Correct ${connectedModel ?: "your headphones"}",
+                            Text(if (connectedModel != null) stringResource(R.string.dash_correct_model, connectedModel)
+                                     else stringResource(R.string.dash_correct_headphones),
                                  style = MaterialTheme.typography.titleSmall,
                                  color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Text("Find its measured EQ in the AutoEQ database",
+                            Text(stringResource(R.string.dash_correct_hint),
                                  style = MaterialTheme.typography.bodyMedium,
                                  color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
                         }
@@ -923,27 +964,24 @@ fun DashboardScreen(
             // ── Tone ──────────────────────────────────────────────────────
             Entrance(2) {
                 Column {
-                    GroupHeader("Tone", trailing = selectedPresetName?.takeIf { graphicEqEnabled })
+                    GroupHeader(stringResource(R.string.dash_group_tone),
+                        trailing = selectedPresetName?.takeIf { graphicEqEnabled }?.let { presetLabel(it) })
                     FeatureGroup {
                         FeatureRow(
                             icon = Icons.Default.GraphicEq,
                             glyph = FeatureGlyph.GraphicEq,
-                            title = "Graphic EQ",
-                            subtitle = if (graphicEqEnabled) "15 bands · tap the graph to expand" else "15-band equalizer",
+                            title = stringResource(R.string.dash_name_graphic_eq),
+                            subtitle = if (graphicEqEnabled) stringResource(R.string.dash_geq_sub_on) else stringResource(R.string.dash_geq_sub_off),
                             checked = graphicEqEnabled,
                             enabled = manualControlsEnabled,
                             fullWidthContent = true,
                             titleContrastTint = true,
                             onCheckedChange = { enabled ->
                                 graphicEqEnabled = enabled
-                                if (enabled) {
-                                    showGraphicEq = true
-                                    savedBandGainsBeforeDisable?.let { onPresetSelected(it) }
-                                } else {
-                                    showGraphicEq = false
-                                    savedBandGainsBeforeDisable = bandGains.copyOf()
-                                    onPresetSelected(FloatArray(EqBands.count))
-                                }
+                                showGraphicEq = enabled
+                                // The service keeps the curve while off, saved
+                                // with the profile, so it survives a restart.
+                                onGraphicEqEnabledChanged(enabled)
                             }
                         ) {
                             EqGraphWithStickyLabels(bandGains = bandGains, enabled = manualControlsEnabled,
@@ -955,9 +993,9 @@ fun DashboardScreen(
                         FeatureRow(
                             icon = Icons.Default.Tune,
                             glyph = FeatureGlyph.ParametricEq,
-                            title = "Parametric EQ",
+                            title = stringResource(R.string.dash_name_parametric_eq),
                             subtitle = autoEqProfileName.takeIf { it.isNotBlank() }?.let { "AutoEQ · $it" }
-                                ?: "16 filters with Q and filter types",
+                                ?: stringResource(R.string.dash_peq_sub),
                             checked = digitalFilterEnabled,
                             enabled = masterEnabled,
                             onCheckedChange = onDigitalFilterEnabledChanged,
@@ -965,18 +1003,28 @@ fun DashboardScreen(
                         ) {
                             FilledTonalButton(onClick = { showParametricEq = true }, modifier = Modifier.fillMaxWidth(),
                                               colors = jadooTonalButtonColors(), border = jadooTonalButtonBorder()) {
-                                Text("Edit filters")
+                                Text(stringResource(R.string.dash_edit_filters))
                             }
                         }
                         GroupDivider()
                         NavRow(
                             icon = Icons.Default.Headphones,
-                            title = "Headphone correction",
-                            value = autoEqProfileName.ifBlank { "Search 8,000+ measured headphones" },
+                            title = stringResource(R.string.dash_headphone_correction),
+                            value = autoEqProfileName.ifBlank { stringResource(R.string.dash_search_headphones) },
                             accent = autoEqProfileName.isNotBlank() && digitalFilterEnabled,
                             enabled = masterEnabled,
                             onClick = { autoEqQuery = ""; showAutoEq = true }
                         )
+                        if (hearPrint != null) {
+                            GroupDivider()
+                            HearPrintRow(
+                                ui = hearPrint,
+                                masterEnabled = masterEnabled,
+                                onOpenTest = { showHearPrint = true },
+                                onOpenTaste = { retake -> tasteRetake = retake; showTaste = true },
+                                onHelp = { helpDialog = HelpContent.HearPrint }
+                            )
+                        }
                     }
                 }
             }
@@ -985,33 +1033,33 @@ fun DashboardScreen(
             val analogBassBlockedByFront = surroundMode == SurroundMode.Front
             Entrance(3) {
                 Column {
-                    GroupHeader("Character")
+                    GroupHeader(stringResource(R.string.dash_group_character))
                     FeatureGroup {
                         FeatureRow(
                             icon = Icons.Default.Radio,
                             glyph = FeatureGlyph.AnalogBass,
-                            title = "Analog Bass",
+                            title = stringResource(R.string.dash_name_analog_bass),
                             subtitle = when {
-                                analogBassBlockedByFront -> "Not available with Front Stage"
-                                analogBassEnabled -> "Drive, warmth and Pultec low end"
-                                else -> "Vintage hardware bass"
+                                analogBassBlockedByFront -> stringResource(R.string.dash_ab_blocked)
+                                analogBassEnabled -> stringResource(R.string.dash_ab_on)
+                                else -> stringResource(R.string.dash_ab_off)
                             },
                             checked = analogBassEnabled && !analogBassBlockedByFront,
                             enabled = masterEnabled && !analogBassBlockedByFront,
                             onCheckedChange = onAnalogBassEnabledChanged,
                             onHelpClick = { helpDialog = HelpContent.AnalogBass }
                         ) {
-                            LabeledSlider(label = "Drive", value = analogBassDrive,
+                            LabeledSlider(label = stringResource(R.string.dash_drive), value = analogBassDrive,
                                 valueLabel = "${String.format(Locale.US, "%.0f", analogBassDrive * 100)}%",
                                 onValueChange = onAnalogBassDriveChanged, steps = 100)
-                            LabeledSlider(label = "Warmth", value = analogBassWarmth,
+                            LabeledSlider(label = stringResource(R.string.dash_warmth), value = analogBassWarmth,
                                 valueLabel = "${String.format(Locale.US, "%.0f", analogBassWarmth * 100)}%",
                                 onValueChange = onAnalogBassWarmthChanged, steps = 100)
-                            LabeledSlider(label = "Drift", value = analogBassDrift,
+                            LabeledSlider(label = stringResource(R.string.dash_drift), value = analogBassDrift,
                                 valueLabel = "${String.format(Locale.US, "%.0f", analogBassDrift * 100)}%",
                                 onValueChange = onAnalogBassDriftChanged, steps = 100)
                             Text(
-                                if (mobileBassEnabled) "Pultec EQ · inactive while Mobile Bass is on" else "Pultec EQ frequency",
+                                if (mobileBassEnabled) stringResource(R.string.dash_pultec_inactive) else stringResource(R.string.dash_pultec_freq),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = if (mobileBassEnabled) MaterialTheme.colorScheme.onSurfaceVariant
                                         else MaterialTheme.colorScheme.onSurface
@@ -1036,10 +1084,10 @@ fun DashboardScreen(
                                                border = jadooFilterChipBorder(true, analogBassPultecFreqIndex == idx))
                                 }
                             }
-                            LabeledSlider(label = "Boost", value = analogBassPultecBoost,
+                            LabeledSlider(label = stringResource(R.string.dash_boost), value = analogBassPultecBoost,
                                 valueLabel = "+${String.format(Locale.US, "%.1f", analogBassPultecBoost * 8)} dB",
                                 onValueChange = onAnalogBassPultecBoostChanged, steps = 80)
-                            LabeledSlider(label = "Cut", value = analogBassPultecCut,
+                            LabeledSlider(label = stringResource(R.string.dash_cut), value = analogBassPultecCut,
                                 valueLabel = "-${String.format(Locale.US, "%.1f", analogBassPultecCut * 5)} dB",
                                 onValueChange = onAnalogBassPultecCutChanged, steps = 40)
                             TextButton(onClick = {
@@ -1049,20 +1097,20 @@ fun DashboardScreen(
                                 onAnalogBassPultecBoostChanged(0.5f)
                                 onAnalogBassPultecCutChanged(0.3f)
                                 onAnalogBassPultecFreqIndexChanged(2)
-                            }) { Text("Reset to defaults") }
+                            }) { Text(stringResource(R.string.dash_reset_defaults)) }
                         }
                         GroupDivider()
                         FeatureRow(
                             icon = Icons.Default.Whatshot,
                             glyph = FeatureGlyph.TubeWarmth,
-                            title = "Tube Warmth",
-                            subtitle = if (tubeWarmthEnabled) "Warm bloom, softened highs" else "Valve-amp tone",
+                            title = stringResource(R.string.dash_name_tube),
+                            subtitle = if (tubeWarmthEnabled) stringResource(R.string.dash_tube_on) else stringResource(R.string.dash_tube_off),
                             checked = tubeWarmthEnabled,
                             enabled = masterEnabled,
                             onCheckedChange = onTubeWarmthEnabledChanged,
                             onHelpClick = { helpDialog = HelpContent.TubeWarmth }
                         ) {
-                            LabeledSlider(label = "Intensity", value = tubeWarmthIntensity,
+                            LabeledSlider(label = stringResource(R.string.dash_intensity), value = tubeWarmthIntensity,
                                 valueLabel = "${String.format(Locale.US, "%.0f", tubeWarmthIntensity * 100)}%",
                                 onValueChange = onTubeWarmthIntensityChanged, steps = 100)
                         }
@@ -1070,8 +1118,8 @@ fun DashboardScreen(
                         FeatureRow(
                             icon = Icons.Default.WbSunny,
                             glyph = FeatureGlyph.Dbfb,
-                            title = "JadOO DBFB",
-                            subtitle = if (dbfbMode == DbfbMode.Off) "Level-aware sub-bass" else "Dynamic bass · ${dbfbMode.displayName}",
+                            title = stringResource(R.string.dash_name_dbfb),
+                            subtitle = if (dbfbMode == DbfbMode.Off) stringResource(R.string.dash_dbfb_off) else stringResource(R.string.dash_dbfb_on, dbfbMode.labelText()),
                             checked = dbfbMode != DbfbMode.Off,
                             enabled = masterEnabled,
                             onCheckedChange = { on -> onDbfbModeChanged(if (on) DbfbMode.Normal else DbfbMode.Off) },
@@ -1083,8 +1131,8 @@ fun DashboardScreen(
                         FeatureRow(
                             icon = Icons.Default.HighQuality,
                             glyph = FeatureGlyph.HiRes,
-                            title = "Hi-Res Upscaler",
-                            subtitle = if (hiResUpscalerEnabled) "Air · silk · presence" else "More air and sparkle up top",
+                            title = stringResource(R.string.dash_name_hires),
+                            subtitle = if (hiResUpscalerEnabled) stringResource(R.string.dash_hires_on) else stringResource(R.string.dash_hires_off),
                             checked = hiResUpscalerEnabled,
                             enabled = masterEnabled,
                             onCheckedChange = onHiResUpscalerToggled,
@@ -1094,14 +1142,14 @@ fun DashboardScreen(
                         FeatureRow(
                             icon = Icons.Default.AutoAwesome,
                             glyph = FeatureGlyph.Exciter,
-                            title = "Harmonic Exciter",
-                            subtitle = if (harmonicExciterEnabled) "Adding presence and sparkle" else "Clarity in the 2-8 kHz range",
+                            title = stringResource(R.string.dash_name_exciter),
+                            subtitle = if (harmonicExciterEnabled) stringResource(R.string.dash_exciter_on) else stringResource(R.string.dash_exciter_off),
                             checked = harmonicExciterEnabled,
                             enabled = masterEnabled,
                             onCheckedChange = onHarmonicExciterEnabledChanged,
                             onHelpClick = { helpDialog = HelpContent.HarmonicExciter }
                         ) {
-                            LabeledSlider(label = "Intensity", value = harmonicExciterIntensity,
+                            LabeledSlider(label = stringResource(R.string.dash_intensity), value = harmonicExciterIntensity,
                                 valueLabel = "${String.format(Locale.US, "%.0f", harmonicExciterIntensity * 100)}%",
                                 onValueChange = onHarmonicExciterIntensityChanged, steps = 100)
                         }
@@ -1109,8 +1157,8 @@ fun DashboardScreen(
                         FeatureRow(
                             icon = Icons.Default.Contrast,
                             glyph = FeatureGlyph.Hdr,
-                            title = "HDR Dynamics",
-                            subtitle = if (hdrDynamicsEnabled) "${hdrMode.displayName} · restores punch" else "Opens up brickwalled masters",
+                            title = stringResource(R.string.dash_name_hdr),
+                            subtitle = if (hdrDynamicsEnabled) stringResource(R.string.dash_hdr_on, hdrMode.labelText()) else stringResource(R.string.dash_hdr_off),
                             checked = hdrDynamicsEnabled,
                             enabled = masterEnabled,
                             onCheckedChange = onHdrDynamicsToggled,
@@ -1125,14 +1173,14 @@ fun DashboardScreen(
             // ── Space ─────────────────────────────────────────────────────
             Entrance(4) {
                 Column {
-                    GroupHeader("Space")
+                    GroupHeader(stringResource(R.string.dash_group_space))
                     FeatureGroup {
                         NavRow(
                             icon = Icons.Default.SurroundSound,
                             glyph = FeatureGlyph.Surround,
-                            title = "JadOO Surround+",
+                            title = stringResource(R.string.dash_name_surround),
                             value = if (surroundMode != SurroundMode.Off)
-                                "${surroundMode.displayName} · ${surroundMode.tagline}" else "Off · choose a stage",
+                                "${surroundMode.labelText()} · ${surroundMode.taglineText()}" else stringResource(R.string.dash_surround_off_hint),
                             accent = surroundMode != SurroundMode.Off,
                             enabled = masterEnabled,
                             onClick = { showSurroundPicker = true },
@@ -1145,32 +1193,31 @@ fun DashboardScreen(
             // ── Level ─────────────────────────────────────────────────────
             Entrance(5) {
                 Column {
-                    GroupHeader("Level")
+                    GroupHeader(stringResource(R.string.dash_group_level))
                     FeatureGroup {
                         val belowReference = (loudnessReferencePhon - loudnessCurrentPhon).coerceAtLeast(0f)
                         FeatureRow(
                             icon = Icons.AutoMirrored.Filled.VolumeUp,
                             glyph = FeatureGlyph.Loudness,
-                            title = "Loudness Contour",
+                            title = stringResource(R.string.dash_name_loudness),
                             subtitle = when {
-                                !loudnessEnabled -> "Keeps the balance at low volume"
-                                belowReference < 1f -> "At reference level · no correction"
-                                else -> "${String.format(Locale.US, "%.0f", belowReference)} dB below reference · compensating"
+                                !loudnessEnabled -> stringResource(R.string.dash_loudness_off)
+                                belowReference < 1f -> stringResource(R.string.dash_loudness_at_ref)
+                                else -> stringResource(R.string.dash_loudness_below_ref, belowReference.roundToInt())
                             },
                             checked = loudnessEnabled,
                             enabled = masterEnabled,
                             onCheckedChange = onLoudnessEnabledChanged,
                             onHelpClick = { helpDialog = HelpContent.LoudnessContour }
                         ) {
-                            LabeledSlider(label = "Amount", value = loudnessAmount,
+                            LabeledSlider(label = stringResource(R.string.dash_amount), value = loudnessAmount,
                                 valueLabel = "${String.format(Locale.US, "%.0f", loudnessAmount * 100)}%",
                                 onValueChange = onLoudnessAmountChanged, steps = 100)
-                            LabeledSlider(label = "Reference level",
+                            LabeledSlider(label = stringResource(R.string.dash_reference_level),
                                 value = (loudnessReferencePhon - 60f) / 30f,
                                 valueLabel = "${String.format(Locale.US, "%.0f", loudnessReferencePhon)} dB SPL",
                                 onValueChange = { onLoudnessReferencePhonChanged(60f + it * 30f) }, steps = 30)
-                            Text("Set the reference to how loud your gear is at full volume. Saved per output; " +
-                                 "never boosts above the reference.",
+                            Text(stringResource(R.string.dash_loudness_note),
                                  style = MaterialTheme.typography.bodySmall,
                                  color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -1186,19 +1233,19 @@ fun DashboardScreen(
                 exit = shrinkVertically(JadooTheme.motion.standardSize) + fadeOut(JadooTheme.motion.fade)) {
                 Entrance(6) {
                     Column {
-                        GroupHeader(if (onSpeaker) "Phone speaker" else "Bluetooth")
+                        GroupHeader(if (onSpeaker) stringResource(R.string.dash_device_phone_speaker) else "Bluetooth")
                         FeatureGroup {
                             if (onSpeaker) {
                                 FeatureRow(
                                     icon = Icons.Default.Speaker,
-                                    title = "JadOO Mobile Bass",
-                                    subtitle = if (mobileBassEnabled) "Restoring missing low end" else "Fuller bass from the built-in speaker",
+                                    title = stringResource(R.string.dash_name_mobile_bass),
+                                    subtitle = if (mobileBassEnabled) stringResource(R.string.dash_mobile_bass_on) else stringResource(R.string.dash_mobile_bass_off),
                                     checked = mobileBassEnabled,
                                     enabled = masterEnabled,
                                     onCheckedChange = onMobileBassEnabledChanged,
                                     onHelpClick = { helpDialog = HelpContent.MobileBass }
                                 ) {
-                                    LabeledSlider(label = "Amount", value = mobileBassIntensity,
+                                    LabeledSlider(label = stringResource(R.string.dash_amount), value = mobileBassIntensity,
                                         valueLabel = "${String.format(Locale.US, "%.0f", mobileBassIntensity * 100)}%",
                                         onValueChange = onMobileBassIntensityChanged, steps = 100)
                                 }
@@ -1206,8 +1253,8 @@ fun DashboardScreen(
                             if (onBt) {
                                 FeatureRow(
                                     icon = Icons.Default.Bluetooth,
-                                    title = "SBC Enhancement",
-                                    subtitle = if (sbcModeEnabled) "${sbcStyle.displayName} · for the SBC encoder" else "For SBC headphones only",
+                                    title = stringResource(R.string.dash_name_sbc),
+                                    subtitle = if (sbcModeEnabled) stringResource(R.string.dash_sbc_on, sbcStyle.labelText()) else stringResource(R.string.dash_sbc_off),
                                     checked = sbcModeEnabled,
                                     enabled = masterEnabled,
                                     onCheckedChange = onSbcModeEnabledChanged,
@@ -1221,7 +1268,7 @@ fun DashboardScreen(
                                                 onClick = { onSbcStyleChanged(style) },
                                                 shape = SegmentedButtonDefaults.itemShape(i, styles.size),
                                                 colors = jadooSegmentedColors()
-                                            ) { Text(style.displayName) }
+                                            ) { Text(style.labelText()) }
                                         }
                                     }
                                 }
@@ -1282,6 +1329,35 @@ fun DashboardScreen(
                     onApply = onApplyAutoEq,
                     onNavigateBack = { showAutoEq = false }
                 )
+            }
+        }
+    }
+
+    if (showHearPrint && hearPrint != null) {
+        Dialog(
+            onDismissRequest = { showHearPrint = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        ) {
+            JadooScreenSurface(
+                modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                HearPrintScreen(ui = hearPrint, onNavigateBack = { showHearPrint = false },
+                                onOpenTaste = { tasteRetake = null; showTaste = true })
+            }
+        }
+    }
+
+    if (showTaste && hearPrint != null) {
+        Dialog(
+            onDismissRequest = { showTaste = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        ) {
+            JadooScreenSurface(
+                modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                TasteScreen(ui = hearPrint, retakeIndex = tasteRetake, onNavigateBack = { showTaste = false })
             }
         }
     }
@@ -1372,7 +1448,7 @@ private fun HdrModeChips(
             FilterChip(
                 selected = selected,
                 onClick = { onModeSelected(mode) },
-                label = { Text(mode.displayName) },
+                label = { Text(mode.labelText()) },
                 enabled = enabled,
                 shape = jadooChipShape(FilterChipDefaults.shape),
                 colors = jadooFilterChipColors(),
@@ -1399,7 +1475,7 @@ private fun DbfbModeChips(
             FilterChip(
                 selected = selected,
                 onClick = { onModeSelected(mode) },
-                label = { Text(mode.displayName) },
+                label = { Text(mode.labelText()) },
                 enabled = enabled,
                 shape = jadooChipShape(FilterChipDefaults.shape),
                 colors = jadooFilterChipColors(),
@@ -1518,7 +1594,7 @@ private fun DeviceTypeCard(
                     modifier = Modifier.size(24.dp)
                 )
                 Text(
-                    text = type.displayName,
+                    text = type.labelText(),
                     fontSize = 13.sp,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
@@ -1532,7 +1608,7 @@ private fun DeviceTypeCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Selected",
+                    contentDescription = stringResource(R.string.dash_selected),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp)
                 )
@@ -1564,7 +1640,7 @@ private fun GainControlDeck(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Input and output gain",
+                    stringResource(R.string.dash_gain_deck_title),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1573,19 +1649,19 @@ private fun GainControlDeck(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                 ) {
                     Text(
-                        "Reset all",
+                        stringResource(R.string.dash_reset_all),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
             GainSlider(
-                label = "Pre gain",
+                label = stringResource(R.string.dash_pre_gain),
                 value = preGainDb,
                 onValueChange = onPreGainChanged
             )
             GainSlider(
-                label = "Post gain",
+                label = stringResource(R.string.dash_post_gain),
                 value = postGainDb,
                 onValueChange = onPostGainChanged
             )
@@ -2260,12 +2336,12 @@ private fun ExpandedEqDialog(
                 ) {
                     Column {
                         Text(
-                            text = "15-band EQ",
+                            text = stringResource(R.string.dash_eq_title),
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Save and recall custom curves",
+                            text = stringResource(R.string.dash_eq_subtitle),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp
                         )
@@ -2273,7 +2349,7 @@ private fun ExpandedEqDialog(
                     IconButton(onClick = onDismiss) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Close EQ editor"
+                            contentDescription = stringResource(R.string.dash_eq_close)
                         )
                     }
                 }
@@ -2319,7 +2395,7 @@ private fun ExpandedEqDialog(
                             shape = jadooChipShape(AssistChipDefaults.shape),
                             border = jadooAssistChipBorder(enabled),
                             onClick = { onSavePreset(overwriteTargetPreset.name, bandGains.copyOf()) },
-                            label = { Text("Overwrite \"${overwriteTargetPreset.name}\"") },
+                            label = { Text(stringResource(R.string.dash_overwrite_named, overwriteTargetPreset.name)) },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.Save,
@@ -2352,7 +2428,7 @@ private fun ExpandedEqDialog(
                             onPresetNameChanged(null)
                             onPresetSelected(FloatArray(EqBands.count))
                         },
-                        label = { Text("Reset (Flat)") },
+                        label = { Text(stringResource(R.string.dash_eq_reset_flat_paren)) },
                         enabled = enabled,
                         shape = jadooChipShape(AssistChipDefaults.shape),
                         colors = jadooAssistChipColors(),
@@ -2364,7 +2440,7 @@ private fun ExpandedEqDialog(
                                 onPresetNameChanged(name)
                                 onPresetSelected(gains)
                             },
-                            label = { Text(name) },
+                            label = { Text(presetLabel(name)) },
                             enabled = enabled,
                             shape = jadooChipShape(AssistChipDefaults.shape),
                             colors = jadooAssistChipColors(),
@@ -2406,7 +2482,7 @@ private fun ExpandedEqDialog(
                                 border = jadooMenuBorder()
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Overwrite with current EQ") },
+                                    text = { Text(stringResource(R.string.dash_eq_overwrite_current)) },
                                     onClick = {
                                         onSavePreset(preset.name, bandGains.copyOf())
                                         onPresetNameChanged(preset.name)
@@ -2416,7 +2492,7 @@ private fun ExpandedEqDialog(
                                 DropdownMenuItem(
                                     text = {
                                         Text(
-                                            "Delete",
+                                            stringResource(R.string.dash_delete),
                                             color = MaterialTheme.colorScheme.error
                                         )
                                     },
@@ -2431,7 +2507,7 @@ private fun ExpandedEqDialog(
                     }
                     AssistChip(
                         onClick = { showSaveDialog = true },
-                        label = { Text("Save current") },
+                        label = { Text(stringResource(R.string.dash_eq_save_current)) },
                         shape = jadooChipShape(AssistChipDefaults.shape),
                         colors = jadooAssistChipColors(),
                         border = jadooAssistChipBorder(true)
@@ -2441,7 +2517,7 @@ private fun ExpandedEqDialog(
                             onPresetNameChanged(null)
                             onPresetSelected(FloatArray(EqBands.count))
                         },
-                        label = { Text("Reset flat") },
+                        label = { Text(stringResource(R.string.dash_eq_reset_flat)) },
                         enabled = enabled,
                         shape = jadooChipShape(AssistChipDefaults.shape),
                         colors = jadooAssistChipColors(),
@@ -2481,7 +2557,7 @@ private fun SavePresetDialog(
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 Text(
-                    text = "Save preset",
+                    text = stringResource(R.string.dash_save_preset),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -2489,21 +2565,21 @@ private fun SavePresetDialog(
                     value = presetName,
                     onValueChange = { presetName = it },
                     singleLine = true,
-                    label = { Text("Preset name") }
+                    label = { Text(stringResource(R.string.dash_preset_name)) }
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
                     TextButton(onClick = onDismiss) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.dash_cancel))
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     TextButton(
                         onClick = { onSave(presetName) },
                         enabled = presetName.isNotBlank()
                     ) {
-                        Text("Save")
+                        Text(stringResource(R.string.dash_save))
                     }
                 }
             }
@@ -2540,12 +2616,13 @@ private fun UpdatesCard() {
 
     SettingsCard {
         Text(
-            text = "Updates",
+            text = stringResource(R.string.dash_updates),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
         )
         Text(
-            text = "Installed version $versionName",
+            text = stringResource(R.string.dash_installed_version,
+                installed?.versionName ?: stringResource(R.string.dash_unknown)),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.sp
         )
@@ -2630,9 +2707,9 @@ private fun SettingsScreen(
         header = {
             if (glass) GlassTopBar {
                 IconButton(onClick = onNavigateBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.dash_back))
                 }
-                Text("Settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.dash_settings), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             }
         }
     ) { headerTop ->
@@ -2655,24 +2732,24 @@ private fun SettingsScreen(
         if (!glass) {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onNavigateBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.dash_back))
                 }
             }
-            Text("Settings", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold,
+            Text(stringResource(R.string.dash_settings), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold,
                  modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp))
         }
 
         // ── Headphone correction (AutoEQ) ─────────────────────────────────
         Entrance(0) {
             Column {
-                GroupHeader("Headphone correction")
+                GroupHeader(stringResource(R.string.dash_headphone_correction))
                 FeatureGroup {
                     NavRow(
                         icon = Icons.Default.Headphones,
-                        title = if (autoEqProfileName.isBlank()) "Find your headphone" else autoEqProfileName,
+                        title = if (autoEqProfileName.isBlank()) stringResource(R.string.dash_find_headphone) else autoEqProfileName,
                         value = if (autoEqProfileName.isBlank())
-                            "8,000+ measured headphones and IEMs · AutoEQ"
-                        else "Applied to $currentOutputDevice · tap to change",
+                            stringResource(R.string.dash_find_headphone_sub)
+                        else stringResource(R.string.dash_applied_to, outputDeviceName(currentOutputDevice)),
                         accent = autoEqProfileName.isNotBlank(),
                         onClick = onOpenAutoEq
                     )
@@ -2680,12 +2757,11 @@ private fun SettingsScreen(
                         GroupDivider()
                         TextButton(onClick = onRemoveAutoEq,
                                    modifier = Modifier.padding(start = 56.dp, bottom = 4.dp)) {
-                            Text("Remove correction")
+                            Text(stringResource(R.string.dash_remove_correction))
                         }
                     }
                 }
-                Text("Corrections are saved per output device and load into the Parametric EQ, " +
-                     "where you can fine-tune them.",
+                Text(stringResource(R.string.dash_correction_note),
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.onSurfaceVariant,
                      modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp))
@@ -2695,14 +2771,14 @@ private fun SettingsScreen(
         // ── Driver type ───────────────────────────────────────────────────
         Entrance(1) {
             Column {
-                GroupHeader("Driver type")
+                GroupHeader(stringResource(R.string.dash_group_device_type))
                 FeatureGroup {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
                             text = if (currentOutputDevice == "Phone Speaker")
-                                "Locked to General on the phone speaker. Mobile Bass already scales for it."
+                                stringResource(R.string.dash_driver_locked)
                             else
-                                "Scales bass and treble features to what your driver can reproduce.",
+                                stringResource(R.string.dash_driver_hint),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -2719,17 +2795,17 @@ private fun SettingsScreen(
         // ── Sound ─────────────────────────────────────────────────────────
         Entrance(2) {
             Column {
-                GroupHeader("Sound")
+                GroupHeader(stringResource(R.string.dash_group_sound))
                 FeatureGroup {
                     SettingToggleRow(
-                        title = "Precise gain staging",
+                        title = stringResource(R.string.dash_gs_title),
                         subtitle = when {
-                            preciseGainStaging && autoTrimDb < -0.05f -> String.format(Locale.US,
-                                "Input %.1f dB to keep boosts from clipping", autoTrimDb)
-                            preciseGainStaging -> "Boosts get room so loud songs don't clip"
-                            gainBudgetDb > 0.05f -> String.format(Locale.US,
-                                "Legacy: limiter ceiling %.1f dB, no clip protection", -gainBudgetDb)
-                            else -> "Legacy: the limiter ceiling drops by the full boost"
+                            preciseGainStaging && autoTrimDb < -0.05f ->
+                                stringResource(R.string.dash_gs_on_trim, autoTrimDb)
+                            preciseGainStaging -> stringResource(R.string.dash_gs_on_room)
+                            gainBudgetDb > 0.05f ->
+                                stringResource(R.string.dash_gs_legacy_ceiling, -gainBudgetDb)
+                            else -> stringResource(R.string.dash_gs_legacy)
                         },
                         checked = preciseGainStaging,
                         onCheckedChange = onPreciseGainStagingChanged,
@@ -2738,10 +2814,10 @@ private fun SettingsScreen(
                     if (preciseGainStaging) {
                         GroupDivider(inset = false)
                         SettingToggleRow(
-                            title = "Keep full loudness",
+                            title = stringResource(R.string.dash_keep_loudness),
                             subtitle = if (keepFullLoudness)
-                                "No volume drop at full volume · loud songs may clip"
-                            else "Wired, DAC and speaker · stops the drop at full volume",
+                                stringResource(R.string.dash_keep_loudness_on)
+                            else stringResource(R.string.dash_keep_loudness_off),
                             checked = keepFullLoudness,
                             onCheckedChange = onKeepFullLoudnessChanged,
                             onHelpClick = { onHelpRequested(HelpContent.GainStaging) }
@@ -2750,17 +2826,17 @@ private fun SettingsScreen(
                     GroupDivider(inset = false)
                     if (activeAppPackage == null) {
                         Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
-                            Text("Per-app profiles", style = MaterialTheme.typography.bodyLarge,
+                            Text(stringResource(R.string.dash_per_app_title), style = MaterialTheme.typography.bodyLarge,
                                  fontWeight = FontWeight.Medium)
-                            Text("Play something to give that app its own settings.",
+                            Text(stringResource(R.string.dash_per_app_hint),
                                  style = MaterialTheme.typography.bodyMedium,
                                  color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     } else {
                         SettingToggleRow(
-                            title = "Own profile for ${activeAppLabel ?: activeAppPackage}",
+                            title = stringResource(R.string.dash_own_profile_for, activeAppLabel ?: activeAppPackage),
                             subtitle = if (activeAppPackage in perAppProfilePackages)
-                                "Its own settings on every output" else "Uses this output's shared settings",
+                                stringResource(R.string.dash_own_profile_on) else stringResource(R.string.dash_own_profile_off),
                             checked = activeAppPackage in perAppProfilePackages,
                             onCheckedChange = { onPerAppProfileToggled(activeAppPackage, it) },
                             onHelpClick = { onHelpRequested(HelpContent.PerAppProfiles) }
@@ -2773,7 +2849,7 @@ private fun SettingsScreen(
                         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Text(pkg, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { onPerAppProfileToggled(pkg, false) }) { Text("Remove") }
+                            TextButton(onClick = { onPerAppProfileToggled(pkg, false) }) { Text(stringResource(R.string.dash_remove)) }
                         }
                     }
                 }
@@ -2783,7 +2859,7 @@ private fun SettingsScreen(
         // ── Appearance ────────────────────────────────────────────────────
         Entrance(3) {
             Column {
-                GroupHeader("Appearance")
+                GroupHeader(stringResource(R.string.dash_group_appearance))
                 AppearanceSection(
                     settings = themeSettings,
                     onModeChanged = onThemeModeChanged,
@@ -2795,23 +2871,28 @@ private fun SettingsScreen(
             }
         }
 
+        // ── Language ────────────────────────────────────────────────────────────
+        Entrance(3) {
+            LanguageSection()
+        }
+
         // ── Backup ────────────────────────────────────────────────────────
         Entrance(4) {
             Column {
-                GroupHeader("Backup")
+                GroupHeader(stringResource(R.string.dash_group_backup))
                 FeatureGroup {
-                    NavRow(Icons.Default.Save, "Export settings",
-                           "Every setting and preset to one file", onClick = onExportSettings)
+                    NavRow(Icons.Default.Save, stringResource(R.string.dash_export_settings),
+                           stringResource(R.string.dash_export_settings_sub), onClick = onExportSettings)
                     GroupDivider()
-                    NavRow(Icons.Default.Download, "Import settings",
-                           "Restore from a backup file", onClick = onImportSettings)
+                    NavRow(Icons.Default.Download, stringResource(R.string.dash_import_settings),
+                           stringResource(R.string.dash_import_settings_sub), onClick = onImportSettings)
                     savedProfileNames.forEach { name ->
                         GroupDivider(inset = false)
                         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { onLoadProfile(name) }) { Text("Load") }
-                            TextButton(onClick = { onDeleteProfile(name) }) { Text("Delete") }
+                            TextButton(onClick = { onLoadProfile(name) }) { Text(stringResource(R.string.dash_load)) }
+                            TextButton(onClick = { onDeleteProfile(name) }) { Text(stringResource(R.string.dash_delete)) }
                         }
                     }
                 }
@@ -2822,10 +2903,10 @@ private fun SettingsScreen(
         var diagnosticsOpen by remember { mutableStateOf(false) }
         Entrance(5) {
             Column {
-                GroupHeader("Diagnostics")
+                GroupHeader(stringResource(R.string.dash_group_diagnostics))
                 FeatureGroup {
-                    NavRow(Icons.Default.Info, "Send diagnostics",
-                           "Review a report of logs and settings, then share it only if you choose",
+                    NavRow(Icons.Default.Info, stringResource(R.string.dash_send_diagnostics),
+                           stringResource(R.string.dash_send_diagnostics_sub),
                            onClick = { diagnosticsOpen = true })
                 }
             }
@@ -2838,13 +2919,13 @@ private fun SettingsScreen(
         // ── System ────────────────────────────────────────────────────────
         Entrance(6) {
             Column {
-                GroupHeader("System")
+                GroupHeader(stringResource(R.string.dash_group_system))
                 FeatureGroup {
                     NavRow(
                         icon = Icons.Default.Info,
-                        title = "Live stream data",
-                        value = if (dumpPermissionEnabled) "DUMP granted · full signal path"
-                                else "Optional DUMP grant over adb",
+                        title = stringResource(R.string.dash_live_stream),
+                        value = if (dumpPermissionEnabled) stringResource(R.string.dash_dump_granted)
+                                else stringResource(R.string.dash_dump_optional),
                         accent = dumpPermissionEnabled,
                         onClick = { onHelpRequested(HelpContent.DumpPermission) }
                     )
@@ -2864,19 +2945,18 @@ private fun SettingsScreen(
  * Cancel discards it. Nothing is stored or uploaded by the app itself.
  */
 @Composable
+@SuppressLint("LocalContextGetResourceValueCall") // read once at event time; a language change recreates the activity
 private fun DiagnosticsDialog(build: suspend () -> String, onDismiss: () -> Unit) {
     val context = LocalContext.current
     var report by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { report = runCatching { build() }.getOrElse { "Could not build the report: ${it.message}" } }
+    LaunchedEffect(Unit) { report = runCatching { build() }.getOrElse { context.getString(R.string.dash_diag_error, it.message) } }
     JadooAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Send diagnostics") },
+        title = { Text(stringResource(R.string.dash_send_diagnostics)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Device and app version, your current settings, the last crash if there was one, " +
-                        "and JadOO's own recent log. No audio, track names or personal data. " +
-                        "Nothing is sent unless you tap Share.",
+                    stringResource(R.string.dash_diag_text),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Box(Modifier.fillMaxWidth().heightIn(max = 240.dp)
@@ -2884,7 +2964,7 @@ private fun DiagnosticsDialog(build: suspend () -> String, onDismiss: () -> Unit
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f))
                     .padding(10.dp)) {
                     if (report == null) {
-                        Text("Collecting…", style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.dash_collecting), style = MaterialTheme.typography.bodySmall)
                     } else {
                         Text(report!!, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                              fontSize = 10.sp, lineHeight = 13.sp,
@@ -2897,9 +2977,9 @@ private fun DiagnosticsDialog(build: suspend () -> String, onDismiss: () -> Unit
             TextButton(enabled = report != null, onClick = {
                 report?.let { com.jadoo.amp.DiagnosticsReport.share(context, it) }
                 onDismiss()
-            }) { Text("Share") }
+            }) { Text(stringResource(R.string.dash_share)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.dash_cancel)) } }
     )
 }
 
@@ -2907,8 +2987,8 @@ private fun DiagnosticsDialog(build: suspend () -> String, onDismiss: () -> Unit
  * A feature's explainer, as a bottom sheet: grab handle, swipe or tap the
  * scrim to dismiss, and a Done button so the way out is never only a
  * gesture. The diagram leads — it is what most people actually read — and
- * plays its mechanism once, then holds still under the text (see
- * HelpIllustrations.kt). Tapping it, or Replay, runs it again.
+ * plays its mechanism once, then holds with a slow, quiet life under the
+ * text (see HelpIllustrations.kt).
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -2930,21 +3010,15 @@ private fun HelpDialog(
         HelpContent.SbcEnhancement  -> { m -> SbcIllustration(m) }
         HelpContent.LoudnessContour -> { m -> LoudnessIllustration(m) }
         HelpContent.PerAppProfiles  -> { m -> PerAppIllustration(m) }
+        HelpContent.HearPrint       -> { m -> HearPrintIllustration(m) }
         // Not DSP features: an ADB instruction and a limiter policy have no
         // mechanism worth drawing.
         HelpContent.GainStaging     -> null
         HelpContent.DumpPermission  -> null
     }
-    // One shared demonstration timeline; bumping replayKey restarts it.
-    val demo = remember { Animatable(0f) }
-    var replayKey by remember { mutableIntStateOf(0) }
-    LaunchedEffect(replayKey) {
-        demo.snapTo(0f)
-        kotlinx.coroutines.delay(280) // let the sheet finish rising first
-        demo.animateTo(1f, tween(DEMO_MS, easing = LinearEasing))
-    }
-    val (summary, rest) = remember(content) {
-        val paragraphs = content.body.split("\n\n", limit = 2)
+    val bodyText = stringResource(content.bodyRes)
+    val (summary, rest) = remember(bodyText) {
+        val paragraphs = bodyText.split("\n\n", limit = 2)
         paragraphs[0] to paragraphs.getOrNull(1)
     }
 
@@ -2966,40 +3040,12 @@ private fun HelpDialog(
                 .padding(bottom = 24.dp)
         ) {
             if (illustration != null) {
-                Box {
-                    CompositionLocalProvider(LocalDemoProgress provides demo.value) {
-                        illustration(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(184.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .clickable(onClickLabel = "Replay animation") { replayKey++ }
-                        )
-                    }
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = demo.value >= 1f,
-                        enter = fadeIn(JadooTheme.motion.fade),
-                        exit = fadeOut(JadooTheme.motion.fade),
-                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
-                    ) {
-                        JadooSurface(
-                            onClick = { replayKey++ },
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f),
-                            level = GlassLevel.Nested
-                        ) {
-                            Row(Modifier.heightIn(min = 32.dp).padding(horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Replay, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Replay", style = MaterialTheme.typography.labelLarge)
-                            }
-                        }
-                    }
-                }
+                // Each diagram plays its scene once and then holds with a
+                // quiet life of its own (see HelpIllustrations.kt): no replay.
+                illustration(Modifier.fillMaxWidth().height(232.dp))
                 Spacer(Modifier.height(20.dp))
             }
-            Text(content.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(content.titleRes), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
             Text(
                 text = parseInlineBold(summary.trim(), MaterialTheme.colorScheme.onSurface),
@@ -3013,7 +3059,7 @@ private fun HelpDialog(
             Spacer(Modifier.height(24.dp))
             FilledTonalButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(48.dp),
                               colors = jadooTonalButtonColors(), border = jadooTonalButtonBorder()) {
-                Text("Done")
+                Text(stringResource(R.string.dash_done))
             }
         }
     }
@@ -3097,18 +3143,18 @@ private fun SurroundModePickerDialog(
                 ) {
                     Column {
                         Text(
-                            text = "Surround Mode",
+                            text = stringResource(R.string.dash_surround_title),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "EQ-based widening, no resampling",
+                            text = stringResource(R.string.dash_surround_subtitle),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp
                         )
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.dash_close))
                     }
                 }
                 Column(
@@ -3212,7 +3258,7 @@ private fun SurroundModeCard(
             } else {
                 Icon(
                     imageVector = Icons.Default.PowerSettingsNew,
-                    contentDescription = "Off",
+                    contentDescription = stringResource(R.string.dash_off),
                     modifier = Modifier
                         .size(40.dp)
                         .scale(iconScale),
@@ -3223,13 +3269,13 @@ private fun SurroundModeCard(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = mode.displayName,
+                    text = mode.labelText(),
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     color = titleColor
                 )
                 Text(
-                    text = mode.tagline,
+                    text = mode.taglineText(),
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 18.sp
@@ -3327,3 +3373,159 @@ private fun SurroundIllustration(
     }
 }
 
+
+/**
+ * HearPrint's row in Tone: off until a hearing test exists (switching it on
+ * then opens the test). Then the curve, the taste profiles to pick from
+ * (tap the selected one for retake, rename, delete), the hearing strength and
+ * the hearing test's own retake and delete.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun HearPrintRow(
+    ui: HearPrintUi,
+    masterEnabled: Boolean,
+    onOpenTest: () -> Unit,
+    onOpenTaste: (retake: Int?) -> Unit,
+    onHelp: () -> Unit
+) {
+    var confirmDelete by remember { mutableStateOf(false) }
+    var deleteTaste by remember { mutableStateOf<Int?>(null) }
+    var renameTaste by remember { mutableStateOf<Int?>(null) }
+    var menuFor by remember { mutableStateOf<Int?>(null) }
+    var explainPartial by remember { mutableStateOf(false) }
+    val hasProfile = ui.profile?.complete == true
+    val lib = ui.tasteLibrary
+    FeatureRow(
+        icon = Icons.Default.Hearing,
+        title = stringResource(R.string.hp_title),
+        subtitle = stringResource(when {
+            ui.onSpeaker -> R.string.hp_sub_speaker
+            !hasProfile -> R.string.hp_sub_none
+            ui.enabled && ui.partial -> R.string.tp_sub_partial
+            ui.enabled && ui.taste != null -> R.string.tp_sub_full
+            ui.enabled -> R.string.hp_sub_on
+            else -> R.string.hp_sub_off
+        }),
+        checked = ui.enabled && hasProfile,
+        enabled = masterEnabled && !ui.onSpeaker,
+        fullWidthContent = true,
+        onHelpClick = onHelp,
+        onCheckedChange = { on -> if (on && !hasProfile) onOpenTest() else ui.onEnabledChange(on) }
+    ) {
+        if (ui.partial) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.10f))
+                    .clickable { explainPartial = true }
+                    .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(20.dp))
+                Text(stringResource(R.string.tp_partial_badge), style = MaterialTheme.typography.bodyMedium,
+                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
+                TextButton(onClick = { onOpenTaste(null) }) { Text(stringResource(R.string.tp_add)) }
+            }
+        }
+        HearPrintChart(FloatArray(ui.curve.size) { ui.curve[it] + (ui.tasteCurve.getOrNull(it) ?: 0f) },
+                       Modifier.fillMaxWidth().height(150.dp))
+        if (lib.items.isNotEmpty()) {
+            Text(stringResource(R.string.tp_profiles), style = MaterialTheme.typography.labelLarge,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.semantics { heading() })
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilterChip(selected = lib.active == -1, onClick = { ui.onSelectTaste(-1) },
+                           label = { Text(stringResource(R.string.tp_hearing_only)) })
+                lib.items.forEachIndexed { i, item ->
+                    Box {
+                        FilterChip(
+                            selected = lib.active == i,
+                            onClick = { if (lib.active == i) menuFor = i else ui.onSelectTaste(i) },
+                            label = { Text(item.name.ifBlank { stringResource(R.string.tp_default_name, i + 1) }, maxLines = 1) },
+                            trailingIcon = if (lib.active == i) {
+                                { Icon(Icons.Default.MoreVert, stringResource(R.string.tp_menu_cd), Modifier.size(18.dp)) }
+                            } else null
+                        )
+                        DropdownMenu(expanded = menuFor == i, onDismissRequest = { menuFor = null }) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.tp_menu_retake)) },
+                                             onClick = { menuFor = null; onOpenTaste(i) })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.tp_menu_rename)) },
+                                             onClick = { menuFor = null; renameTaste = i })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.tp_menu_delete)) },
+                                             onClick = { menuFor = null; deleteTaste = i })
+                        }
+                    }
+                }
+                if (lib.items.size < Taste.MAX_PROFILES) {
+                    AssistChip(onClick = { onOpenTaste(null) }, label = { Text(stringResource(R.string.tp_new)) },
+                               leadingIcon = { Icon(Icons.Default.Add, null, Modifier.size(18.dp)) })
+                }
+            }
+            ui.taste?.let { TasteSummary(it) }
+        }
+        var strength by remember(ui.strength) { mutableFloatStateOf(ui.strength) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.hp_strength), style = MaterialTheme.typography.bodyMedium,
+                 modifier = Modifier.width(96.dp))
+            Slider(
+                value = strength,
+                onValueChange = { strength = it },
+                onValueChangeFinished = { ui.onStrengthChange(strength) },
+                modifier = Modifier.weight(1f)
+            )
+            Text("${(strength * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge,
+                 modifier = Modifier.width(48.dp).padding(start = 8.dp))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(onClick = onOpenTest, modifier = Modifier.weight(1f),
+                              colors = jadooTonalButtonColors(), border = jadooTonalButtonBorder()) {
+                Text(stringResource(R.string.hp_retake), maxLines = 1)
+            }
+            TextButton(onClick = { confirmDelete = true }) { Text(stringResource(R.string.hp_delete)) }
+        }
+    }
+    if (confirmDelete) {
+        JadooAlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.hp_delete_title)) },
+            text = { Text(stringResource(R.string.hp_delete_body)) },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; ui.onDelete() }) { Text(stringResource(R.string.hp_delete)) } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.dash_cancel)) } }
+        )
+    }
+    deleteTaste?.let { i ->
+        val name = lib.items.getOrNull(i)?.name?.ifBlank { null } ?: stringResource(R.string.tp_default_name, i + 1)
+        JadooAlertDialog(
+            onDismissRequest = { deleteTaste = null },
+            title = { Text(stringResource(R.string.tp_delete_title, name)) },
+            text = { Text(stringResource(R.string.tp_delete_body)) },
+            confirmButton = { TextButton(onClick = { deleteTaste = null; ui.onDeleteTaste(i) }) { Text(stringResource(R.string.tp_menu_delete)) } },
+            dismissButton = { TextButton(onClick = { deleteTaste = null }) { Text(stringResource(R.string.dash_cancel)) } }
+        )
+    }
+    renameTaste?.let { i ->
+        var text by remember(i) { mutableStateOf(lib.items.getOrNull(i)?.name ?: "") }
+        JadooAlertDialog(
+            onDismissRequest = { renameTaste = null },
+            title = { Text(stringResource(R.string.tp_rename_title)) },
+            text = {
+                OutlinedTextField(value = text, onValueChange = { if (it.length <= Taste.MAX_NAME) text = it },
+                                  label = { Text(stringResource(R.string.tp_name_label)) }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(enabled = text.isNotBlank(), onClick = { renameTaste = null; ui.onRenameTaste(i, text) }) {
+                    Text(stringResource(R.string.tp_save_name))
+                }
+            },
+            dismissButton = { TextButton(onClick = { renameTaste = null }) { Text(stringResource(R.string.dash_cancel)) } }
+        )
+    }
+    if (explainPartial) {
+        JadooAlertDialog(
+            onDismissRequest = { explainPartial = false },
+            title = { Text(stringResource(R.string.tp_partial_title)) },
+            text = { Text(stringResource(R.string.tp_partial_body)) },
+            confirmButton = { TextButton(onClick = { explainPartial = false; onOpenTaste(null) }) { Text(stringResource(R.string.tp_add)) } },
+            dismissButton = { TextButton(onClick = { explainPartial = false }) { Text(stringResource(R.string.tp_later)) } }
+        )
+    }
+}

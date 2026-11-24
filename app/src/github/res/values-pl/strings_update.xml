@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="upd_whats_new">Co nowego</string>
+    <string name="upd_downloading">Pobieranie… %1$d%%</string>
+    <string name="upd_verifying">Weryfikowanie podpisu…</string>
+    <string name="upd_opening_installer">Otwieranie instalatora…</string>
+    <string name="upd_open_release_page">Otwórz zamiast tego stronę wydania</string>
+    <string name="upd_allow_install_then_retry">Zezwól aplikacji JadOO DSP na instalowanie aplikacji, a następnie ponownie dotknij „Zainstaluj aktualizację”.</string>
+    <string name="upd_download_failed">Pobieranie nie powiodło się. Sprawdź połączenie.</string>
+    <string name="upd_install_update">Zainstaluj aktualizację</string>
+    <string name="upd_download_update">Pobierz aktualizację</string>
+    <string name="upd_remind_later">Przypomnij później</string>
+    <string name="upd_made_with_love">Stworzone z miłością przez Rudraksh Chatterjee (JadOO)</string>
+
+    <string name="upd_err_invalid_apk">Pobrany plik nie jest prawidłowym plikiem APK.</string>
+    <string name="upd_err_wrong_package">Pobrany plik APK dotyczy pakietu %1$s, a nie %2$s.</string>
+    <string name="upd_err_no_installed_signature">Nie udało się odczytać podpisu zainstalowanej aplikacji w celu porównania.</string>
+    <string name="upd_err_no_certificate">Nie udało się wyodrębnić certyfikatu podpisu do weryfikacji.</string>
+    <string name="upd_err_signature_mismatch">Niezgodność podpisu – ten plik APK nie został podpisany tym samym kluczem co zainstalowana aplikacja. Instalacja anulowana.</string>
+    <string name="upd_err_install_failed">Instalacja nie powiodła się: %1$s</string>
+
+    <string name="upd_install_failed">Instalacja aktualizacji nie powiodła się</string>
+    <string name="upd_install_failed_reason">Instalacja aktualizacji nie powiodła się: %1$s</string>
+    <string name="upd_channel_name">Aktualizacje aplikacji</string>
+    <string name="upd_notif_title">Aktualizacja JadOO DSP gotowa</string>
+    <string name="upd_notif_text">Dotknij, aby zainstalować</string>
+
+    <string name="upd_check_unreachable">Nie można połączyć się z serwerem aktualizacji. Sprawdź połączenie i spróbuj ponownie.</string>
+    <string name="upd_check_available">Dostępna jest wersja %1$s.</string>
+    <string name="upd_check_latest">Masz najnowszą wersję.</string>
+    <string name="upd_checking">Sprawdzanie…</string>
+    <string name="upd_check_button">Sprawdź aktualizacje</string>
+    <string name="upd_title">Dostępna aktualizacja</string>
+    <string name="upd_subtitle">JadOO DSP %1$s jest gotowy do instalacji.</string>
+    <string name="upd_highlights">Najważniejsze</string>
+</resources>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_title">JadOO AI</string>
+    <string name="ai_pitch">一个住在你手机里的小型 AI。告诉它任何事：你的一天、你爱的音乐、声音里让你不舒服的地方。它会把你的话变成口味档案的起点。</string>
+    <string name="ai_private">私密：它在你的手机上运行。你写的任何内容都不会离开手机。</string>
+    <string name="ai_size">一次性下载 %1$s MB，来自 Google 和 Hugging Face。建议使用 Wi-Fi。</string>
+    <string name="ai_model">Qwen 团队的 Qwen3 0.6B，运行在 Google 的 LiteRT-LM 上。两者均为开源（Apache 2.0）。</string>
+    <string name="ai_install">安装 JadOO AI · %1$s MB</string>
+    <string name="ai_pause">暂停下载</string>
+    <string name="ai_done">完成</string>
+    <string name="ai_remove">移除 JadOO AI</string>
+    <string name="ai_ready">JadOO AI 已就绪。在口味档案里随意写吧。</string>
+    <string name="ai_unsupported">JadOO AI 需要 64 位 ARM 手机，这台手机不是。没有它口味档案也能正常使用。</string>
+    <string name="ai_fail_network">下载中断。请检查网络，点击安装即可从中断处继续。</string>
+    <string name="ai_fail_storage">空间不足。安装时 JadOO AI 需要约 600 MB 可用空间。</string>
+    <string name="ai_fail_corrupt">下载内容与校验值不符，已被丢弃，没有运行任何内容。点击安装重试。</string>
+    <string name="ai_progress">%1$s / %2$s MB</string>
+    <string name="ai_checking">正在校验下载内容…</string>
+    <string name="ai_invite_title">告诉 JadOO 任何事</string>
+    <string name="ai_invite_body">安装 JadOO AI 后自由书写：你的一天、你的音乐、你喜欢和讨厌的。它在手机上运行。也可以跳过，反正最终由你的选择决定。</string>
+    <string name="ai_invite_button">获取 JadOO AI</string>
+    <string name="ai_invite_progress">安装中… 查看进度</string>
+    <string name="ai_words_hint">随意写：你的一天、你的音乐、你喜欢的、让你烦的…</string>
+    <string name="ai_understand">让 JadOO AI 读一读</string>
+    <string name="ai_read_again">重新阅读</string>
+    <string name="ai_reading">JadOO AI 正在阅读…</string>
+    <string name="ai_read_failed">JadOO AI 这次没能读懂。没关系：由你的选择决定。</string>
+</resources>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="lang_group">Język</string>
+    <string name="lang_title">Język aplikacji</string>
+    <string name="lang_system_default">Język systemu</string>
+    <string name="lang_dialog_title">Język aplikacji</string>
+    <string name="lang_dialog_hint">Dotyczy tylko JadOO DSP. Teksty pomocy, menu i powiadomienia zmieniają się od razu.</string>
+</resources>

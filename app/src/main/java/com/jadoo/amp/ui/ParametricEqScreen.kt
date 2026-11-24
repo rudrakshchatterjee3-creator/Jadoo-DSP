@@ -34,6 +34,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
+import com.jadoo.amp.R
 import com.jadoo.amp.audio.DigitalFilterEngine
 import com.jadoo.amp.ui.theme.lchToColor
 import com.jadoo.amp.ui.components.*
@@ -115,10 +118,10 @@ fun ParametricEqScreen(
     val glass = LocalUiStyle.current == UiStyle.LiquidGlass
     val topBar: @Composable RowScope.() -> Unit = {
         IconButton(onClick = onNavigateBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.scr_cd_back))
         }
         Spacer(Modifier.weight(1f))
-        TextButton(onClick = { showResetConfirm = true }) { Text("Reset") }
+        TextButton(onClick = { showResetConfirm = true }) { Text(stringResource(R.string.scr_reset)) }
     }
     GlassPinnedLayout(modifier.fillMaxSize(), header = { if (glass) GlassTopBar(content = topBar) }) { headerTop ->
     Column(
@@ -143,10 +146,14 @@ fun ParametricEqScreen(
             )
         }
         Column(Modifier.padding(horizontal = 8.dp)) {
-            Text("Parametric EQ", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.scr_peq_title), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
             Text(
-                "${bandStates.count { it.isEnabled }} of ${DigitalFilterEngine.MAX_BANDS} filters on · " +
-                    String.format(Locale.US, "preamp %+.1f dB", preampDb),
+                stringResource(
+                    R.string.scr_peq_summary,
+                    bandStates.count { it.isEnabled },
+                    DigitalFilterEngine.MAX_BANDS,
+                    String.format(Locale.US, "%+.1f dB", preampDb)
+                ),
                 style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = "tnum"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -155,8 +162,8 @@ fun ParametricEqScreen(
             com.jadoo.amp.ui.components.FeatureGroup {
                 com.jadoo.amp.ui.components.NavRow(
                     icon = Icons.Default.Headphones,
-                    title = "Headphone correction",
-                    value = autoEqProfileName.ifBlank { "Load a measured AutoEQ profile" },
+                    title = stringResource(R.string.scr_peq_headphone_correction),
+                    value = autoEqProfileName.ifBlank { stringResource(R.string.scr_peq_load_autoeq) },
                     accent = autoEqProfileName.isNotBlank(),
                     onClick = onOpenAutoEq
                 )
@@ -174,7 +181,11 @@ fun ParametricEqScreen(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val tabs = listOf("Parametric", "Graphic", "Table")
+            val tabs = listOf(
+                stringResource(R.string.scr_peq_tab_parametric),
+                stringResource(R.string.scr_peq_tab_graphic),
+                stringResource(R.string.scr_peq_tab_table)
+            )
             tabs.forEachIndexed { index, label ->
                 val selected = index == selectedTab
                 Box(
@@ -214,7 +225,7 @@ fun ParametricEqScreen(
 
             // ── Band selector ──
             Text(
-                text = "Filters",
+                text = stringResource(R.string.scr_peq_filters),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -255,7 +266,7 @@ fun ParametricEqScreen(
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "Filter ${selectedBandIndex + 1}",
+                                text = stringResource(R.string.scr_peq_filter_n, selectedBandIndex + 1),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -268,9 +279,8 @@ fun ParametricEqScreen(
                             level = GlassLevel.Nested
                         ) {
                             Text(
-                                text = if (selectedBand.isEnabled) selectedBand.type.name
-                                    .replace(Regex("(?<=[a-z])(?=[A-Z])"), " ").lowercase()
-                                    .replaceFirstChar { it.uppercase() } else "Off",
+                                text = if (selectedBand.isEnabled) stringResource(peqFilterTypeRes(selectedBand.type))
+                                    else stringResource(R.string.scr_off),
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
@@ -294,20 +304,20 @@ fun ParametricEqScreen(
 
             // ── Filter type ──
             Text(
-                text = "Filter type",
+                text = stringResource(R.string.scr_peq_filter_type),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val filterChoices: List<Pair<DigitalFilterEngine.FilterType, String>?> = listOf(
-                    DigitalFilterEngine.FilterType.Peak to "Peak",
-                    DigitalFilterEngine.FilterType.LowShelf to "Low shelf",
-                    DigitalFilterEngine.FilterType.HighShelf to "High shelf",
-                    DigitalFilterEngine.FilterType.LowPass to "Low pass",
-                    DigitalFilterEngine.FilterType.HighPass to "High pass",
-                    DigitalFilterEngine.FilterType.BandPass to "Band pass",
-                    DigitalFilterEngine.FilterType.Notch to "Notch",
+                    DigitalFilterEngine.FilterType.Peak to stringResource(R.string.scr_filter_peak),
+                    DigitalFilterEngine.FilterType.LowShelf to stringResource(R.string.scr_filter_low_shelf),
+                    DigitalFilterEngine.FilterType.HighShelf to stringResource(R.string.scr_filter_high_shelf),
+                    DigitalFilterEngine.FilterType.LowPass to stringResource(R.string.scr_filter_low_pass),
+                    DigitalFilterEngine.FilterType.HighPass to stringResource(R.string.scr_filter_high_pass),
+                    DigitalFilterEngine.FilterType.BandPass to stringResource(R.string.scr_filter_band_pass),
+                    DigitalFilterEngine.FilterType.Notch to stringResource(R.string.scr_filter_notch),
                     null
                 )
                 filterChoices.chunked(4).forEach { row ->
@@ -318,7 +328,7 @@ fun ParametricEqScreen(
                         row.forEach { entry ->
                             if (entry == null) {
                                 FilterTypePill(
-                                    label = "Off",
+                                    label = stringResource(R.string.scr_off),
                                     selected = !selectedBand.isEnabled,
                                     onClick = { onBandEnabledChanged(selectedBandIndex, false) },
                                     modifier = Modifier.weight(1f)
@@ -343,7 +353,7 @@ fun ParametricEqScreen(
             // ── Parameter sliders ──
             if (selectedBand.isEnabled) {
                 Text(
-                    text = "Parameters",
+                    text = stringResource(R.string.scr_peq_parameters),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -357,7 +367,7 @@ fun ParametricEqScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         EqParamSlider(
-                            label = "Freq",
+                            label = stringResource(R.string.scr_peq_freq),
                             value = selectedBand.frequency,
                             valueRange = 20f..20000f,
                             logarithmic = true,
@@ -366,18 +376,20 @@ fun ParametricEqScreen(
                             activeColor = bandColor
                         )
                         EqParamSlider(
-                            label = "Gain",
+                            label = stringResource(R.string.scr_peq_gain),
                             value = selectedBand.gain,
                             valueRange = -15f..15f,
+                            linearStep = 0.1f,
                             logarithmic = false,
                             displayFormatter = { String.format(Locale.US, "%+.1f dB", it) },
                             onValueChange = { onBandGainChanged(selectedBandIndex, it) },
                             activeColor = bandColor
                         )
                         EqParamSlider(
-                            label = "Q",
+                            label = stringResource(R.string.scr_peq_q),
                             value = selectedBand.q,
                             valueRange = 0.1f..18f,
+                            linearStep = 0.1f,
                             logarithmic = false,
                             displayFormatter = { String.format(Locale.US, "%.2f", it) },
                             onValueChange = { onBandQChanged(selectedBandIndex, it) },
@@ -389,7 +401,7 @@ fun ParametricEqScreen(
 
             // ── Preamp ──
             Text(
-                text = "Preamp",
+                text = stringResource(R.string.scr_preamp),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -427,16 +439,16 @@ fun ParametricEqScreen(
     if (showResetConfirm) {
         JadooAlertDialog(
             onDismissRequest = { showResetConfirm = false },
-            title = { Text("Reset all bands?") },
-            text = { Text("This will disable all 16 PEQ bands and restore their default values.") },
+            title = { Text(stringResource(R.string.scr_peq_reset_title)) },
+            text = { Text(stringResource(R.string.scr_peq_reset_text, DigitalFilterEngine.MAX_BANDS)) },
             confirmButton = {
                 TextButton(onClick = {
                     showResetConfirm = false
                     onResetAllBands()
-                }) { Text("Reset") }
+                }) { Text(stringResource(R.string.scr_reset)) }
             },
             dismissButton = {
-                TextButton(onClick = { showResetConfirm = false }) { Text("Cancel") }
+                TextButton(onClick = { showResetConfirm = false }) { Text(stringResource(R.string.scr_cancel)) }
             }
         )
     }
@@ -519,14 +531,20 @@ private fun EqGraph(
                     val selectedBand = bandStates.getOrNull(selectedBandIndex)
                     if (selectedBand != null && selectedBand.isEnabled) {
                         Text(
-                            text = "Band ${selectedBandIndex + 1}: ${selectedBand.frequency.roundToInt()} Hz (${String.format(Locale.US, "%.1f", selectedBand.gain)} dB) | ${selectedBand.type.name.uppercase()}",
+                            text = stringResource(
+                                R.string.scr_peq_graph_band,
+                                selectedBandIndex + 1,
+                                selectedBand.frequency.roundToInt(),
+                                String.format(Locale.US, "%.1f", selectedBand.gain),
+                                selectedBand.type.name.uppercase()
+                            ),
                             color = textColor,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Medium
                         )
                     } else {
                         Text(
-                            text = "No band selected",
+                            text = stringResource(R.string.scr_peq_no_band),
                             color = textColor,
                             style = MaterialTheme.typography.labelSmall
                         )
@@ -804,17 +822,17 @@ private fun GraphicView(
         // Summary cards
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SummaryCard(
-                label = "Active Bands",
+                label = stringResource(R.string.scr_peq_active_bands),
                 value = "${enabledBands.size} / ${bandStates.size}",
                 modifier = Modifier.weight(1f)
             )
             SummaryCard(
-                label = "Peak Gain",
-                value = if (isFlat) "Flat" else String.format(Locale.US, "%+.1f dB", peakGain),
+                label = stringResource(R.string.scr_peq_peak_gain),
+                value = if (isFlat) stringResource(R.string.scr_peq_flat) else String.format(Locale.US, "%+.1f dB", peakGain),
                 modifier = Modifier.weight(1f)
             )
             SummaryCard(
-                label = "Peak Freq",
+                label = stringResource(R.string.scr_peq_peak_freq),
                 value = if (isFlat) "-" else if (peakFreq >= 1000f) String.format(Locale.US, "%.1f kHz", peakFreq / 1000f) else "${peakFreq.roundToInt()} Hz",
                 modifier = Modifier.weight(1f)
             )
@@ -823,7 +841,7 @@ private fun GraphicView(
         // Per-band frequency tags
         if (enabledBands.isNotEmpty()) {
             Text(
-                text = "Active Bands",
+                text = stringResource(R.string.scr_peq_active_bands),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -840,7 +858,7 @@ private fun GraphicView(
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(bandColor))
                             Text(
-                                "Band ${bandIdx + 1}",
+                                stringResource(R.string.scr_peq_band_n, bandIdx + 1),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -912,7 +930,7 @@ private fun TableView(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Preamp", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.scr_preamp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     String.format(Locale.US, "%+.1f dB", preampDb),
                     style = MaterialTheme.typography.bodyMedium,
@@ -933,11 +951,11 @@ private fun TableView(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("#", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(24.dp))
-                Text("Type", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(72.dp))
-                Text("Freq", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                Text("Gain", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.scr_peq_col_type), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(72.dp))
+                Text(stringResource(R.string.scr_peq_col_freq), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.scr_peq_col_gain), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                 Text("Q", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                Text("On", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(36.dp))
+                Text(stringResource(R.string.scr_peq_col_on), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(36.dp))
             }
         }
 
@@ -962,7 +980,7 @@ private fun TableView(
                     }
                     // Type
                     Text(
-                        text = if (band.isEnabled) band.type.name else "BYPASS",
+                        text = if (band.isEnabled) band.type.name else stringResource(R.string.scr_peq_bypass),
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
@@ -1072,7 +1090,7 @@ private fun BandSelector(
                                 modifier = Modifier.size(24.dp)
                             )
                             Text(
-                                text = "Band ${index + 1}",
+                                text = stringResource(R.string.scr_peq_band_n, index + 1),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = when {
                                     selected -> MaterialTheme.colorScheme.onPrimaryContainer
@@ -1094,7 +1112,7 @@ private fun BandSelector(
             colors = jadooTonalButtonColors(),
             border = jadooTonalButtonBorder()
         ) {
-            Text("Enable next available band")
+            Text(stringResource(R.string.scr_peq_enable_next))
         }
     }
 }
@@ -1151,6 +1169,7 @@ private fun EqParamSlider(
     displayFormatter: (Float) -> String,
     onValueChange: (Float) -> Unit,
     activeColor: Color,
+    linearStep: Float = 1f,
     modifier: Modifier = Modifier
 ) {
     val sliderValue = if (logarithmic) {
@@ -1160,11 +1179,6 @@ private fun EqParamSlider(
         ((logCur - logMin) / (logMax - logMin)).coerceIn(0f, 1f)
     } else {
         ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
-    }
-    val linearStep = when (label) {
-        "Gain" -> 0.1f
-        "Q" -> 0.1f
-        else -> 1f
     }
     val semitoneRatio = 2f.pow(1f / 12f)
 
@@ -1259,7 +1273,7 @@ private fun PreampSlider(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Preamp", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.scr_preamp), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
             Text(
                 text = String.format(Locale.US, "%+.1f dB", value),
                 style = MaterialTheme.typography.bodyMedium,
@@ -1355,6 +1369,18 @@ private fun FilterCurveIcon(
 // ═══════════════════════════════════════════════════════════
 //  HELPERS
 // ═══════════════════════════════════════════════════════════
+
+@StringRes
+private fun peqFilterTypeRes(type: DigitalFilterEngine.FilterType): Int = when (type) {
+    DigitalFilterEngine.FilterType.Peak -> R.string.scr_filter_peak
+    DigitalFilterEngine.FilterType.LowShelf -> R.string.scr_filter_low_shelf
+    DigitalFilterEngine.FilterType.HighShelf -> R.string.scr_filter_high_shelf
+    DigitalFilterEngine.FilterType.LowPass -> R.string.scr_filter_low_pass
+    DigitalFilterEngine.FilterType.HighPass -> R.string.scr_filter_high_pass
+    DigitalFilterEngine.FilterType.BandPass -> R.string.scr_filter_band_pass
+    DigitalFilterEngine.FilterType.Notch -> R.string.scr_filter_notch
+    DigitalFilterEngine.FilterType.AllPass -> R.string.scr_filter_all_pass
+}
 
 private fun formatFrequency(freq: Float): String {
     return when {

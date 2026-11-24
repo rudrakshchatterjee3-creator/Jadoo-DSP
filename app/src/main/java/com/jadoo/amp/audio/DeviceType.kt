@@ -1,5 +1,9 @@
 package com.jadoo.amp.audio
 
+import android.content.Context
+import androidx.annotation.StringRes
+import com.jadoo.amp.R
+
 /**
  * Physical output device type. Scales how much bass/treble boost every
  * device-aware feature (Analog Bass, DBFB, Mobile Bass, HiRes Upscaler,
@@ -60,7 +64,38 @@ enum class DeviceType(
     CompactSpeaker("Compact Speaker", 0.2f..0.55f, 0.5f..0.8f),
 
     // Real cabinet volume, often ported, benefits from Toole's boundary/room bass reinforcement.
-    HomeSpeaker("Home Speaker", 0.6f..1f, 0.6f..0.95f)
+    HomeSpeaker("Home Speaker", 0.6f..1f, 0.6f..0.95f);
+
+    /** Localized label; [displayName] stays English for logs and tests. */
+    @get:StringRes
+    val displayNameRes: Int
+        get() = when (this) {
+            General        -> R.string.aud_device_general
+            Iem            -> R.string.aud_device_iem
+            OnEar          -> R.string.aud_device_on_ear
+            OverEar        -> R.string.aud_device_over_ear
+            CompactSpeaker -> R.string.aud_device_compact_speaker
+            HomeSpeaker    -> R.string.aud_device_home_speaker
+        }
+}
+
+/**
+ * Display text for the output-device label produced by JadooDspService
+ * (computeOutputDeviceKey): "Phone Speaker", "Wired Headphones", "USB Audio",
+ * "USB: <name>", "Bluetooth", "Bluetooth: <name>". The raw English label is
+ * also what the UI compares against and what prefixes get stripped from, so
+ * keep using the raw label for logic and pass it through here only to show it.
+ * Unknown labels come back unchanged.
+ */
+fun localizedOutputLabel(context: Context, label: String): String = when {
+    label == "Phone Speaker" -> context.getString(R.string.aud_out_phone_speaker)
+    label == "Wired Headphones" -> context.getString(R.string.aud_out_wired)
+    label == "USB Audio" -> context.getString(R.string.aud_out_usb)
+    label == "Bluetooth" -> context.getString(R.string.aud_out_bluetooth)
+    label.startsWith("USB: ") -> context.getString(R.string.aud_out_usb_named, label.removePrefix("USB: "))
+    label.startsWith("Bluetooth: ") ->
+        context.getString(R.string.aud_out_bluetooth_named, label.removePrefix("Bluetooth: "))
+    else -> label
 }
 
 private fun ClosedFloatingPointRange<Float>.lerp(t: Float): Float =

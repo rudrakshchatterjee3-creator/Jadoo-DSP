@@ -61,7 +61,8 @@ class InstallResultReceiver : BroadcastReceiver() {
                 if (status != PackageInstaller.STATUS_FAILURE_ABORTED) {
                     Toast.makeText(
                         context,
-                        "Update install failed${if (message != null) ": $message" else ""}",
+                        if (message != null) context.getString(R.string.upd_install_failed_reason, message)
+                        else context.getString(R.string.upd_install_failed),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -110,7 +111,7 @@ class InstallResultReceiver : BroadcastReceiver() {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "App updates", NotificationManager.IMPORTANCE_HIGH)
+                NotificationChannel(CHANNEL_ID, context.getString(R.string.upd_channel_name), NotificationManager.IMPORTANCE_HIGH)
             )
         }
         val tap = PendingIntent.getActivity(
@@ -119,8 +120,8 @@ class InstallResultReceiver : BroadcastReceiver() {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("JadOO DSP update ready")
-            .setContentText("Tap to install")
+            .setContentTitle(context.getString(R.string.upd_notif_title))
+            .setContentText(context.getString(R.string.upd_notif_text))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
             .setContentIntent(tap)

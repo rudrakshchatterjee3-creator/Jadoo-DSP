@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_title">JadOO AI</string>
+    <string name="ai_pitch">A small AI that lives on your phone. Tell it anything: your day, the music you love, what bugs you about sound. It turns your words into where your taste profile starts.</string>
+    <string name="ai_private">Private: it runs on your phone. Nothing you write ever leaves it.</string>
+    <string name="ai_size">One download of %1$s MB, from Google and Hugging Face. Wi-Fi recommended.</string>
+    <string name="ai_model">Qwen3 0.6B by the Qwen team, running on Google’s LiteRT-LM. Both open source (Apache 2.0).</string>
+    <string name="ai_install">Install JadOO AI · %1$s MB</string>
+    <string name="ai_pause">Pause download</string>
+    <string name="ai_done">Done</string>
+    <string name="ai_remove">Remove JadOO AI</string>
+    <string name="ai_ready">JadOO AI is ready. Write anything in the taste profile.</string>
+    <string name="ai_unsupported">JadOO AI needs a 64-bit ARM phone, and this one isn’t. The taste profile works fine without it.</string>
+    <string name="ai_fail_network">The download stopped. Check your connection and tap Install to continue where it left off.</string>
+    <string name="ai_fail_storage">Not enough free space. JadOO AI needs about 600 MB free while it installs.</string>
+    <string name="ai_fail_corrupt">The download didn’t match its checksum, so it was thrown away and nothing was run. Tap Install to try again.</string>
+    <string name="ai_progress">%1$s of %2$s MB</string>
+    <string name="ai_checking">Checking the download…</string>
+    <string name="ai_invite_title">Tell JadOO anything</string>
+    <string name="ai_invite_body">Install JadOO AI and write freely: your day, your music, what you love and what bugs you. It runs on your phone. Or skip this; your choices decide anyway.</string>
+    <string name="ai_invite_button">Get JadOO AI</string>
+    <string name="ai_invite_progress">Installing… see progress</string>
+    <string name="ai_words_hint">Write anything: your day, your music, what you love, what bugs you…</string>
+    <string name="ai_understand">Let JadOO AI read this</string>
+    <string name="ai_read_again">Read again</string>
+    <string name="ai_reading">JadOO AI is reading…</string>
+    <string name="ai_read_failed">JadOO AI couldn’t read that this time. No problem: your choices decide.</string>
+</resources>

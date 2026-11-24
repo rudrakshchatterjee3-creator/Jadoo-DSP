@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_title">JadOO AI</string>
+    <string name="ai_pitch">Une petite IA qui vit sur le téléphone. On peut tout lui dire : sa journée, la musique aimée, ce qui gêne dans le son. Elle transforme ces mots en point de départ du profil de goût.</string>
+    <string name="ai_private">Privé : elle tourne sur le téléphone. Rien de ce qui est écrit n’en sort.</string>
+    <string name="ai_size">Un seul téléchargement de %1$s Mo, depuis Google et Hugging Face. Wi-Fi conseillé.</string>
+    <string name="ai_model">Qwen3 0.6B de l’équipe Qwen, sur LiteRT-LM de Google. Tous deux open source (Apache 2.0).</string>
+    <string name="ai_install">Installer JadOO AI · %1$s Mo</string>
+    <string name="ai_pause">Mettre en pause</string>
+    <string name="ai_done">Terminé</string>
+    <string name="ai_remove">Supprimer JadOO AI</string>
+    <string name="ai_ready">JadOO AI est prête. Écrire librement dans le profil de goût.</string>
+    <string name="ai_unsupported">JadOO AI demande un téléphone ARM 64 bits, ce n’est pas le cas ici. Le profil de goût fonctionne très bien sans.</string>
+    <string name="ai_fail_network">Le téléchargement s’est arrêté. Vérifier la connexion et toucher Installer pour reprendre.</string>
+    <string name="ai_fail_storage">Espace libre insuffisant. JadOO AI a besoin d’environ 600 Mo pendant l’installation.</string>
+    <string name="ai_fail_corrupt">Le téléchargement ne correspondait pas à sa somme de contrôle : il a été supprimé et rien n’a été exécuté. Toucher Installer pour réessayer.</string>
+    <string name="ai_progress">%1$s sur %2$s Mo</string>
+    <string name="ai_checking">Vérification…</string>
+    <string name="ai_invite_title">Tout dire à JadOO</string>
+    <string name="ai_invite_body">Installer JadOO AI et écrire librement : sa journée, sa musique, ce qu’on aime et ce qui gêne. Elle tourne sur le téléphone. Ou passer cette étape : les choix décident de toute façon.</string>
+    <string name="ai_invite_button">Obtenir JadOO AI</string>
+    <string name="ai_invite_progress">Installation… voir la progression</string>
+    <string name="ai_words_hint">Écrire librement : sa journée, sa musique, ce qu’on aime, ce qui gêne…</string>
+    <string name="ai_understand">Faire lire par JadOO AI</string>
+    <string name="ai_read_again">Relire</string>
+    <string name="ai_reading">JadOO AI lit…</string>
+    <string name="ai_read_failed">JadOO AI n’a pas pu lire cela cette fois. Pas grave : les choix décident.</string>
+</resources>

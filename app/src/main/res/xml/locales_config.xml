@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Languages JadOO DSP is translated into. Android 13+ lists exactly these
+     under Settings > Apps > JadOO DSP > Language. Keep in sync with
+     AppLocale.SUPPORTED and the values-xx/ resource folders. -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="de" />
+    <locale android:name="fr" />
+    <locale android:name="pl" />
+    <locale android:name="zh-CN" />
+</locale-config>

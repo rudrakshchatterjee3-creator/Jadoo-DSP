@@ -88,6 +88,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.jadoo.amp.R
 import com.jadoo.amp.audio.AudioChainProbe
 import com.jadoo.amp.audio.AudioChainProbe.ChainSnapshot
 import com.jadoo.amp.audio.SurroundMode
@@ -178,36 +181,45 @@ private fun dspInPath(state: LiveChainState, snapshot: ChainSnapshot?): Boolean?
 
 private fun activeTrack(snapshot: ChainSnapshot?) = snapshot?.track?.takeIf { it.active }
 
+/** Shell command shown (untranslated) when the DUMP permission is missing. */
+private const val GRANT_DUMP_COMMAND = "adb shell pm grant com.jadoo.amp android.permission.DUMP"
+
 /** The one-line answer to "what is happening to my audio?". */
+@Composable
 private fun verdict(state: LiveChainState, snapshot: ChainSnapshot?): Verdict {
     val thread = snapshot?.thread
     val track = activeTrack(snapshot)
     return when {
-        !state.dumpPermissionEnabled -> Verdict("Limited view",
-            "Grant DUMP to trace the stream: adb shell pm grant com.jadoo.amp android.permission.DUMP", Tone.Quiet)
-        snapshot == null -> Verdict("Tracing…", null, Tone.Quiet)
-        track == null || thread == null -> Verdict("Nothing playing", "Start playback to trace the path.", Tone.Quiet)
-        thread.bypassesSoftwareEffects -> Verdict("${AudioChainProbe.describePath(thread)} - JadOO may be skipped",
-            "Turn off offload, exclusive or bit-perfect output in the player.", Tone.Changed)
-        state.masterEnabled && dspInPath(state, snapshot) == false -> Verdict("JadOO isn't on this output",
-            "Pause and resume playback so JadOO can re-attach.", Tone.Changed)
+        !state.dumpPermissionEnabled -> Verdict(stringResource(R.string.scr_chain_limited),
+            stringResource(R.string.scr_chain_grant_dump, GRANT_DUMP_COMMAND), Tone.Quiet)
+        snapshot == null -> Verdict(stringResource(R.string.scr_chain_tracing), null, Tone.Quiet)
+        track == null || thread == null -> Verdict(stringResource(R.string.scr_chain_nothing_playing),
+            stringResource(R.string.scr_chain_start_playback), Tone.Quiet)
+        thread.bypassesSoftwareEffects -> Verdict(
+            stringResource(R.string.scr_chain_skipped, AudioChainProbe.describePath(LocalContext.current, thread)),
+            stringResource(R.string.scr_chain_turn_off_offload), Tone.Changed)
+        state.masterEnabled && dspInPath(state, snapshot) == false -> Verdict(
+            stringResource(R.string.scr_chain_not_on_output),
+            stringResource(R.string.scr_chain_reattach), Tone.Changed)
         snapshot.resampled -> Verdict(
-            "Resampled once · ${AudioChainProbe.formatRate(track.sampleRate)} → ${AudioChainProbe.formatRate(thread.sampleRate!!)}",
-            "Android converts the stream to the output's rate. Normal on phones; a USB DAC running at the source rate avoids it.",
+            stringResource(R.string.scr_chain_resampled_once,
+                AudioChainProbe.formatRate(track.sampleRate), AudioChainProbe.formatRate(thread.sampleRate!!)),
+            stringResource(R.string.scr_chain_resampled_detail),
             Tone.Changed)
-        else -> Verdict("Rate matched end to end", null, Tone.Clean)
+        else -> Verdict(stringResource(R.string.scr_chain_rate_matched), null, Tone.Clean)
     }
 }
 
 /** Secondary warnings that don't change the verdict. */
+@Composable
 private fun extraNotes(state: LiveChainState, snapshot: ChainSnapshot?): List<String> {
     val notes = mutableListOf<String>()
     val codec = snapshot?.bluetoothCodec?.codec
     if (state.sbcModeEnabled && codec != null && !codec.equals("SBC", ignoreCase = true)) {
-        notes += "SBC Enhancement is on but the codec is $codec. Turn it off - it rolls off treble $codec can keep."
+        notes += stringResource(R.string.scr_chain_note_sbc, codec)
     }
     if (snapshot?.spatialAudio?.enabled == true && state.surroundMode != SurroundMode.Off) {
-        notes += "System spatial audio and Surround+ are both widening the sound. Pick one."
+        notes += stringResource(R.string.scr_chain_note_spatial)
     }
     return notes
 }
@@ -330,8 +342,10 @@ private fun outputFormat(snapshot: ChainSnapshot?): String? {
         snapshot?.thread?.halFormat?.let { AudioChainProbe.describeFormatName(it) }).joinToString(" · ")
 }
 
+@Composable
 private fun sourceName(state: LiveChainState, snapshot: ChainSnapshot?): String =
-    snapshot?.sourceLabel ?: snapshot?.sourcePackage ?: state.appLabel ?: state.appPackage ?: "No app"
+    snapshot?.sourceLabel ?: snapshot?.sourcePackage ?: state.appLabel ?: state.appPackage
+        ?: stringResource(R.string.scr_chain_no_app)
 
 // ── Dashboard card ──────────────────────────────────────────────────────
 
@@ -365,7 +379,7 @@ fun LiveChainCard(
                         AppLogo(snapshot?.sourcePackage ?: state.appPackage, 40.dp, Icons.Default.MusicNote)
                     }
                     StopArrow()
-                    Stop(if (jadooOn) "JadOO" else "JadOO off", Modifier.weight(1f), accent = jadooOn) {
+                    Stop(if (jadooOn) "JadOO" else stringResource(R.string.scr_chain_jadoo_off), Modifier.weight(1f), accent = jadooOn) {
                         AppLogo(context.packageName, 40.dp, Icons.Default.GraphicEq)
                     }
                     StopArrow(changed = snapshot?.resampled == true)
@@ -384,18 +398,19 @@ fun LiveChainCard(
                     )
                 }
             }
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Open signal path",
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, stringResource(R.string.scr_chain_open),
                  tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
         }
     }
 }
 
 /** "44.1 kHz · 32-bit float → 48 kHz" while playing, otherwise the verdict itself. */
+@Composable
 private fun cardLine(v: Verdict, snapshot: ChainSnapshot?): String {
     val source = streamFormat(snapshot) ?: return v.text
     if (v.tone == Tone.Quiet) return v.text
     val out = snapshot?.thread?.sampleRate?.let { AudioChainProbe.formatRate(it) } ?: return source
-    return if (snapshot?.resampled == true) "$source → $out, resampled" else "$source → $out"
+    return if (snapshot?.resampled == true) stringResource(R.string.scr_chain_card_resampled, source, out) else "$source → $out"
 }
 
 /** One stop on the card's path: its logo, its name underneath. */
@@ -438,8 +453,8 @@ fun LiveChainScreen(
     // and the answer and the wire each sit on a glass card. Standard: as before.
     val glass = LocalUiStyle.current == UiStyle.LiquidGlass
     val titleRow: @Composable RowScope.() -> Unit = {
-        IconButton(onClick = onNavigateBack) { Icon(Icons.Default.Close, "Close") }
-        Text("Signal path", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        IconButton(onClick = onNavigateBack) { Icon(Icons.Default.Close, stringResource(R.string.scr_cd_close)) }
+        Text(stringResource(R.string.scr_chain_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
     }
     GlassPinnedLayout(Modifier.fillMaxSize(), header = { if (glass) GlassTopBar(content = titleRow) }) { headerTop ->
     Column(Modifier.fillMaxSize()) {
@@ -506,86 +521,100 @@ fun LiveChainScreen(
             ) {
             StageNode(
                 logo = { AppLogo(snapshot?.sourcePackage ?: state.appPackage, LOGO, Icons.Default.MusicNote) },
-                title = "Source",
+                title = stringResource(R.string.scr_chain_stage_source),
                 value = sourceName(state, snapshot),
-                fact = streamFormat(snapshot) ?: if (state.dumpPermissionEnabled) "Not playing" else "Needs DUMP",
+                fact = streamFormat(snapshot) ?: stringResource(
+                    if (state.dumpPermissionEnabled) R.string.scr_chain_not_playing else R.string.scr_chain_needs_dump),
                 details = buildList {
-                    (snapshot?.sourcePackage ?: state.appPackage)?.let { add("Package" to it) }
+                    (snapshot?.sourcePackage ?: state.appPackage)?.let {
+                        add(stringResource(R.string.scr_chain_package) to it)
+                    }
                     track?.let {
-                        add("Sample format" to AudioChainProbe.describeFormat(it.formatCode))
-                        add("Channels" to AudioChainProbe.describeChannels(it.channelMask))
-                        add("Audio session" to "${it.sessionId}")
+                        add(stringResource(R.string.scr_chain_sample_format) to AudioChainProbe.describeFormat(LocalContext.current, it.formatCode))
+                        add(stringResource(R.string.scr_chain_channels) to AudioChainProbe.describeChannels(LocalContext.current, it.channelMask))
+                        add(stringResource(R.string.scr_chain_audio_session) to "${it.sessionId}")
                     }
                 }
             )
             WireSegment(
-                note = if (state.masterEnabled && inPath == false && track != null) "JadOO not attached to this output" else null
+                note = if (state.masterEnabled && inPath == false && track != null) stringResource(R.string.scr_chain_not_attached) else null
             )
             StageNode(
                 logo = { AppLogo(LocalContext.current.packageName, LOGO, Icons.Default.GraphicEq) },
                 title = "JadOO",
                 value = when {
-                    !state.masterEnabled -> "Off"
-                    state.dspBypassed -> "Bypassed · nothing switched on"
-                    else -> "${state.activeStages.size} feature${if (state.activeStages.size == 1) "" else "s"} on"
+                    !state.masterEnabled -> stringResource(R.string.scr_off)
+                    state.dspBypassed -> stringResource(R.string.scr_chain_bypassed)
+                    else -> pluralStringResource(R.plurals.scr_chain_features_on,
+                        state.activeStages.size, state.activeStages.size)
                 },
                 fact = if (jadooOn) state.activeStages.joinToString(", ") else null,
                 accent = jadooOn,
                 details = buildList {
-                    add("In audio path" to when (inPath) {
-                        true -> "Yes"
-                        false -> "No"
-                        null -> if (state.dumpPermissionEnabled) "Unknown" else "Needs DUMP"
+                    add(stringResource(R.string.scr_chain_in_path) to when (inPath) {
+                        true -> stringResource(R.string.scr_yes)
+                        false -> stringResource(R.string.scr_no)
+                        null -> stringResource(
+                            if (state.dumpPermissionEnabled) R.string.scr_chain_unknown else R.string.scr_chain_needs_dump)
                     })
-                    add("Processing" to "32-bit float")
-                    add("Input gain" to String.format(Locale.US, "%+.1f dB", state.preGainDb))
-                    if (state.autoTrimDb < -0.05f) add("Headroom trim" to String.format(Locale.US, "%+.1f dB", state.autoTrimDb))
-                    add("Output gain" to String.format(Locale.US, "%+.1f dB, safety limiter on", state.postGainDb))
+                    add(stringResource(R.string.scr_chain_processing) to "32-bit float")
+                    add(stringResource(R.string.scr_chain_input_gain) to String.format(Locale.US, "%+.1f dB", state.preGainDb))
+                    if (state.autoTrimDb < -0.05f) add(stringResource(R.string.scr_chain_headroom_trim) to String.format(Locale.US, "%+.1f dB", state.autoTrimDb))
+                    add(stringResource(R.string.scr_chain_output_gain) to
+                        stringResource(R.string.scr_chain_output_gain_value, String.format(Locale.US, "%+.1f dB", state.postGainDb)))
                 }
             )
             WireSegment(
                 note = if (snapshot?.resampled == true && track != null && thread?.sampleRate != null)
-                    "Resampled ${AudioChainProbe.formatRate(track.sampleRate)} → ${AudioChainProbe.formatRate(thread.sampleRate)}"
+                    stringResource(R.string.scr_chain_wire_resampled,
+                        AudioChainProbe.formatRate(track.sampleRate), AudioChainProbe.formatRate(thread.sampleRate))
                 else null
             )
             StageNode(
                 logo = { DeviceLogo(Icons.Default.Tune, LOGO) },
-                title = "Android mixer",
-                value = thread?.let { AudioChainProbe.describePath(it) } ?: "System mixer",
+                title = stringResource(R.string.scr_chain_stage_mixer),
+                value = thread?.let { AudioChainProbe.describePath(LocalContext.current, it) } ?: stringResource(R.string.scr_chain_system_mixer),
                 fact = outputFormat(snapshot),
                 details = buildList {
-                    thread?.processingFormat?.let { add("Mixing format" to AudioChainProbe.describeFormatName(it)) }
-                    if (thread?.halFrameCount != null && thread.sampleRate != null) {
-                        add("Hardware buffer" to "${thread.halFrameCount} frames · ${ms(thread.halFrameCount * 1000f / thread.sampleRate)}")
+                    thread?.processingFormat?.let {
+                        add(stringResource(R.string.scr_chain_mixing_format) to AudioChainProbe.describeFormatName(it))
                     }
-                    track?.latencyMs?.let { add("Track latency" to ms(it)) }
-                    thread?.let { add("Output thread" to "${it.name} · ${it.type}") }
+                    if (thread?.halFrameCount != null && thread.sampleRate != null) {
+                        add(stringResource(R.string.scr_chain_hw_buffer) to
+                            stringResource(R.string.scr_chain_hw_buffer_value, "${thread.halFrameCount}",
+                                ms(thread.halFrameCount * 1000f / thread.sampleRate)))
+                    }
+                    track?.latencyMs?.let { add(stringResource(R.string.scr_chain_track_latency) to ms(it)) }
+                    thread?.let { add(stringResource(R.string.scr_chain_output_thread) to "${it.name} · ${it.type}") }
                 }
             )
             WireSegment(note = null)
             val codec = snapshot?.bluetoothCodec
+            val ctx = LocalContext.current
             StageNode(
                 logo = { DeviceLogo(outputIcon(state.outputLabel), LOGO) },
-                title = "Output",
-                value = state.outputLabel,
+                title = stringResource(R.string.scr_chain_stage_output),
+                value = com.jadoo.amp.audio.localizedOutputLabel(LocalContext.current, state.outputLabel),
                 fact = when {
                     bluetooth && codec != null -> listOfNotNull(codec.codec,
                         codec.sampleRate?.let { AudioChainProbe.formatRate(it) },
-                        codec.bitsPerSample?.let { "$it-bit" }, codec.ldacQuality).joinToString(" · ")
+                        codec.bitsPerSample?.let { "$it-bit" }, codec.ldacQualityLabel(LocalContext.current)).joinToString(" · ")
                     else -> outputFormat(snapshot)
                 },
                 last = true,
                 details = buildList {
                     thread?.devices?.takeIf { it.isNotEmpty() }?.let { devices ->
-                        add("Route" to devices.joinToString { AudioChainProbe.describeDevice(it) })
+                        add(stringResource(R.string.scr_chain_route) to devices.joinToString { AudioChainProbe.describeDevice(ctx, it) })
                     }
-                    if (bluetooth && codec == null) add("Codec" to if (state.dumpPermissionEnabled) "Unknown" else "Needs DUMP")
-                    codec?.channelMode?.let { add("Codec channels" to it) }
+                    if (bluetooth && codec == null) add(stringResource(R.string.scr_chain_codec) to stringResource(
+                        if (state.dumpPermissionEnabled) R.string.scr_chain_unknown else R.string.scr_chain_needs_dump))
+                    codec?.channelModeLabel(LocalContext.current)?.let { add(stringResource(R.string.scr_chain_codec_channels) to it) }
                     snapshot?.spatialAudio?.let { s ->
-                        add("System spatial audio" to when {
-                            !s.available -> "Not supported here"
-                            s.enabled -> if (s.headTrackerAvailable) "On · head tracking available" else "On"
-                            else -> "Off"
+                        add(stringResource(R.string.scr_chain_spatial) to when {
+                            !s.available -> stringResource(R.string.scr_chain_spatial_unsupported)
+                            s.enabled -> stringResource(
+                                if (s.headTrackerAvailable) R.string.scr_chain_spatial_on_tracking else R.string.scr_on)
+                            else -> stringResource(R.string.scr_off)
                         })
                     }
                 }
@@ -641,7 +670,8 @@ private fun StageNode(
                 Text(title.uppercase(Locale.US), style = MaterialTheme.typography.labelMedium,
                      letterSpacing = 1.sp, color = nodeColor, modifier = Modifier.weight(1f))
                 if (details.isNotEmpty()) {
-                    Icon(Icons.Default.ExpandMore, if (expanded) "Hide details" else "Show details",
+                    Icon(Icons.Default.ExpandMore,
+                         stringResource(if (expanded) R.string.scr_chain_hide_details else R.string.scr_chain_show_details),
                          tint = MaterialTheme.colorScheme.onSurfaceVariant,
                          modifier = Modifier.size(20.dp).rotate(chevron))
                 }
@@ -694,7 +724,8 @@ private fun DetailRow(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
              color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(128.dp))
         Text(value, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp).merge(tabular),
-             fontFamily = if (label == "Package" || label == "Output thread") FontFamily.Monospace else null,
+             fontFamily = if (label == stringResource(R.string.scr_chain_package) ||
+                 label == stringResource(R.string.scr_chain_output_thread)) FontFamily.Monospace else null,
              modifier = Modifier.weight(1f))
     }
 }
